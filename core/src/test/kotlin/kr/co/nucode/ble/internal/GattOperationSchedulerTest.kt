@@ -129,6 +129,18 @@ class GattOperationSchedulerTest {
     }
 
     @Test
+    fun `admission snapshot은 generation과 sequence에 고정되고 opaque하다`() {
+        val scheduler = GattOperationScheduler()
+        val generation = scheduler.beginNextGeneration()
+        val first = scheduler.enqueue(GattOperation.Read(generation, characteristicIdentity()))
+        val second = scheduler.enqueue(GattOperation.Read(generation, characteristicIdentity()))
+
+        assertEquals("gatt-$generation-0", first.operationId)
+        assertEquals("gatt-$generation-1", second.operationId)
+        assertFalse(first.operationId.contains("0000180f"))
+    }
+
+    @Test
     fun `attribute identity는 service와 characteristic instance 및 descriptor를 구분한다`() {
         val base = characteristicIdentity()
 

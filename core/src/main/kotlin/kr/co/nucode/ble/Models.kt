@@ -381,6 +381,10 @@ public data class BleConfig(
     val discoveryTimeoutMillis: Long = 10_000,
     val configurationTimeoutMillis: Long = 10_000,
     val disconnectCleanupTimeoutMillis: Long = 5_000,
+    /** Optional non-authoritative diagnostics sink. Null keeps diagnostics delivery disabled. */
+    val logger: BleLogger? = null,
+    /** Privacy-first diagnostic capture policy; raw payload capture is disabled by default. */
+    val diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
 ) {
     init {
         require(operationTimeoutMillis > 0) {

@@ -8,7 +8,10 @@ internal class ScheduledGattOperation<T> internal constructor(
     val sequence: Long,
     val operation: GattOperation<T>,
     val completion: CompletableDeferred<T>,
-)
+) {
+    /** Android callbacks have no application operation ID; retain this admission snapshot. */
+    val operationId: String = "gatt-${operation.generation}-$sequence"
+}
 
 /** poison 또는 lifecycle 종료 때 pending/queue를 한 번에 유한 종결하기 위한 snapshot. */
 internal data class DrainedGattOperations(

@@ -34,6 +34,9 @@ import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.internal.AndroidGattDriver
 import kr.co.nucode.ble.internal.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.ConnectionStage
+import kr.co.nucode.ble.internal.DiagnosticDispatcher
+import kr.co.nucode.ble.internal.DiagnosticIngress
+import kr.co.nucode.ble.internal.DiagnosticReporter
 import kr.co.nucode.ble.internal.GattBridge
 import kr.co.nucode.ble.internal.GattDriver
 import kr.co.nucode.ble.internal.GattOperationTargetResolver
@@ -81,6 +84,7 @@ public class BleCore private constructor(internal val runtime: BleRuntime) {
 
     internal val registry: SessionRegistry get() = runtime.registry
     internal fun emit(event: BleEvent) = runtime.emit(event)
+    internal fun emit(observation: DiagnosticObservation) = runtime.emit(observation)
     internal fun sweepSessions(cause: AdapterState) = runtime.sweepSessions(cause)
     internal suspend fun officialSnapshot(): ClientSnapshot = runtime.officialSnapshot()
 
@@ -266,6 +270,19 @@ internal class BleRuntime private constructor(
 
     private val dropped = AtomicLong(0)
 
+    // Null logger is a genuine fast path: no queue and no worker are allocated by the dispatcher.
+    private val diagnosticDispatcher = DiagnosticDispatcher(
+        logger = config.logger,
+        capacity = config.diagnosticOptions.queueCapacity,
+    )
+    private val diagnosticReporter = DiagnosticReporter(
+        emitCompatibility = ::emitCompatibilityDiagnostic,
+        dispatcher = diagnosticDispatcher,
+        options = config.diagnosticOptions,
+    )
+    /** Internal producer callback injected into GattBridge; it never enters the public event type. */
+    internal val diagnosticIngress: DiagnosticIngress = diagnosticReporter
+
     /**
      * 유실된 이벤트 수. `SUSPEND` + `tryEmit` 조합에서 버퍼가 찼을 때만 늘어난다.
      * 유실이 관측 불가능하면 이 배선의 의미가 없다(plan §배선②).
@@ -293,6 +310,23 @@ internal class BleRuntime private constructor(
      */
     internal fun emit(e: BleEvent) {
         if (closed) return
+        if (e is BleEvent.Diagnostic) {
+            diagnosticReporter.report(e.severity, e.failure)
+            return
+        }
+        emitCompatibility(e)
+    }
+
+    /** Same-module migration seam; external producers receive [diagnosticIngress] directly. */
+    internal fun emit(observation: DiagnosticObservation) {
+        if (closed) return
+        diagnosticIngress.report(observation.severity, observation.failure, observation::values)
+    }
+
+    /** Emits an already-projected compatibility event without entering the reporter again. */
+    private fun emitCompatibilityDiagnostic(e: BleEvent.Diagnostic) = emitCompatibility(e)
+
+    private fun emitCompatibility(e: BleEvent) {
         // Capture each edge on its owner before later transitions or collector
         // scheduling can change the Session values it describes.
         val official = when (e) {
@@ -339,6 +373,7 @@ internal class BleRuntime private constructor(
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
+        diagnosticIngress = diagnosticIngress,
         scope = coreScope,
         driver = gattDriver,
         ackTimeoutMillis = config.operationTimeoutMillis,
@@ -665,10 +700,12 @@ internal class BleRuntime private constructor(
             // 낡은 chunkSize 로 나가는 경로 차단).
             session.mtu = null
             session.chunkSize = null
-            val st = ConnState.Disconnected(
-                DisconnectReason.Failed(FailureMapper.fromAdapterState(cause)),
+            val failure = FailureMapper.fromAdapterState(cause).copy(
+                context = session.lifecycleFailureContext(),
             )
+            val st = ConnState.Disconnected(DisconnectReason.Failed(failure))
             session.state = st
+            emit(diagnostic(Severity.Warning, failure))
             emit(BleEvent.ConnStateChanged(session.deviceId, st))
         }
     }
@@ -758,7 +795,10 @@ internal class BleRuntime private constructor(
         code = FailureCode(code),
         phase = phase,
         retryability = retryability,
-        context = FailureContext(),
+        // A command for an existing peripheral belongs to that session.  Unknown
+        // devices and client-level operations deliberately retain an empty context;
+        // manufacturing a session for diagnostics would create false correlation.
+        context = deviceId?.let(registry::get)?.lifecycleFailureContext() ?: FailureContext(),
     )
 
     private fun failureFromInternalException(
@@ -946,13 +986,14 @@ internal class BleRuntime private constructor(
      * deterministic IllegalStateException과 Diagnostic을 함께 남긴다.
      */
     private fun emitConnectConflict(deviceId: DeviceId, code: String, message: String): Nothing {
+        val failure = transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never)
         emit(
             diagnostic(
                 Severity.Warning,
-                transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never),
+                failure,
             ),
         )
-        throw BleException(transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never))
+        throw BleException(failure)
     }
 
     /**
@@ -1150,6 +1191,7 @@ internal class BleRuntime private constructor(
             )
             sessions.forEach { registry.remove(it.deviceId) }
             if (registerAdapterReceiver) appContext?.unregisterReceiver(adapterStateReceiver)
+            diagnosticDispatcher.close()
             coreScope.cancel()
             closeCompleted.complete(Unit)
         }

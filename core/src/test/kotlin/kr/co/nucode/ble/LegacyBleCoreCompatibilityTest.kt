@@ -1,6 +1,7 @@
 package kr.co.nucode.ble
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,5 +33,22 @@ class LegacyBleCoreCompatibilityTest {
         ).readText()
         assertTrue(factorySource.contains("public fun create(context: Context"))
         assertTrue(factorySource.contains("DefaultBleClient(BleRuntime(context, config))"))
+    }
+
+    @Test
+    fun `legacy diagnostic event remains the compatibility projection of the typed logger failure`() {
+        val failure = BleFailure(
+            category = FailureCategory("gatt"),
+            code = FailureCode("STATUS_FAILED"),
+            phase = FailurePhase.Operation,
+            retryability = Retryability.Unknown,
+        )
+
+        val event = BleEvent.Diagnostic(Severity.Error, failure)
+        val record = DiagnosticRecord(DiagnosticSeverity.Error, DiagnosticFailure(failure))
+
+        assertTrue(event.failure === failure)
+        assertEquals(record.failure.category, event.failure.category)
+        assertEquals(record.failure.code, event.failure.code)
     }
 }

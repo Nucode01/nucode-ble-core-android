@@ -14,7 +14,6 @@ import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
-import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.ReconnectPolicy
@@ -117,14 +116,15 @@ internal class Reconnector(
         val official = effectivePolicy is BleReconnectPolicy.ExponentialBackoff
 
         if (!canRetry(attempt, reconnectPolicy)) {
+            val failure = reconnectFailure(
+                if (official) "RECONNECT_EXHAUSTED" else "RECONNECT_GIVE_UP",
+                session,
+                cause,
+            )
             emit(
                 BleEvent.Diagnostic(
                     severity = Severity.Warning,
-                    failure = reconnectFailure(
-                        if (official) "RECONNECT_EXHAUSTED" else "RECONNECT_GIVE_UP",
-                        deviceId,
-                        cause,
-                    ),
+                    failure = failure,
                 ),
             )
             // give-up 시 gatt 정리(plan E) — 재사용 목적으로 열어둔 핸들의 마지막 주인이
@@ -137,7 +137,7 @@ internal class Reconnector(
         val delayMillis = computeBackoffDelayMillis(attempt, reconnectPolicy)
         session.retryCount = attempt + 1
 
-        val failure = reconnectFailure("RECONNECT_ATTEMPT", deviceId, cause)
+        val failure = reconnectFailure("RECONNECT_ATTEMPT", session, cause)
         // Install the lazy Job first.  Publishing the edge synchronously routes through
         // BleRuntime's legacy sequencing, where a duplicate disconnect must observe this active
         // handle and not create a second reconnect continuation.
@@ -201,14 +201,15 @@ internal class Reconnector(
 
         val started = session.gatt?.connect() ?: false
         if (!started) {
+            val failure = FailureMapper.gattStartRejected(
+                phase = FailurePhase.Connect,
+                operation = AndroidApiOperation.Connect,
+                context = session.lifecycleFailureContext(),
+            ).copy(code = FailureCode("RECONNECT_CONNECT_START_FAILED"))
             emit(
                 BleEvent.Diagnostic(
                     severity = Severity.Warning,
-                    failure = FailureMapper.gattStartRejected(
-                        phase = FailurePhase.Connect,
-                        operation = AndroidApiOperation.Connect,
-                        context = FailureContext(),
-                    ).copy(code = FailureCode("RECONNECT_CONNECT_START_FAILED")),
+                    failure = failure,
                 ),
             )
             // Connecting 잔류 금지(review — plan v2 ①): 시작조차 못 한 시도를 열린 채 두면
@@ -217,13 +218,7 @@ internal class Reconnector(
             // advanceConnectSequence 를 타고 scheduleReconnect 로 가서, retryCount 가
             // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한).
             val st = ConnState.Disconnected(
-                DisconnectReason.Failed(
-                    FailureMapper.gattStartRejected(
-                        phase = FailurePhase.Connect,
-                        operation = AndroidApiOperation.Connect,
-                        context = FailureContext(),
-                    ).copy(code = FailureCode("RECONNECT_CONNECT_START_FAILED")),
-                ),
+                DisconnectReason.Failed(failure),
             )
             session.state = st
             emit(BleEvent.ConnStateChanged(deviceId, st))
@@ -241,7 +236,7 @@ internal class Reconnector(
                 emit(
                     BleEvent.Diagnostic(
                         severity = Severity.Warning,
-                        failure = reconnectFailure("RECONNECT_ATTEMPT_TIMEOUT", deviceId, null),
+                        failure = reconnectFailure("RECONNECT_ATTEMPT_TIMEOUT", session, null),
                     ),
                 )
                 session.gatt?.disconnect()
@@ -251,14 +246,19 @@ internal class Reconnector(
 
     private fun reconnectFailure(
         code: String,
-        deviceId: DeviceId,
+        session: Session,
         cause: BleFailure?,
     ): BleFailure = BleFailure(
         category = FailureCategory("connection"),
         code = FailureCode(code),
         phase = FailurePhase.Reconnect,
         retryability = cause?.retryability ?: Retryability.Unknown,
-        context = cause?.context ?: FailureContext(),
+        context = cause?.context?.takeIf { it.sessionId != null }
+            ?: session.lifecycleFailureContext().copy(
+                operationId = cause?.context?.operationId,
+                operationKind = cause?.context?.operationKind,
+                invalidationReason = cause?.context?.invalidationReason,
+            ),
         platformDetail = cause?.platformDetail,
     )
 

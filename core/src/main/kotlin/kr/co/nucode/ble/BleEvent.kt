@@ -77,6 +77,19 @@ public sealed interface BleEvent {
         val severity: Severity,
         val failure: BleFailure,
     ) : BleEvent
+
+}
+
+/**
+ * Internal diagnostic input retained for same-module test seams. It is not a [BleEvent]; runtime
+ * producers use [kr.co.nucode.ble.internal.DiagnosticIngress] directly.
+ */
+internal class DiagnosticObservation(
+    internal val severity: Severity,
+    internal val failure: BleFailure,
+    private val valuesFactory: (DiagnosticOptions) -> Map<String, DiagnosticValue> = { emptyMap() },
+) {
+    internal fun values(options: DiagnosticOptions): Map<String, DiagnosticValue> = valuesFactory(options)
 }
 
 /**

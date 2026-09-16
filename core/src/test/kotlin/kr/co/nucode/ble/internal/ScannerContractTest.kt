@@ -10,6 +10,10 @@ import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.FailureCategory
+import kr.co.nucode.ble.FailureCode
+import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
 import org.junit.Assert.assertArrayEquals
@@ -121,5 +125,25 @@ class ScannerContractTest {
 
         val failure = requireNotNull(runningScanner.startScan(ScanRequest(BleScanFilter())))
         assertEquals("SCAN_ALREADY_RUNNING", failure.code.value)
+    }
+
+    @Test
+    fun `client level scan failure does not manufacture a session correlation`() {
+        val events = mutableListOf<kr.co.nucode.ble.BleEvent>()
+        val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext)) { null }
+        scanner.startOverride = { _, _ ->
+            kr.co.nucode.ble.BleFailure(
+                category = FailureCategory("scan"),
+                code = FailureCode("SCAN_START_FAILED"),
+                phase = FailurePhase.Scan,
+                retryability = Retryability.Unknown,
+            )
+        }
+
+        scanner.startScan(kr.co.nucode.ble.ScanFilter(), kr.co.nucode.ble.ScanOptions())
+
+        val failure = (events.single() as kr.co.nucode.ble.BleEvent.Diagnostic).failure
+        assertNull(failure.context.sessionId)
+        assertNull(failure.context.connectionGeneration)
     }
 }

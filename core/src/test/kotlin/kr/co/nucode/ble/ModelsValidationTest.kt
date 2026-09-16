@@ -29,6 +29,14 @@ class ModelsValidationTest {
         assertThrows(IllegalArgumentException::class.java) { BleConfig(operationTimeoutMillis = -1) }
     }
 
+    @Test
+    fun `BleConfig 진단 기본값은 logger 없이 raw capture를 끈다`() {
+        val config = BleConfig()
+
+        org.junit.Assert.assertEquals(null, config.logger)
+        org.junit.Assert.assertFalse(config.diagnosticOptions.rawPayloadsEnabled)
+    }
+
     // ── ConnectOptions.requestedMtu — ATT 범위 23..517 경계 ─────────────────
 
     @Test

@@ -78,6 +78,45 @@ class PublicApiSurfaceTest {
         }
     }
 
+    @Test
+    fun `diagnostic public contract does not expose Android or throwable types`() {
+        val sources = java.io.File("src/main/kotlin/kr/co/nucode/ble/Diagnostics.kt").readText()
+
+        listOf("android\\.", "Bluetooth", "Throwable", "Exception", "DeviceId", "PeripheralId").forEach { forbidden ->
+            assertFalse("forbidden diagnostic API identifier: $forbidden", sources.contains(forbidden))
+        }
+        assertTrue(BleLogger::class.java.isInterface)
+    }
+
+    @Test
+    fun `diagnostic record retains typed failure projection without a message escape hatch`() {
+        val failure = BleFailure(
+            category = FailureCategory("vendor"),
+            code = FailureCode("UNKNOWN_STATUS"),
+            phase = FailurePhase.Operation,
+            retryability = Retryability.Unknown,
+            platformDetail = PlatformDetail.Android("vendor.domain", 731),
+            message = "private platform exception",
+        )
+
+        val diagnosticFailure = DiagnosticFailure(failure)
+
+        assertEquals(failure.category, diagnosticFailure.category)
+        assertEquals(failure.code, diagnosticFailure.code)
+        assertEquals(failure.platformDetail, diagnosticFailure.platformDetail)
+        assertFalse(DiagnosticFailure::class.java.declaredFields.any { it.name.contains("message", ignoreCase = true) })
+    }
+
+    @Test
+    fun `logger-only observation is outside the public BleEvent hierarchy`() {
+        val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/BleEvent.kt").readText()
+        val observationDeclaration = eventSource.substringAfter("internal class DiagnosticObservation")
+            .substringBefore("/**\n * Structured official projection")
+
+        assertFalse(observationDeclaration.contains(": BleEvent"))
+        assertFalse(BleEvent::class.java.declaredClasses.any { it.simpleName == "DiagnosticObservation" })
+    }
+
     private fun assertCommonType(type: Type) {
         val name = type.typeName
         listOf("android.", "BluetoothGatt", "DeviceId", "CharRef", "ConnectOptions", "ReconnectPolicy").forEach { forbidden ->

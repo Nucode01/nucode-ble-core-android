@@ -553,6 +553,9 @@ class GattDriverSeamTest {
 
         val failure = runCatching { fixture.scheduled.completion.await() }.exceptionOrNull()
         assertFailureCode("GATT_STATUS_FAILED", failure)
+        failure as BleException
+        assertEquals(fixture.scheduled.operationId, failure.failure.context.operationId)
+        assertEquals(fixture.session.failureSessionId, failure.failure.context.sessionId)
         assertNull(fixture.session.gattOperationScheduler.pending)
     }
 
@@ -939,6 +942,9 @@ class GattDriverSeamTest {
         val result = write.await() as WriteResult.Failed
         assertEquals(0, result.failure.writeProgress?.failedChunkIndex)
         assertEquals("GATT_STATUS_FAILED", result.failure.code.value)
+        assertEquals(133, (result.failure.platformDetail as PlatformDetail.Android).statusCode)
+        assertEquals("onCharacteristicWrite", (result.failure.platformDetail as PlatformDetail.Android).apiOperation)
+        assertTrue(result.failure.context.operationId?.startsWith("gatt-") == true)
 
         driver.emitDescriptorWrite(descriptorIdentity)
         runCurrent()

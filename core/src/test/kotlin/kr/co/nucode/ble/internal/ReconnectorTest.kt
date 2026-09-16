@@ -186,6 +186,28 @@ class ReconnectorTest {
     }
 
     @Test
+    fun `reconnect start rejection shares the owner failure with terminal state`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = DeviceId("AA:BB:CC:DD:EE:03")
+        val session = registry.getOrCreate(deviceId)
+        val emitted = mutableListOf<BleEvent>()
+        val reconnector = Reconnector(registry, emitted::add, this).also {
+            it.policy = ReconnectPolicy(maxAttempts = 1, baseDelayMillis = 10, maxDelayMillis = 10)
+        }
+
+        reconnector.scheduleReconnect(deviceId)
+        advanceTimeBy(10)
+        runCurrent()
+
+        val diagnostic = emitted.filterIsInstance<BleEvent.Diagnostic>()
+            .first { it.failure.code.value == "RECONNECT_CONNECT_START_FAILED" }
+        val stateFailure = ((session.state as ConnState.Disconnected).reason as DisconnectReason.Failed).failure
+        assertEquals(stateFailure, diagnostic.failure)
+        assertEquals(session.failureSessionId, diagnostic.failure.context.sessionId)
+        assertEquals(session.connectionCoordinator.generation, diagnostic.failure.context.connectionGeneration)
+    }
+
+    @Test
     fun `official policy publishes recovering and exhausts its own finite budget`() = runTest {
         val registry = SessionRegistry()
         val deviceId = DeviceId("AA:BB:CC:DD:EE:02")

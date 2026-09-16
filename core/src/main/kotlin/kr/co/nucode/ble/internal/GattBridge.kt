@@ -158,6 +158,7 @@ internal class GattBridge(
     private val operationWriteTypeResolver: ((Session, CharRef, WriteType) -> Int)? = null,
     private val operationTargetResolver: GattOperationTargetResolver? = null,
     private val readinessTimeouts: ConnectionReadinessTimeouts? = null,
+    private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress { _, _, _ -> },
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -388,7 +389,7 @@ internal class GattBridge(
                 )
             }
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                emitConnectionStateDiagnostic(event)
+                emitDiagnostic(Severity.Error, requireNotNull(cause))
                 // STATE_DISCONNECTED만 어느 active stage에서든 terminal fact다. 그 밖의
                 // failure callback은 link attempt의 결과일 때만 lifecycle failure다. 같은
                 // generation이어도 readiness가 진행된 뒤 늦게 온 non-terminal callback은
@@ -558,22 +559,7 @@ internal class GattBridge(
 
         // 삼키지 않는다는 계약(설계 §5) — GATT 133/8/19 는 원인이 다르므로 status 를
         // platformCode 에 원본 그대로 싣는다.
-        if (status != BluetoothGatt.GATT_SUCCESS) {
-            emitConnectionStateDiagnostic(event)
-        }
-    }
-
-    private fun emitConnectionStateDiagnostic(event: GattDriverEvent.ConnectionStateChanged) {
-        val session = registry.get(event.deviceId)
-        emitDiagnostic(
-            Severity.Error,
-            FailureMapper.gattStatusFailed(
-                statusCode = event.status,
-                phase = FailurePhase.Link,
-                operation = AndroidApiOperation.OnConnectionStateChange,
-                context = session?.let(::connectionContext) ?: FailureContext(),
-            ),
-        )
+        if (cause != null) emitDiagnostic(Severity.Error, cause)
     }
 
     /** 서비스 탐색 결과 → Session topology/target snapshot 교체 + ServicesDiscovered emit. */
@@ -724,8 +710,9 @@ internal class GattBridge(
 
     /** notify/indicate 수신 → CharValue emit. Session 갱신은 없다(구독 목록은 subscribe()가 관리). */
     private fun handleCharacteristicChanged(event: GattDriverEvent.CharacteristicChanged) {
-        currentSession(event) ?: return
+        val session = currentSession(event) ?: return
         val characteristic = event.characteristic ?: return
+        emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharRef(), event.value)
         emit(BleEvent.CharValue(event.deviceId, characteristic.toCharRef(), event.value))
     }
 
@@ -739,13 +726,14 @@ internal class GattBridge(
                 event.status,
                 "CharacteristicRead",
                 event.characteristic?.toIdentity(),
+                session,
                 scheduler,
             )
             return
         }
         val characteristic = event.characteristic
         if (characteristic == null) {
-            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicRead", null, scheduler)
+            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicRead", null, session, scheduler)
             return
         }
         val scheduled = scheduler.takePendingIfMatches(
@@ -759,6 +747,7 @@ internal class GattBridge(
                 event.status,
                 "CharacteristicRead",
                 characteristic.toIdentity(),
+                session,
                 scheduler,
             )
             return
@@ -767,9 +756,10 @@ internal class GattBridge(
         @Suppress("UNCHECKED_CAST")
         val completion = scheduled.completion as CompletableDeferred<ByteArray>
         if (event.status == BluetoothGatt.GATT_SUCCESS) {
+            emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharRef(), event.value, scheduled)
             completion.complete(event.value.copyOf())
         } else {
-            completion.completeExceptionally(BleException(operationStatusFailure(session, scheduled.operation, event.status)))
+            completion.completeExceptionally(BleException(operationStatusFailure(session, scheduled, event.status)))
         }
         startNextOperation(session)
     }
@@ -779,12 +769,12 @@ internal class GattBridge(
         val session = currentSession(event) ?: return
         val scheduler = session.gattOperationScheduler
         if (scheduler.pending == null) {
-            emitDuplicateCallback(event.deviceId, event.status, "CharacteristicWrite", event.attributeIdentity, scheduler)
+            emitDuplicateCallback(event.deviceId, event.status, "CharacteristicWrite", event.attributeIdentity, session, scheduler)
             return
         }
         val identity = event.attributeIdentity
         if (identity == null) {
-            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicWrite", null, scheduler)
+            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicWrite", null, session, scheduler)
             return
         }
         // Android callback은 characteristic-write category만 제공한다. 현재 pending의 subtype을
@@ -800,13 +790,13 @@ internal class GattBridge(
             identity,
         )
         if (scheduled == null) {
-            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicWrite", identity, scheduler)
+            emitCallbackMismatch(event.deviceId, event.status, "CharacteristicWrite", identity, session, scheduler)
             return
         }
 
         completeUnitOperation(session, scheduled, event.status)
         if (event.status != BluetoothGatt.GATT_SUCCESS) {
-            abortRemainingWriteChunks(session, scheduled, operationStatusFailure(session, scheduled.operation, event.status))
+            abortRemainingWriteChunks(session, scheduled, operationStatusFailure(session, scheduled, event.status))
         }
         startNextOperation(session)
     }
@@ -816,12 +806,12 @@ internal class GattBridge(
         val session = currentSession(event) ?: return
         val scheduler = session.gattOperationScheduler
         if (scheduler.pending == null) {
-            emitDuplicateCallback(event.deviceId, event.status, "DescriptorWrite", event.attributeIdentity, scheduler)
+            emitDuplicateCallback(event.deviceId, event.status, "DescriptorWrite", event.attributeIdentity, session, scheduler)
             return
         }
         val identity = event.attributeIdentity
         if (identity == null) {
-            emitCallbackMismatch(event.deviceId, event.status, "DescriptorWrite", null, scheduler)
+            emitCallbackMismatch(event.deviceId, event.status, "DescriptorWrite", null, session, scheduler)
             return
         }
         // Android callback은 descriptor-write category만 제공하고 subscribe 방향은 제공하지
@@ -836,7 +826,7 @@ internal class GattBridge(
             identity,
         )
         if (scheduled == null) {
-            emitCallbackMismatch(event.deviceId, event.status, "DescriptorWrite", identity, scheduler)
+            emitCallbackMismatch(event.deviceId, event.status, "DescriptorWrite", identity, session, scheduler)
             return
         }
 
@@ -854,7 +844,7 @@ internal class GattBridge(
             .drop(operation.commandIndex + 1)
             .forEach { queued ->
                 if (session.gattOperationScheduler.removeQueued(queued)) {
-                    queued.completion.completeExceptionally(BleException(failure))
+                    queued.completion.completeExceptionally(BleException(failureFor(session, queued, failure)))
                 }
             }
     }
@@ -869,7 +859,7 @@ internal class GattBridge(
         if (status == BluetoothGatt.GATT_SUCCESS) {
             completion.complete(Unit)
         } else {
-            completion.completeExceptionally(BleException(operationStatusFailure(session, scheduled.operation, status)))
+            completion.completeExceptionally(BleException(operationStatusFailure(session, scheduled, status)))
         }
     }
 
@@ -878,6 +868,7 @@ internal class GattBridge(
         status: Int,
         callbackKind: String,
         actualIdentity: GattAttributeIdentity?,
+        session: Session,
         scheduler: GattOperationScheduler,
     ) {
         val expected = scheduler.pending?.operation
@@ -888,6 +879,7 @@ internal class GattBridge(
                 deviceId = deviceId,
                 status = status,
                 callbackKind = callbackKind,
+                session = session,
                 scheduler = scheduler,
             ),
         )
@@ -898,6 +890,7 @@ internal class GattBridge(
         status: Int,
         callbackKind: String,
         actualIdentity: GattAttributeIdentity?,
+        session: Session,
         scheduler: GattOperationScheduler,
     ) {
         emitDiagnostic(
@@ -907,6 +900,7 @@ internal class GattBridge(
                 deviceId = deviceId,
                 status = status,
                 callbackKind = callbackKind,
+                session = session,
                 scheduler = scheduler,
             ),
         )
@@ -1365,7 +1359,7 @@ internal class GattBridge(
             kotlin.coroutines.coroutineContext.ensureActive()
             emitDiagnostic(
                 Severity.Warning,
-                operationInvalidated(session, scheduled.operation),
+                operationInvalidated(session, scheduled),
             )
         } catch (e: BleException) {
             emitUnsubscribeFailure(session, charRef, e.failure)
@@ -1470,22 +1464,18 @@ internal class GattBridge(
                 awaitAfterStart(session, item, timeoutMillis)
                 BluetoothGatt.GATT_SUCCESS
             } catch (e: BleException) {
-                val status = (e.failure.platformDetail as? PlatformDetail.Android)?.statusCode
-                if (status != null) {
-                    status
-                } else {
-                    throw GattWriteCommandFailure(index, e.failure)
-                }
+                // A status integer cannot carry callback domain/API or the admission token.
+                throw GattWriteCommandFailure(index, e.failure)
             } catch (e: CancellationException) {
                 kotlin.coroutines.coroutineContext.ensureActive()
                 val failure = if (e is TimeoutCancellationException) {
-                    timeoutFailure(session, item.operation)
+                    timeoutFailure(session, item)
                 } else {
-                    operationInvalidated(session, item.operation)
+                    operationInvalidated(session, item)
                 }
                 throw GattWriteCommandFailure(index, failure)
             } catch (_: Exception) {
-                throw GattWriteCommandFailure(index, operationInvalidated(session, item.operation))
+                throw GattWriteCommandFailure(index, operationInvalidated(session, item))
             }
             statuses += status
             if (status != BluetoothGatt.GATT_SUCCESS) break
@@ -1513,15 +1503,15 @@ internal class GattBridge(
         } catch (e: TimeoutCancellationException) {
             if (session.gattOperationScheduler.removeQueued(scheduled)) {
                 scheduled.completion.cancel(e)
-                abortRemainingWriteChunks(session, scheduled, operationInvalidated(session, scheduled.operation))
+                abortRemainingWriteChunks(session, scheduled, operationInvalidated(session, scheduled))
             } else if (session.gattOperationScheduler.pending === scheduled) {
                 poisonStartedOperation(session, scheduled, e)
             }
-            throw BleException(timeoutFailure(session, scheduled.operation))
+            throw BleException(timeoutFailure(session, scheduled))
         } catch (e: CancellationException) {
             if (session.gattOperationScheduler.removeQueued(scheduled)) {
                 scheduled.completion.cancel(e)
-                abortRemainingWriteChunks(session, scheduled, operationInvalidated(session, scheduled.operation))
+                abortRemainingWriteChunks(session, scheduled, operationInvalidated(session, scheduled))
             } else if (session.gattOperationScheduler.pending === scheduled) {
                 // Platform start 뒤에는 callback operation ID를 다시 받을 방법이 없다.
                 // timeout/caller cancellation이 pending의 수신자를 없애면 같은 generation을
@@ -1542,14 +1532,15 @@ internal class GattBridge(
 
         val drained = scheduler.poisonCurrentGeneration()
         drained.pending?.completion?.completeExceptionally(failure)
-        val invalidated = operationInvalidated(session, scheduled.operation)
-        drained.queued.forEach { it.completion.completeExceptionally(BleException(invalidated)) }
+        drained.queued.forEach { queued ->
+            queued.completion.completeExceptionally(BleException(operationInvalidated(session, queued)))
+        }
 
         val connectionGeneration = session.connectionCoordinator.generation
         val invalidationCause = if (failure is TimeoutCancellationException) {
-            timeoutFailure(session, scheduled.operation)
+            timeoutFailure(session, scheduled)
         } else {
-            operationInvalidated(session, scheduled.operation)
+            operationInvalidated(session, scheduled)
         }
         session.suppressReconnect = (scheduled.operation as? QueuedCccdWrite)?.restore != true
         session.terminalLifecycleCause = invalidationCause
@@ -1581,8 +1572,12 @@ internal class GattBridge(
     private fun invalidateScheduledOperations(session: Session, failure: BleFailure) {
         val scheduler = session.gattOperationScheduler
         val drained = if (scheduler.isPoisoned) scheduler.drain() else scheduler.poisonCurrentGeneration()
-        drained.pending?.completion?.completeExceptionally(BleException(failure))
-        drained.queued.forEach { it.completion.completeExceptionally(BleException(failure)) }
+        drained.pending?.let { pending ->
+            pending.completion.completeExceptionally(BleException(failureFor(session, pending, failure)))
+        }
+        drained.queued.forEach { queued ->
+            queued.completion.completeExceptionally(BleException(failureFor(session, queued, failure)))
+        }
     }
 
     private suspend fun <T> awaitScheduled(
@@ -1621,8 +1616,9 @@ internal class GattBridge(
             } catch (_: Exception) {
                 operationStartFailure(session, scheduled.operation)
             }
+            val attributedFailure = failure?.let { failureFor(session, scheduled, it) }
             (scheduled.operation as? StartTrackedGattOperation)?.started?.complete(Unit)
-            if (failure == null) return
+            if (attributedFailure == null) return
 
             val operation = scheduled.operation
             scheduler.takePendingIfMatches(
@@ -1630,13 +1626,13 @@ internal class GattBridge(
                 kind = operation.kind,
                 attributeIdentity = operation.attributeIdentity,
             )
-            scheduled.completion.completeExceptionally(BleException(failure))
-            abortRemainingWriteChunks(session, scheduled, failure)
-            if (failure.code.value == "PERMISSION_DENIED" && readinessTimeouts != null) {
+            scheduled.completion.completeExceptionally(BleException(attributedFailure))
+            abortRemainingWriteChunks(session, scheduled, attributedFailure)
+            if (attributedFailure.code.value == "PERMISSION_DENIED" && readinessTimeouts != null) {
                 beginLifecycleCleanup(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,
-                    cause = failure,
+                    cause = attributedFailure,
                     suppressReconnect = session.connectionCoordinator.attemptOrigin !=
                         ConnectionAttemptOrigin.Reconnect,
                 )
@@ -1702,9 +1698,11 @@ internal class GattBridge(
                     deviceId = session.deviceId,
                     gatt = gatt,
                     characteristic = target.characteristic,
-                    value = operation.chunkCopy(),
-                    writeType = resolvedType,
-                )
+                value = operation.chunkCopy(),
+                writeType = resolvedType,
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, operation.charRef, operation.chunkCopy(), scheduled)
+            }
             ) null else operationStartFailure(session, operation)
         }
         if (operation is QueuedCccdWrite) {
@@ -1744,14 +1742,18 @@ internal class GattBridge(
                 characteristic = characteristic,
                 value = operation.chunkCopy(),
                 writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-            )) null else operationStartFailure(session, operation)
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, charRef, operation.chunkCopy(), scheduled)
+            }) null else operationStartFailure(session, operation)
             is GattOperation.WriteWithoutResponse -> if (driver.writeCharacteristic(
                 deviceId = session.deviceId,
                 gatt = gatt,
                 characteristic = characteristic,
                 value = operation.chunkCopy(),
                 writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
-            )) null else operationStartFailure(session, operation)
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, charRef, operation.chunkCopy(), scheduled)
+            }) null else operationStartFailure(session, operation)
             is GattOperation.Subscribe -> startCccdOperation(
                 session = session,
                 gatt = gatt,
@@ -1862,16 +1864,43 @@ internal class GattBridge(
         emit(BleEvent.Diagnostic(severity = severity, failure = failure))
     }
 
-    private fun connectionContext(session: Session): FailureContext = FailureContext(
-        sessionId = session.failureSessionId,
-        connectionGeneration = session.connectionCoordinator.generation,
-    )
+    /** Payload is only copied if the reporter admits a logger record and then only by policy. */
+    private fun emitPayloadObservation(
+        session: Session,
+        direction: PayloadDirection,
+        characteristic: CharRef,
+        payload: ByteArray,
+        scheduled: ScheduledGattOperation<*>? = null,
+    ) {
+        val context = operationContext(
+            session = session,
+            charRef = characteristic,
+            kind = scheduled?.operation?.kind?.let(::operationKind),
+            operationId = scheduled?.operationId,
+        )
+        val observation = BleFailure(
+            category = FailureCategory("diagnostic"),
+            code = FailureCode("GATT_PAYLOAD_OBSERVED"),
+            phase = FailurePhase.Operation,
+            retryability = Retryability.Never,
+            context = context,
+        )
+        diagnosticIngress.report(Severity.Info, observation) { options ->
+            DiagnosticPolicy().payloadValues(options, direction, characteristic, payload)
+        }
+    }
+
+    private fun connectionContext(session: Session): FailureContext = session.lifecycleFailureContext()
 
     private fun operationContext(
         session: Session,
         @Suppress("UNUSED_PARAMETER") charRef: CharRef? = null,
         kind: OperationKind? = null,
-    ): FailureContext = connectionContext(session).copy(operationKind = kind)
+        operationId: String? = null,
+    ): FailureContext = connectionContext(session).copy(
+        operationId = operationId,
+        operationKind = kind,
+    )
 
     private fun failure(
         category: String,
@@ -1934,16 +1963,21 @@ internal class GattBridge(
         GattOperationKind.RequestMtu -> if (callback) AndroidApiOperation.OnMtuChanged else AndroidApiOperation.RequestMtu
     }
 
-    private fun operationStatusFailure(session: Session, operation: GattOperation<*>, status: Int): BleFailure =
+    private fun operationStatusFailure(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>,
+        status: Int,
+    ): BleFailure =
         FailureMapper.gattStatusFailed(
             statusCode = status,
             phase = FailurePhase.Operation,
-            operation = androidOperation(operation.kind, callback = true),
+            operation = androidOperation(scheduled.operation.kind, callback = true),
             context = operationContext(
                 session = session,
-                charRef = (operation.attributeIdentity as? GattCharacteristicIdentity)?.toCharRef()
-                    ?: (operation.attributeIdentity as? GattDescriptorIdentity)?.characteristic?.toCharRef(),
-                kind = operationKind(operation.kind),
+                charRef = (scheduled.operation.attributeIdentity as? GattCharacteristicIdentity)?.toCharRef()
+                    ?: (scheduled.operation.attributeIdentity as? GattDescriptorIdentity)?.characteristic?.toCharRef(),
+                kind = operationKind(scheduled.operation.kind),
+                operationId = scheduled.operationId,
             ),
         )
 
@@ -1972,6 +2006,11 @@ internal class GattBridge(
         ),
     )
 
+    private fun operationInvalidated(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>,
+    ): BleFailure = operationInvalidated(session, scheduled.operation).let { failureFor(session, scheduled, it) }
+
     private fun timeoutFailure(session: Session, operation: GattOperation<*>): BleFailure = failure(
         category = "operation",
         code = "OPERATION_TIMEOUT",
@@ -1985,20 +2024,39 @@ internal class GattBridge(
         ),
     )
 
+    private fun timeoutFailure(session: Session, scheduled: ScheduledGattOperation<*>): BleFailure =
+        timeoutFailure(session, scheduled.operation).let { failureFor(session, scheduled, it) }
+
+    /** Adds only the admission snapshot; callback mismatches intentionally never call this. */
+    private fun failureFor(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>,
+        failure: BleFailure,
+    ): BleFailure = failure.copy(
+        context = session.lifecycleFailureContext().copy(
+            connectionGeneration = scheduled.operation.generation,
+            operationId = scheduled.operationId,
+            operationKind = operationKind(scheduled.operation.kind),
+            invalidationReason = failure.context.invalidationReason,
+        ),
+    )
+
     private fun callbackDiagnosticFailure(
         code: String,
         deviceId: DeviceId,
         status: Int,
         callbackKind: String,
+        session: Session,
         scheduler: GattOperationScheduler,
     ): BleFailure = failure(
         category = "operation",
         code = code,
         phase = FailurePhase.Operation,
         retryability = Retryability.Unknown,
-        context = FailureContext(
+        // A late or mismatched callback is not evidence about the pending operation.  Preserve
+        // session/generation only; assigning its operation ID would misattribute the callback.
+        context = session.lifecycleFailureContext().copy(
             connectionGeneration = scheduler.currentGeneration,
-            operationKind = scheduler.pending?.operation?.kind?.let(::operationKind),
         ),
         platformDetail = PlatformDetail.Android(
             domain = "android.bluetooth.gatt.callback",

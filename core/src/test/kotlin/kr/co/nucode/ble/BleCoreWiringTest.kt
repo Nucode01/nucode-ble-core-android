@@ -209,6 +209,25 @@ class BleCoreWiringTest {
         assertEquals(listOf(BleEvent.ConnStateChanged(id, ConnState.Disconnected(DisconnectReason.Initial))), acc)
     }
 
+    @Test
+    fun `adapter sweep reuses one session-correlated failure for diagnostic and terminal state`() = runTest {
+        val core = newCore()
+        val id = testDeviceId("A1")
+        val session = core.registry.getOrCreate(id).apply { state = ConnState.Connected }
+        val events = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(events) }
+        runCurrent()
+
+        core.sweepSessions(AdapterState.PoweredOff)
+        runCurrent()
+
+        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single().failure
+        val terminal = ((session.state as ConnState.Disconnected).reason as DisconnectReason.Failed).failure
+        assertEquals(terminal, diagnostic)
+        assertEquals(session.failureSessionId, diagnostic.context.sessionId)
+        assertEquals(session.connectionCoordinator.generation, diagnostic.context.connectionGeneration)
+    }
+
     // ── G. task3 배선 주입 테스트(plan blecore-app-tunables) ───────────────────────
 
     /**

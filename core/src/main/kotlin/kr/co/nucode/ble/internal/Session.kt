@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import java.util.UUID
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleUuid
@@ -53,6 +54,16 @@ internal class Session(val deviceId: DeviceId) {
 
     /** Public failure correlation token. It intentionally has no relation to the peripheral ID. */
     val failureSessionId: String = UUID.randomUUID().toString()
+
+    /**
+     * One lifecycle owner establishes this opaque tuple before a failure is
+     * projected to state, the compatibility event, or diagnostics.  Device IDs
+     * intentionally never enter the public context.
+     */
+    fun lifecycleFailureContext(): FailureContext = FailureContext(
+        sessionId = failureSessionId,
+        connectionGeneration = connectionCoordinator.generation,
+    )
 
     private val _connectionState = MutableStateFlow<ConnectionState>(
         ConnectionState.Disconnected(BleDisconnectReason.Initial),

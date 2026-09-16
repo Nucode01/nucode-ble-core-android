@@ -76,7 +76,7 @@ internal class Scanner(
         try {
             androidScanner.stop()
         } finally {
-            // [DBG-t3] local request ownership ends even when Android is concurrently revoked.
+            // Local request ownership ends even when Android is concurrently revoked.
             activeRequest = null
             isScanning = false
         }

@@ -1,0 +1,60 @@
+# Gradle / Kotlin build state
+.gradle/
+.kotlin/
+**/build/
+
+# Local Android SDK configuration
+local.properties
+
+# IDE files
+.idea/
+*.iml
+
+# Native build output
+.externalNativeBuild/
+.cxx/
+
+# Android artifacts and captures
+captures/
+*.apk
+*.aab
+
+# Signing material
+*.jks
+*.keystore
+key.properties
+
+# Runtime and diagnostic output
+*.log
+*.hprof
+
+# OS metadata
+.DS_Store
+
+# Local documentation and Jay Flow artifacts
+docs/
+.plans/
+
+# AI assistant configuration, prompts, sessions, and local state
+.agents/
+.agent/
+.codex/
+.claude/
+.cursor/
+.continue/
+.gemini/
+.windsurf/
+.opencode/
+.cline/
+.roo/
+.aider*
+.mcp.json
+mcp.local.json
+AGENTS.md
+AGENTS.local.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/

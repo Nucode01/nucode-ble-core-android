@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+    이 라이브러리는 권한을 선언하지 않는다 — 앱이 직접 선언한다.
+    (이전 세대 ble-sdk 와 같은 정책. 라이브러리 매니페스트의 선언은 머지로 모든
+     소비 앱에 강제되고, neverForLocation 같은 플래그는 앱마다 판단이 다르다 — 설계 §7)
+
+    앱이 선언해야 하는 권한:
+      Android 12(API 31)+   BLUETOOTH_SCAN (+ 위치 무관이면 neverForLocation)
+                            BLUETOOTH_CONNECT
+      Android 11(API 30)-   BLUETOOTH · BLUETOOTH_ADMIN (maxSdkVersion="30")
+                            ACCESS_FINE_LOCATION (스캔 결과 배달에 필수, 29–30)
+                            24–28 은 ACCESS_COARSE_LOCATION 도 가능
+
+    Foreground Service 선언도 여기 없다 — 앱이 소유한다 (설계 §7).
+    -->
+
+    <!-- required="false": 라이브러리가 소비 앱의 설치 가능 기기·스토어 노출을
+         제한하면 안 된다. BLE 필수 여부는 앱이 자기 매니페스트에서 올린다. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+</manifest>

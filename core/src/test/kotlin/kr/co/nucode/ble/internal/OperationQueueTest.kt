@@ -93,7 +93,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -116,7 +116,7 @@ class OperationQueueTest {
         val registry = SessionRegistry()
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
         }
 
@@ -144,7 +144,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -169,7 +169,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FE")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 20
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -191,7 +191,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FD")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 20
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -246,7 +246,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             // chunkSize 는 협상 전이라 기본 null
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -284,7 +284,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -317,7 +317,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -350,7 +350,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -377,7 +377,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -412,7 +412,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -439,13 +439,13 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
 
-        // 실제로는 GattBridge 가 끊김을 감지해 session.pendingWrite.cancel() 을 부르는
-        // 상황과 같다 — 여기서는 그 결과인 CancellationException 을 람다가 직접 던져 흉내낸다.
+        // 실제로는 GattBridge가 끊김을 감지해 scheduler completion을 취소하는 상황과 같다.
+        // 여기서는 그 결과인 CancellationException을 람다가 직접 던져 흉내낸다.
         val queue = OperationQueue(registry, emit = {}, writeChunk = { _, _, _, _, _ ->
             throw CancellationException("gatt disconnected")
         }, ackTimeoutMillis = 5_000)
@@ -477,7 +477,7 @@ class OperationQueueTest {
         val charB = fakeCharacteristic(charRef)
 
         val session = registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to charA))
         }
@@ -514,7 +514,7 @@ class OperationQueueTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             chunkSize = 2
         }
         var legacyChunkCalls = 0

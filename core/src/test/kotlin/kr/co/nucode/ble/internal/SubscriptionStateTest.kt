@@ -95,7 +95,7 @@ class SubscriptionStateTest {
             ConnectionState.Recovering(attempt = 2, retryAfterMillis = 50, lastFailure = failure),
             session.connectionState.value,
         )
-        session.state = ConnState.Connecting
+        session.setStateForTest(ConnState.Connecting)
 
         assertEquals(ConnectionState.Connecting, session.connectionState.value)
     }

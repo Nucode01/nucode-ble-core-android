@@ -11,7 +11,7 @@ import org.junit.Test
 
 /**
  * 배선 테스트(plan task 8). [SessionRegistry] 가 설계 §3 규칙 2(DeviceId 키 맵은 이거 하나)를
- * 실제로 지키는지 확인한다 — getOrCreate 멱등성 · remove 후 락까지 같이 사라지는지가 핵심.
+ * 실제로 지키는지 확인한다 — getOrCreate 멱등성과 Session 소유 scheduler 생애주기가 핵심이다.
  */
 class SessionRegistryTest {
 
@@ -74,14 +74,14 @@ class SessionRegistryTest {
         val registry = SessionRegistry()
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
-        session.state = ConnState.Connected
+        session.setStateForTest(ConnState.Ready)
         session.mtu = 247
         session.chunkSize = 244
 
         val snapshot = session.toSnapshot()
 
         assertEquals(deviceId, snapshot.deviceId)
-        assertEquals(ConnState.Connected, snapshot.connState)
+        assertEquals(ConnState.Ready, snapshot.connState)
         assertEquals(247, snapshot.mtu)
         assertEquals(244, snapshot.chunkSize)
     }
@@ -98,29 +98,28 @@ class SessionRegistryTest {
         assertNull(snapshot.chunkSize)
     }
 
-    // ── gattOpLock ────────────────────────────────────────────────
+    // ── GATT operation scheduler ──────────────────────────────────
 
     @Test
-    fun `Session마다 gattOpLock은 다른 인스턴스다`() {
+    fun `Session마다 GATT scheduler는 다른 인스턴스다`() {
         val registry = SessionRegistry()
         val a = registry.getOrCreate(DeviceId("A"))
         val b = registry.getOrCreate(DeviceId("B"))
 
-        assertNotSame(a.gattOpLock, b.gattOpLock)
+        assertNotSame(a.gattOperationScheduler, b.gattOperationScheduler)
     }
 
     @Test
-    fun `remove하면 gattOpLock도 같이 사라진다`() {
-        // 설계 §3 규칙 2 — deviceLocks 같은 병렬 맵을 없앤 이유가 바로 이것이다.
-        // Session 과 생애주기를 같이 하므로 remove 한 번으로 락까지 정리된다(락 누수 불가능).
+    fun `remove하면 GATT scheduler도 같이 사라진다`() {
+        // scheduler는 Session과 생애주기를 같이 하므로 remove 후 새 세션에 재사용되지 않는다.
         val registry = SessionRegistry()
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
-        val originalLock = session.gattOpLock
+        val originalScheduler = session.gattOperationScheduler
 
         registry.remove(deviceId)
         val recreated = registry.getOrCreate(deviceId)
 
-        assertNotSame(originalLock, recreated.gattOpLock)
+        assertNotSame(originalScheduler, recreated.gattOperationScheduler)
     }
 }

@@ -369,14 +369,8 @@ internal class BleRuntime private constructor(
         when (e) {
             is BleEvent.ConnStateChanged -> when (val st = e.state) {
                 is ConnState.DiscoveringServices -> gattBridge.discoverServices(e.deviceId)
-                is ConnState.Discovering -> gattBridge.discoverServices(e.deviceId)
 
                 is ConnState.Ready -> {
-                    val session = registry.get(e.deviceId) ?: return
-                    session.retryCount = 0
-                }
-
-                is ConnState.Connected -> {
                     val session = registry.get(e.deviceId) ?: return
                     session.retryCount = 0
                 }
@@ -399,12 +393,8 @@ internal class BleRuntime private constructor(
                 // 를 그대로 쓴다(구 상수 REQUESTED_MTU 대체, GattBridge.connect KDoc). 세션이 이미
                 // 사라졌으면(예: 그 사이 close()) 요청할 대상 자체가 없어 조용히 넘어간다.
                 registry.get(e.deviceId)?.let { session ->
-                    if (
-                        session.connectionCoordinator.stage == ConnectionStage.Configuring &&
-                        session.state is ConnState.DiscoveringServices
-                    ) {
-                        session.state = ConnState.Configuring
-                        emit(BleEvent.ConnStateChanged(e.deviceId, ConnState.Configuring))
+                    if (session.connectionCoordinator.stage == ConnectionStage.Configuring) {
+                        emit(BleEvent.ConnStateChanged(e.deviceId, session.state))
                     }
                     gattBridge.requestMtu(e.deviceId, session.requestedMtu)
                 }
@@ -412,20 +402,9 @@ internal class BleRuntime private constructor(
 
             is BleEvent.MtuChanged -> {
                 val session = registry.get(e.deviceId) ?: return
-                if (
-                    session.connectionCoordinator.stage == ConnectionStage.Configuring &&
-                    session.state is ConnState.Configuring
-                ) {
+                if (session.connectionCoordinator.stage == ConnectionStage.Configuring) {
                     restoreSubscriptionsBeforeReady(session)
-                    return
                 }
-                // Discovering 일 때만 Connected 로 전이한다. 가드가 없으면 disconnect 중
-                // 도착한 스택 주도 MTU 콜백이 Disconnecting 을 Connected 로 되돌려,
-                // 소비자가 Disconnecting 뒤에 Connected 를 받고 write 가 죽어가는
-                // gatt 로 나간다.
-                if (session.state !is ConnState.Discovering) return
-                session.state = ConnState.Connected
-                emit(BleEvent.ConnStateChanged(e.deviceId, ConnState.Connected))
             }
 
             else -> Unit
@@ -465,15 +444,14 @@ internal class BleRuntime private constructor(
                 nextStage = ConnectionStage.Ready,
                 scope = coreScope,
             )
-            if (!accepted || session.state !is ConnState.Configuring) return@launch
+            if (!accepted) return@launch
             // Clear only this completed restore before publishing Ready. A replacement generation
             // may already own the slot; an old completion must never erase that handle.
             if (session.resubscribeJob === coroutineContext[Job]) {
                 session.resubscribeJob = null
             }
-            session.state = ConnState.Ready
             session.retryCount = 0
-            emit(BleEvent.ConnStateChanged(session.deviceId, ConnState.Ready))
+            emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
         }
     }
 
@@ -630,8 +608,10 @@ internal class BleRuntime private constructor(
             // resubscribeJob 정리(plan B) — reconnectJob 과 같은 취소 지점 3곳 중 하나.
             session.resubscribeJob?.cancel(); session.resubscribeJob = null
             session.timeoutJob?.cancel(); session.timeoutJob = null
-            session.pendingWrite?.cancel(); session.pendingWrite = null
-            session.pendingCccd?.cancel(); session.pendingCccd = null
+            val failure = FailureMapper.fromAdapterState(cause).copy(
+                context = session.lifecycleFailureContext(),
+            )
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
             session.connectionCoordinator.completeCleanup(
                 session.connectionCoordinator.generation,
                 kr.co.nucode.ble.internal.TerminalCleanupReason.AdapterUnavailable,
@@ -643,13 +623,8 @@ internal class BleRuntime private constructor(
             // 낡은 chunkSize 로 나가는 경로 차단).
             session.mtu = null
             session.chunkSize = null
-            val failure = FailureMapper.fromAdapterState(cause).copy(
-                context = session.lifecycleFailureContext(),
-            )
-            val st = ConnState.Disconnected(DisconnectReason.Failed(failure))
-            session.state = st
             emit(diagnostic(Severity.Warning, failure))
-            emit(BleEvent.ConnStateChanged(session.deviceId, st))
+            emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
         }
     }
 
@@ -856,10 +831,6 @@ internal class BleRuntime private constructor(
                     is ConnState.DiscoveringServices,
                     is ConnState.Configuring,
                     is ConnState.Ready,
-                    // generation 0의 상태는 기존 direct seam/재연결 테스트를 위한 호환 경로다.
-                    // 새 lifecycle generation은 위 Ready 계열만 사용한다.
-                    is ConnState.Discovering,
-                    is ConnState.Connected,
                     -> {
                         if (existing.hasSameEffectiveConnectOptions(options)) return@onCore
                         emitConnectConflict(
@@ -875,8 +846,6 @@ internal class BleRuntime private constructor(
 
             ensureAdapterReady(AndroidApiOperation.ConnectGatt)
             val session = existing ?: registry.getOrCreate(deviceId)
-            session.state = ConnState.Connecting
-            emit(BleEvent.ConnStateChanged(deviceId, ConnState.Connecting))
             try {
                 gattBridge.connect(deviceId, options)
             } catch (e: BleException) {
@@ -891,9 +860,8 @@ internal class BleRuntime private constructor(
                 // GattBridge.connect 에서 이미 false 로 리셋한다.
                 session.suppressReconnect = true
                 val failure = e.failure
-                val state = ConnState.Disconnected(DisconnectReason.Failed(failure))
-                session.state = state
-                emit(BleEvent.ConnStateChanged(deviceId, state))
+                session.prepareDisconnect(DisconnectReason.Failed(failure))
+                emit(BleEvent.ConnStateChanged(deviceId, session.state))
                 throw BleException(failure)
             }
         }
@@ -947,7 +915,6 @@ internal class BleRuntime private constructor(
     private fun Session.hasSameEffectiveConnectOptions(requested: ConnectOptions): Boolean {
         if (autoConnect != requested.autoConnect || requestedMtu != requested.requestedMtu) return false
         if (
-            connectionCoordinator.generation == 0L ||
             connectionCoordinator.stage != ConnectionStage.Connecting
         ) return true
 
@@ -967,10 +934,6 @@ internal class BleRuntime private constructor(
                 session.resubscribeJob?.cancel()
                 session.resubscribeJob = null
                 return@withContext
-            }
-            if (session.connectionCoordinator.stage == ConnectionStage.Disconnected) {
-                session.state = ConnState.Disconnecting
-                emit(BleEvent.ConnStateChanged(deviceId, ConnState.Disconnecting))
             }
             gattBridge.disconnect(deviceId)
         }
@@ -1097,21 +1060,15 @@ internal class BleRuntime private constructor(
             scanner.stopScan()
             val sessions = registry.all()
             sessions.forEach { session ->
-                // pending/job 정리(plan F) — sweepSessions 와 같은 목록. coreScope.cancel() 이
-                // job 들(reconnectJob/resubscribeJob/timeoutJob)은 잡지만, Deferred(pendingWrite/
-                // pendingCccd)는 coreScope 소속이 아니라 그 취소만으로는 안 끝난다 — 안 하면
-                // 진행 중이던 write/CCCD 가 operationTimeout 까지 매달리는 창이 남는다.
-                session.pendingWrite?.cancel()
-                session.pendingCccd?.cancel()
+                // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
                 session.resubscribeJob?.cancel()
                 session.reconnectJob?.cancel()
                 session.timeoutJob?.cancel()
+                session.prepareDisconnect(DisconnectReason.ClientClosed)
                 session.connectionCoordinator.completeCleanup(
                     session.connectionCoordinator.generation,
                     kr.co.nucode.ble.internal.TerminalCleanupReason.ClientClosed,
                 )
-                // Existing StateFlow views retain this Session even after registry removal.
-                session.state = ConnState.Disconnected(DisconnectReason.ClientClosed)
                 gattBridge.close(session)
             }
             closedOfficialSnapshot = ClientSnapshot(

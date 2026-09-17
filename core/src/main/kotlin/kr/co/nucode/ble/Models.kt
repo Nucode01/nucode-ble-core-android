@@ -124,10 +124,6 @@ internal sealed interface ConnState {
     /** service discovery와 필수 configuration이 끝나 public GATT operation이 가능한 단계. */
     public data object Ready : ConnState
 
-    // Slice 2의 수직 경로 이관 전까지 기존 public command 동작을 보존한다. Task 4가 새
-    // 상태로 소비부를 옮긴 뒤 제거 여부를 결정한다.
-    public data object Discovering : ConnState
-    public data object Connected : ConnState
     public data object Disconnecting : ConnState
 }
 

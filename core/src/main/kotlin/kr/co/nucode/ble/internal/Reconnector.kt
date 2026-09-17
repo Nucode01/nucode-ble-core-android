@@ -78,7 +78,13 @@ internal class Reconnector(
      * GattBridge owns generation admission and deadlines.  The reconnecter calls this immediately
      * before the retained platform handle is started, never after a callback may already arrive.
      */
-    var beginReconnectLifecycle: ((DeviceId) -> Long?)? = null
+    var beginReconnectLifecycle: (DeviceId) -> Long? = { deviceId ->
+        registry.get(deviceId)?.connectionCoordinator?.beginReconnect(
+            scope = scope,
+            linkTimeoutMillis = policy.attemptTimeoutMillis,
+            onTimeout = {},
+        )
+    }
 
     /**
      * 끊김을 감지한 쪽이 재연결을 요청할 때 부른다. [cause]는 원본 failure를 그대로
@@ -190,14 +196,11 @@ internal class Reconnector(
         // start가 Disconnected를 emit하면 BleRuntime.advanceConnectSequence가 즉시 다음 retry를
         // 예약한다. 이 참조를 남기면 isActive guard가 그 유일한 continuation을 막는다.
         session.reconnectJob = null
-        session.state = ConnState.Connecting
-        emit(BleEvent.ConnStateChanged(deviceId, ConnState.Connecting))
-
-        // Generation must be incremented before touching the retained GATT handle so queued fake
-        // callbacks and production callbacks (which have handle identity only) cannot mutate a
-        // preceding lifecycle.  Legacy tests have no lifecycle hook and intentionally retain the
-        // prior generation-0 seam.
-        beginReconnectLifecycle?.invoke(deviceId)?.let(session.subscriptionState::beginGeneration)
+        // Generation must be incremented before touching the retained GATT handle so callbacks
+        // cannot mutate a preceding lifecycle.
+        val generation = beginReconnectLifecycle(deviceId) ?: return
+        session.subscriptionState.beginGeneration(generation)
+        emit(BleEvent.ConnStateChanged(deviceId, session.state))
 
         val started = session.gatt?.connect() ?: false
         if (!started) {
@@ -217,11 +220,12 @@ internal class Reconnector(
             // 상태·스트림 종결)과 같은 패턴으로 닫는다 — 이 Disconnected emit 이
             // advanceConnectSequence 를 타고 scheduleReconnect 로 가서, retryCount 가
             // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한).
-            val st = ConnState.Disconnected(
-                DisconnectReason.Failed(failure),
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
+            session.connectionCoordinator.completeCleanup(
+                generation,
+                TerminalCleanupReason.LinkStartRejected,
             )
-            session.state = st
-            emit(BleEvent.ConnStateChanged(deviceId, st))
+            emit(BleEvent.ConnStateChanged(deviceId, session.state))
             return
         }
 

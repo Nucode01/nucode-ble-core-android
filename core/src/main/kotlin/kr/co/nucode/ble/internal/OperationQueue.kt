@@ -5,7 +5,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
@@ -62,14 +61,11 @@ internal class OperationQueue(
 ) {
 
     /**
-     * 기기 하나에 write 하나를 직렬화해 실행한다. 같은 기기에 대해 동시에 두 번 호출되면
-     * 뒤의 호출은 앞이 끝날 때까지 [Session.gattOpLock] 에서 기다린다(직렬화 구조,
-     * plan §담당범위 4). 락을 Session 별 DeviceId 맵으로 따로 두지 않는 이유는
-     * Session.kt KDoc 참고 — 정리 누락(락 누수)이 구조적으로 불가능해진다(설계 §1 원인②).
+     * Public write의 모든 청크를 scheduler에 중단 없이 한 batch로 예약한다. 같은 기기의
+     * 동시 호출과 read/CCCD는 scheduler FIFO에서 command batch 뒤에 직렬화된다.
      *
      * 연결 여부는 [Session.canStartPublicGattOperation]으로 판정한다. Slice 2 lifecycle
-     * generation은 [ConnState.Ready]에서만 write를 시작하며, generation 0의 legacy
-     * [ConnState.Connected]는 기존 direct seam 호환 경로로만 유지한다.
+     * generation은 [ConnState.Ready]에서만 write를 시작한다.
      * `NOT_CONNECTED` typed failure를 낸다. chunkSize 는 Session 이 들고 있는 협상된 값을 그대로 쓰되,
      * 아직 협상 전(null)이면 [DEFAULT_CHUNK_SIZE](BLE 기본 ATT_MTU 23 기준)로 대체한다 —
      * MTU 협상은 연결 이후에 일어나는 별개의 단계라, 협상 전이라고 해서 연결 자체가
@@ -85,23 +81,20 @@ internal class OperationQueue(
     ): WriteResult {
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
 
-        return session.gattOpLock.withLock {
-            // 락 획득 **후에** 읽는다. withLock 대기는 suspend 지점이라 그 사이 끊김·재연결로
-            // state/chunkSize 가 바뀔 수 있다 — 락 밖에서 읽은 244 로 MTU 23 링크에 쓰면
-            // 스택이 초과분을 조용히 잘라 기기가 손상된 스트림을 받고도 Ok 가 반환된다.
+        return run {
             if (!session.canStartPublicGattOperation()) throw notConnected(deviceId)
             val chunkSize = session.chunkSize ?: DEFAULT_CHUNK_SIZE
             val chunks = when (chunking) {
                 Chunking.None -> {
                     if (bytes.size > chunkSize) {
-                        return@withLock WriteResult.TooLarge(size = bytes.size, max = chunkSize)
+                        return@run WriteResult.TooLarge(size = bytes.size, max = chunkSize)
                     }
                     listOf(bytes)
                 }
                 Chunking.Auto -> splitIntoChunks(bytes, chunkSize)
                 is Chunking.Fixed -> {
                     if (chunking.maxBytes > chunkSize) {
-                        return@withLock WriteResult.TooLarge(size = chunking.maxBytes, max = chunkSize)
+                        return@run WriteResult.TooLarge(size = chunking.maxBytes, max = chunkSize)
                     }
                     splitIntoChunks(bytes, chunking.maxBytes)
                 }
@@ -116,10 +109,10 @@ internal class OperationQueue(
                 val statuses = try {
                     execute(session, charRef, chunks, writeType, ackTimeoutMillis)
                 } catch (e: GattWriteCommandFailure) {
-                    return@withLock failedWrite(e.failure, deviceId, charRef, writeType, chunks, e.chunkIndex)
+                    return@run failedWrite(e.failure, deviceId, charRef, writeType, chunks, e.chunkIndex)
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
-                    return@withLock failedWrite(
+                    return@run failedWrite(
                         operationInvalidated(deviceId, charRef, writeType),
                         deviceId, charRef, writeType, chunks, 0,
                     )
@@ -127,7 +120,7 @@ internal class OperationQueue(
 
                 for ((index, status) in statuses.withIndex()) {
                     if (status != GATT_SUCCESS) {
-                        return@withLock failedWrite(
+                        return@run failedWrite(
                             gattStatusFailure(status, deviceId, charRef, writeType),
                             deviceId, charRef, writeType, chunks, index,
                         )
@@ -136,7 +129,7 @@ internal class OperationQueue(
                 check(statuses.size == total) {
                     "write command 결과 수(${statuses.size})가 청크 수($total)와 다르다"
                 }
-                return@withLock WriteResult.Completed(total)
+                return@run WriteResult.Completed(total)
             }
 
             for ((index, chunk) in chunks.withIndex()) {
@@ -145,7 +138,7 @@ internal class OperationQueue(
                 // 인스턴스 자체가 갈리므로, 앞 청크에서 얻은 인스턴스를 뒤 청크에 그대로
                 // 쓰면 낡은 인스턴스에 write 하게 된다.
                 val char = session.resolve(charRef)
-                    ?: return@withLock failedWrite(
+                    ?: return@run failedWrite(
                         characteristicNotFound(deviceId, charRef, writeType),
                         deviceId, charRef, writeType, chunks, index,
                     )
@@ -163,7 +156,7 @@ internal class OperationQueue(
                 } catch (e: TimeoutCancellationException) {
                     // GattBridge가 scheduler의 queued/pending 항목을 회수한 뒤 이 예외를
                     // 다시 던진다. generation poison은 후속 lifecycle task의 책임이다.
-                    return@withLock failedWrite(
+                    return@run failedWrite(
                         operationTimeout(deviceId, charRef, writeType),
                         deviceId, charRef, writeType, chunks, index,
                     )
@@ -174,7 +167,7 @@ internal class OperationQueue(
                     // "내 코루틴이 취소된 것"과 "기기가 끊긴 것"을 가른다 — 전자면 그대로
                     // 재던져 정상적인 취소 전파를 지키고, 후자만 Failed 로 보고한다.
                     currentCoroutineContext().ensureActive()
-                    return@withLock failedWrite(
+                    return@run failedWrite(
                         operationInvalidated(deviceId, charRef, writeType),
                         deviceId, charRef, writeType, chunks, index,
                     )
@@ -184,7 +177,7 @@ internal class OperationQueue(
                     // 청크 0 을 보내기 전에 실패했으면 false, 하나라도 나갔으면 true.
                     // 설계 §5: 부분 전달을 로그로 흘리면 기기가 불완전한 명령을 받은 상태를
                     // 아무도 모르게 된다 — 이 값이 이 파일의 존재 이유다.
-                    return@withLock failedWrite(
+                    return@run failedWrite(
                         gattStatusFailure(status, deviceId, charRef, writeType),
                         deviceId, charRef, writeType, chunks, index,
                     )

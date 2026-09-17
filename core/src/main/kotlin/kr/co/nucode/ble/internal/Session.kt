@@ -2,12 +2,10 @@ package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Mutex
 import java.util.UUID
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.FailureContext
@@ -32,23 +30,14 @@ import kr.co.nucode.ble.ServiceRef
  * 기기 하나의 상태 전부. 설계 §3 규칙 2 — 기기별 상태는 객체 하나에 모은다.
  * DeviceId 를 키로 하는 맵은 [SessionRegistry.sessions] 하나뿐이고, 그 값이 이 클래스다.
  * 병렬 맵을 만들지 않는다(설계 §1 원인②) — connState · gatt 핸들 · 구독 · retry ·
- * timeout · MTU/chunkSize · write 직렬화 락을 전부 이 안으로 모아 동기화 누락을
+ * timeout · MTU/chunkSize · GATT scheduler를 전부 이 안으로 모아 동기화 누락을
  * 원천 차단한다. iOS 구현이 무너진 원인(설계 §1 원인②)이 정확히
  * `connectionContinuations` · `connectionTimeoutTasks` 같은 동기화 프리미티브를
  * DeviceId 별 병렬 맵으로 따로 빼둔 것이었다 — "상태가 아니라 동기화 프리미티브라
  * 규칙 2 대상이 아니다"는 예외를 두지 않는다. 그 예외가 바로 8개를 만든 합리화다.
  *
- * 이 클래스가 막는 것은 두 가지로 나뉜다. 섞어서 읽으면 안 된다.
- *
- * ```
- * coreScope 단일 스레드 확정   상태 접근(state · gatt · subscriptions 등 필드 read/write)의
- *                             데이터 레이스를 막는다. 이건 [limitedParallelism(1)] 로 충분해서
- *                             별도 Mutex 를 두지 않는다.
- * gattOpLock                  같은 기기에 대한 write 코루틴 둘이 콜백 대기 같은 suspend
- *                             지점을 넘나들며 청크를 교차 전송하는 것을 막는다.
- *                             ★ 단일 스레드 확정으로는 이걸 못 막는다 — 같은 스레드 위의
- *                               두 코루틴도 suspension point 에서 서로 끼어든다.
- * ```
+ * coreScope의 단일 스레드가 필드 접근을 직렬화하고, callback 대기 사이의 operation 순서는
+ * [gattOperationScheduler] FIFO가 보장한다. 별도 lock이나 DeviceId별 병렬 map을 두지 않는다.
  */
 internal class Session(val deviceId: DeviceId) {
 
@@ -70,16 +59,15 @@ internal class Session(val deviceId: DeviceId) {
     )
     internal val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    /** 연결 상태. 기본값은 아직 연결을 시도하지 않은 Disconnected. */
-    var state: ConnState = ConnState.Disconnected(DisconnectReason.Initial)
-        set(value) {
-            field = value
-            _connectionState.value = value.toPublicConnectionState()
-        }
+    private var disconnectReason: DisconnectReason = DisconnectReason.Initial
+
+    /** Coordinator stage에서 파생되는 compatibility view. 독립 setter를 두지 않는다. */
+    val state: ConnState
+        get() = connectionCoordinator.stage.toConnState(disconnectReason)
 
     /**
      * Projects a bounded retry delay without introducing a second connection-state owner.
-     * The next legacy [state] assignment replaces this transient projection atomically on the
+     * The next coordinator stage transition replaces this transient projection atomically on the
      * core's single-session dispatcher.
      */
     fun publishRecovering(
@@ -99,7 +87,19 @@ internal class Session(val deviceId: DeviceId) {
      * stage deadline, terminal cleanup reason을 별도 DeviceId map으로 흩뜨리지 않고 Session과
      * 함께 폐기한다. 기존 GattBridge/BleRuntime routing은 후속 수직 이관 task가 이 API로 옮긴다.
      */
-    val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator()
+    val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
+
+    /** Terminal reason must be recorded before the coordinator publishes Disconnected. */
+    fun prepareDisconnect(reason: DisconnectReason) {
+        disconnectReason = reason
+        if (connectionCoordinator.stage == ConnectionStage.Disconnected) {
+            publishStage(ConnectionStage.Disconnected)
+        }
+    }
+
+    private fun publishStage(stage: ConnectionStage) {
+        _connectionState.value = stage.toConnState(disconnectReason).toPublicConnectionState()
+    }
 
     /**
      * 현재 connection generation을 terminal cleanup으로 보낸 typed failure. coordinator는
@@ -120,7 +120,7 @@ internal class Session(val deviceId: DeviceId) {
     val subscriptionState: SubscriptionState = SubscriptionState()
 
     fun isConfiguringGeneration(generation: Long): Boolean =
-        connectionCoordinator.accepts(generation, ConnectionStage.Configuring) && state is ConnState.Configuring
+        connectionCoordinator.accepts(generation, ConnectionStage.Configuring)
 
     /** 재연결 시도 횟수. Reconnector(plan task 5)가 읽고 쓴다. */
     var retryCount: Int = 0
@@ -165,25 +165,8 @@ internal class Session(val deviceId: DeviceId) {
      */
     var resubscribeJob: Job? = null
 
-    /**
-     * read/write/CCCD/MTU callback operation의 FIFO, 단일 pending, generation, poison 상태.
-     * DeviceId별 외부 map으로 분리하지 않고 Session과 생애주기를 같이 한다.
-     *
-     * 기존 [pendingWrite]/[pendingCccd]는 후속 migration task가 이 scheduler로 옮길 때까지
-     * 유지한다. 두 상태를 동시에 배선하지 않는다.
-     */
+    /** read/write/CCCD/MTU callback의 FIFO, pending, generation, poison 상태를 단독 소유한다. */
     val gattOperationScheduler: GattOperationScheduler = GattOperationScheduler()
-
-    /**
-     * 진행 중 write 청크의 onCharacteristicWrite ack 대기. OperationQueue 가 만들고
-     * GattBridge 콜백이 complete 한다. 끊김 시 반드시 cancel — 아니면 영구 대기.
-     * CompletableDeferred 를 DeviceId 키 맵으로 밖에 두면 규칙 2 위반(§1 원인②의
-     * connectionContinuations 이 정확히 그 실패다) — 그래서 Session 필드다.
-     */
-    var pendingWrite: CompletableDeferred<Int>? = null
-
-    /** CCCD write(구독/해제)의 onDescriptorWrite ack 대기. pendingWrite 와 같은 규약. */
-    var pendingCccd: CompletableDeferred<Int>? = null
 
     /**
      * connect() 시점에 요청한 MTU 값(plan blecore-app-tunables 결정① — `ConnectOptions.requestedMtu`
@@ -200,14 +183,6 @@ internal class Session(val deviceId: DeviceId) {
 
     /** MTU 로부터 계산한 청크 크기. */
     var chunkSize: Int? = null
-
-    /**
-     * 같은 기기에 대한 write 직렬화용(OperationQueue 가 사용). Session 과 생애주기를
-     * 같이 하므로 — [SessionRegistry.remove] 가 Session 을 지우면 이 락도 함께
-     * 사라진다 — 별도 DeviceId 키 맵(예: `deviceLocks: Map[DeviceId, Mutex]`)으로
-     * 뒀을 때 생기는 정리 누락(락 누수)이 구조적으로 불가능하다.
-     */
-    val gattOpLock: Mutex = Mutex()
 
     /**
      * 서비스 재탐색 결과로 얻은 CharRef -> BluetoothGattCharacteristic 대응표.
@@ -271,13 +246,9 @@ internal class Session(val deviceId: DeviceId) {
     /** CharRef 를 현재 탐색 결과에서 되찾는다. 못 찾으면 null. */
     fun resolve(charRef: CharRef): BluetoothGattCharacteristic? = discoveredTopology.targets[charRef]
 
-    /**
-     * Slice 2 lifecycle을 시작한 세션은 Ready에서만 public GATT operation을 허용한다.
-     * generation 0의 legacy Connected는 Task 4 소비부 이관 전 기존 테스트/재연결 경로만 보존한다.
-     */
+    /** Public GATT operation admission is owned solely by the coordinator readiness stage. */
     fun canStartPublicGattOperation(): Boolean =
-        state is ConnState.Ready ||
-            (connectionCoordinator.generation == 0L && state is ConnState.Connected)
+        connectionCoordinator.stage == ConnectionStage.Ready
 
     /**
      * BleRuntime.snapshot()(plan task 3)이 쓰는 값 변환.
@@ -294,13 +265,19 @@ internal class Session(val deviceId: DeviceId) {
 private fun ConnState.toPublicConnectionState(): ConnectionState = when (this) {
     is ConnState.Disconnected -> ConnectionState.Disconnected(reason.toPublicDisconnectReason())
     ConnState.Connecting -> ConnectionState.Connecting
-    ConnState.DiscoveringServices,
-    ConnState.Discovering,
-    -> ConnectionState.DiscoveringServices
-    ConnState.Connected -> ConnectionState.Ready
+    ConnState.DiscoveringServices -> ConnectionState.DiscoveringServices
     ConnState.Configuring -> ConnectionState.Configuring
     ConnState.Ready -> ConnectionState.Ready
     ConnState.Disconnecting -> ConnectionState.Disconnecting
+}
+
+private fun ConnectionStage.toConnState(disconnectReason: DisconnectReason): ConnState = when (this) {
+    ConnectionStage.Disconnected -> ConnState.Disconnected(disconnectReason)
+    ConnectionStage.Connecting -> ConnState.Connecting
+    ConnectionStage.DiscoveringServices -> ConnState.DiscoveringServices
+    ConnectionStage.Configuring -> ConnState.Configuring
+    ConnectionStage.Ready -> ConnState.Ready
+    ConnectionStage.Disconnecting -> ConnState.Disconnecting
 }
 
 private fun DisconnectReason.toPublicDisconnectReason(): BleDisconnectReason = when (this) {

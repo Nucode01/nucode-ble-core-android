@@ -157,7 +157,11 @@ internal class GattBridge(
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)? = null,
     private val operationWriteTypeResolver: ((Session, CharRef, WriteType) -> Int)? = null,
     private val operationTargetResolver: GattOperationTargetResolver? = null,
-    private val readinessTimeouts: ConnectionReadinessTimeouts? = null,
+    private val readinessTimeouts: ConnectionReadinessTimeouts = ConnectionReadinessTimeouts(
+        linkMillis = 15_000,
+        discoveryMillis = 10_000,
+        configurationMillis = 10_000,
+    ),
     private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress { _, _, _ -> },
 ) {
     internal constructor(
@@ -198,8 +202,8 @@ internal class GattBridge(
 
     /** Retained `BluetoothGatt.connect()` 성공 직후 coordinator generation과 link deadline을 연다. */
     private fun beginRetainedReconnectLifecycle(session: Session): Long? {
-        val timeouts = readinessTimeouts ?: return null
-        if (session.suppressReconnect || session.state !is ConnState.Connecting) return null
+        val timeouts = readinessTimeouts
+        if (session.suppressReconnect) return null
         if (session.connectionCoordinator.stage != ConnectionStage.Disconnected) return null
 
         session.terminalLifecycleCause = null
@@ -284,7 +288,7 @@ internal class GattBridge(
         cause: BleFailure?,
         suppressReconnect: Boolean,
     ): Boolean {
-        val timeouts = readinessTimeouts ?: return false
+        val timeouts = readinessTimeouts
         val generation = session.connectionCoordinator.generation
         val started = session.connectionCoordinator.beginCleanup(
             targetGeneration = generation,
@@ -298,18 +302,13 @@ internal class GattBridge(
         session.terminalLifecycleCause = cause
         if (suppressReconnect) session.suppressReconnect = true
         invalidateScheduledOperations(session, operationInvalidated(session))
-        session.pendingWrite?.cancel()
-        session.pendingWrite = null
-        session.pendingCccd?.cancel()
-        session.pendingCccd = null
         session.reconnectJob?.cancel()
         session.reconnectJob = null
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
         session.timeoutJob?.cancel()
         session.timeoutJob = null
-        session.state = ConnState.Disconnecting
-        emit(BleEvent.ConnStateChanged(session.deviceId, ConnState.Disconnecting))
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
         try {
             driver.disconnect(session.deviceId, session.gatt)
         } catch (_: Exception) {
@@ -335,13 +334,13 @@ internal class GattBridge(
         reason: TerminalCleanupReason? = null,
         cause: BleFailure? = session.terminalLifecycleCause,
     ): Boolean {
-        if (!session.connectionCoordinator.completeCleanup(generation, reason)) return false
+        val disconnectedReason = disconnectReason(reason, cause)
+        val completed = session.connectionCoordinator.completeCleanup(generation, reason) {
+            session.prepareDisconnect(disconnectedReason)
+        }
+        if (!completed) return false
 
         invalidateScheduledOperations(session, operationInvalidated(session))
-        session.pendingWrite?.cancel()
-        session.pendingWrite = null
-        session.pendingCccd?.cancel()
-        session.pendingCccd = null
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
         session.timeoutJob?.cancel()
@@ -350,9 +349,7 @@ internal class GattBridge(
         session.chunkSize = null
         if (session.suppressReconnect) close(session)
 
-        val disconnected = ConnState.Disconnected(disconnectReason(reason, cause))
-        session.state = disconnected
-        emit(BleEvent.ConnStateChanged(session.deviceId, disconnected))
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
         if (!session.suppressReconnect) armRetainedReconnectLifecycle(session)
         return true
     }
@@ -361,8 +358,7 @@ internal class GattBridge(
 
     /**
      * 성공 link callback은 current source/generation/Connecting을 확인한 뒤
-     * DiscoveringServices로 전이한다. legacy direct seam은 Task 4 소비자 이관 전까지 기존
-     * Discovering 상태를 유지한다.
+     * DiscoveringServices로 전이한다.
      */
     private fun handleConnectionStateChange(event: GattDriverEvent.ConnectionStateChanged) {
         val deviceId = event.deviceId
@@ -370,7 +366,8 @@ internal class GattBridge(
         val newState = event.newState
         val session = currentSession(event) ?: return
 
-        readinessTimeouts?.let { timeouts ->
+        run {
+            val timeouts = readinessTimeouts
             val coordinator = session.connectionCoordinator
             if (event.connectionGeneration == null) {
                 beginRetainedReconnect(session.deviceId)
@@ -448,8 +445,7 @@ internal class GattBridge(
                     }
                     session.timeoutJob?.cancel()
                     session.timeoutJob = null
-                    session.state = ConnState.DiscoveringServices
-                    emit(BleEvent.ConnStateChanged(deviceId, ConnState.DiscoveringServices))
+                    emit(BleEvent.ConnStateChanged(deviceId, session.state))
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -464,10 +460,6 @@ internal class GattBridge(
 
                 BluetoothProfile.STATE_CONNECTING -> {
                     if (!coordinator.accepts(callbackGeneration, ConnectionStage.Connecting)) return
-                    if (session.state !is ConnState.Connecting) {
-                        session.state = ConnState.Connecting
-                        emit(BleEvent.ConnStateChanged(deviceId, ConnState.Connecting))
-                    }
                 }
 
                 BluetoothProfile.STATE_DISCONNECTING -> {
@@ -476,90 +468,6 @@ internal class GattBridge(
             }
             return
         }
-
-        // Reconnector가 같은 platform handle로 새 링크를 만든 경우에도 이전 링크의 poisoned
-        // scheduler state를 물려받지 않는다. explicit connect는 connect()에서 먼저 연다.
-        if (newState == BluetoothProfile.STATE_CONNECTED && session.gattOperationScheduler.isPoisoned) {
-            session.gattOperationScheduler.beginNextGeneration()
-        }
-
-        // review #12 — Disconnected(cause) 를 항상 null 로 두지 않는다. platformCode(133/8/19)를
-        // ConnState 에 타입으로 실어야 소비자가 원인 없이 "끊김"만 보는 일이 없다(설계 §5).
-        val cause: BleFailure? = if (status != BluetoothGatt.GATT_SUCCESS) {
-            FailureMapper.gattStatusFailed(
-                statusCode = status,
-                phase = FailurePhase.Link,
-                operation = AndroidApiOperation.OnConnectionStateChange,
-                context = connectionContext(session),
-            )
-        } else {
-            null
-        }
-
-        val nextState: ConnState = when (newState) {
-            BluetoothProfile.STATE_CONNECTED ->
-                if (readinessTimeouts != null && status == BluetoothGatt.GATT_SUCCESS) {
-                    ConnState.DiscoveringServices
-                } else {
-                    ConnState.Discovering
-                }
-            BluetoothProfile.STATE_CONNECTING -> ConnState.Connecting
-            BluetoothProfile.STATE_DISCONNECTING -> ConnState.Disconnecting
-            BluetoothProfile.STATE_DISCONNECTED -> ConnState.Disconnected(
-                cause?.let(DisconnectReason::Failed) ?: DisconnectReason.Initial,
-            )
-            else -> session.state
-        }
-        session.state = nextState
-        emit(BleEvent.ConnStateChanged(deviceId, nextState))
-
-        when (newState) {
-            BluetoothProfile.STATE_CONNECTED -> {
-                // 연결 성공 — connect()(#15)가 걸어둔 타임아웃을 해제한다. 안 하면 연결된
-                // 뒤에도 지연 실행되던 타임아웃 코루틴이 뒤늦게 gatt.disconnect() 를 불러
-                // 유령 disconnect 가 된다(plan §잠재에러).
-                session.timeoutJob?.cancel()
-                session.timeoutJob = null
-            }
-
-            BluetoothProfile.STATE_DISCONNECTED -> {
-                invalidateScheduledOperations(session, operationInvalidated(session))
-                // 대기 중이던 write/CCCD ack 는 끊김과 함께 반드시 정리한다(plan §잠재에러) —
-                // 안 하면 다시 오지 않을 콜백(onCharacteristicWrite/onDescriptorWrite)을
-                // 기다리며 영구 대기한다.
-                session.pendingWrite?.cancel()
-                session.pendingWrite = null
-                session.pendingCccd?.cancel()
-                session.pendingCccd = null
-                // 진행 중 재구독도 링크와 함께 끝낸다(review — plan v2 ②) — 락 대기 중인
-                // 재구독 코루틴이 죽은 gatt 위에서 깨어나 실패를 오분류하는 창을 없앤다.
-                // 구독 셋은 건드리지 않으므로 다음 Connected 의 재구독 입력은 보존된다.
-                session.resubscribeJob?.cancel()
-                session.resubscribeJob = null
-                session.timeoutJob?.cancel()
-                session.timeoutJob = null
-
-                // 끊김 시 mtu/chunkSize 무효화(plan G) — 협상은 링크의 속성이다. 링크가
-                // 죽으면 값도 죽는다. 안 지우면 재연결 후 협상 전 write 가 이전 링크의
-                // chunkSize 로 나가 스택이 조용히 자른다(협상 전 write 는 DEFAULT_CHUNK_SIZE(20)
-                // 폴백이 받는다).
-                session.mtu = null
-                session.chunkSize = null
-
-                // suppressReconnect == true(사용자가 disconnect() 를 불렀다) 일 때만 gatt 를
-                // 정리한다(핸들 누수 방지). false 면 재연결 후보다 — Reconnector(task 5)가
-                // 같은 gatt 로 connect() 재사용을 시도하므로 여기서 close() 하면 안 된다.
-                if (session.suppressReconnect) {
-                    close(session)
-                }
-            }
-
-            else -> Unit
-        }
-
-        // 삼키지 않는다는 계약(설계 §5) — GATT 133/8/19 는 원인이 다르므로 status 를
-        // platformCode 에 원본 그대로 싣는다.
-        if (cause != null) emitDiagnostic(Severity.Error, cause)
     }
 
     /** 서비스 탐색 결과 → Session topology/target snapshot 교체 + ServicesDiscovered emit. */
@@ -568,42 +476,40 @@ internal class GattBridge(
         val status = event.status
         val session = currentSession(event) ?: return
 
-        if (readinessTimeouts != null) {
-            val callbackGeneration = event.connectionGeneration
-                ?: session.connectionCoordinator.generation
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                val accepted = session.connectionCoordinator.transition(
-                    callbackGeneration = callbackGeneration,
-                    expectedStage = ConnectionStage.DiscoveringServices,
-                    nextStage = ConnectionStage.Configuring,
-                    scope = scope,
-                    timeoutMillis = readinessTimeouts.configurationMillis,
-                    onTimeout = { onLifecycleDeadline(deviceId, it) },
+        val callbackGeneration = event.connectionGeneration
+            ?: session.connectionCoordinator.generation
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            val accepted = session.connectionCoordinator.transition(
+                callbackGeneration = callbackGeneration,
+                expectedStage = ConnectionStage.DiscoveringServices,
+                nextStage = ConnectionStage.Configuring,
+                scope = scope,
+                timeoutMillis = readinessTimeouts.configurationMillis,
+                onTimeout = { onLifecycleDeadline(deviceId, it) },
+            )
+            if (!accepted) return
+        } else {
+            if (
+                !session.connectionCoordinator.accepts(
+                    callbackGeneration,
+                    ConnectionStage.DiscoveringServices,
                 )
-                if (!accepted) return
-            } else {
-                if (
-                    !session.connectionCoordinator.accepts(
-                        callbackGeneration,
-                        ConnectionStage.DiscoveringServices,
-                    )
-                ) return
-                val failure = FailureMapper.gattStatusFailed(
-                    statusCode = status,
-                    phase = FailurePhase.DiscoverServices,
-                    operation = AndroidApiOperation.OnServicesDiscovered,
-                    context = connectionContext(session),
-                )
-                emitDiagnostic(Severity.Error, failure)
-                beginLifecycleCleanup(
-                    session = session,
-                    reason = TerminalCleanupReason.ServiceDiscoveryStatusFailure,
-                    cause = failure,
-                    suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                        ConnectionAttemptOrigin.Reconnect,
-                )
-                return
-            }
+            ) return
+            val failure = FailureMapper.gattStatusFailed(
+                statusCode = status,
+                phase = FailurePhase.DiscoverServices,
+                operation = AndroidApiOperation.OnServicesDiscovered,
+                context = connectionContext(session),
+            )
+            emitDiagnostic(Severity.Error, failure)
+            beginLifecycleCleanup(
+                session = session,
+                reason = TerminalCleanupReason.ServiceDiscoveryStatusFailure,
+                cause = failure,
+                suppressReconnect = session.connectionCoordinator.attemptOrigin !=
+                    ConnectionAttemptOrigin.Reconnect,
+            )
+            return
         }
 
         if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -679,10 +585,8 @@ internal class GattBridge(
         // MTU is only a fact for the active Configuring generation. Readiness completion
         // belongs to BleRuntime because it must wait for subscription restore, but stale MTU
         // callbacks must still be discarded at the bridge boundary.
-        if (readinessTimeouts != null) {
-            val callbackGeneration = event.connectionGeneration ?: session.connectionCoordinator.generation
-            if (!session.connectionCoordinator.accepts(callbackGeneration, ConnectionStage.Configuring)) return
-        }
+        val callbackGeneration = event.connectionGeneration ?: session.connectionCoordinator.generation
+        if (!session.connectionCoordinator.accepts(callbackGeneration, ConnectionStage.Configuring)) return
 
         if (status != BluetoothGatt.GATT_SUCCESS) {
             emitDiagnostic(
@@ -977,14 +881,13 @@ internal class GattBridge(
         // BleRuntime.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
         // 도달하면 정확히 M-7 유령 Connecting 이다.
         val session = registry.get(deviceId) ?: throw BleException(unknownDevice(deviceId))
-        val connectionGeneration = readinessTimeouts?.let { timeouts ->
-            session.connectionCoordinator.beginConnection(
-                scope = scope,
-                linkTimeoutMillis = options.timeoutMillis ?: timeouts.linkMillis,
-                onTimeout = { onLifecycleDeadline(deviceId, it) },
-            )
-        }
-        connectionGeneration?.let(session.subscriptionState::beginGeneration)
+        val connectionGeneration = session.connectionCoordinator.beginConnection(
+            scope = scope,
+            linkTimeoutMillis = options.timeoutMillis ?: readinessTimeouts.linkMillis,
+            onTimeout = { onLifecycleDeadline(deviceId, it) },
+        )
+        session.subscriptionState.beginGeneration(connectionGeneration)
+        emit(BleEvent.ConnStateChanged(deviceId, session.state))
         session.terminalLifecycleCause = null
 
         // 이전 connection generation의 waiter를 먼저 끝낸 뒤에만 새 generation을 연다.
@@ -1018,13 +921,6 @@ internal class GattBridge(
         // retryCount 리셋(plan D) — 새 생애주기 = 새 재연결 예산. give-up 잔재(이전 시도가
         // maxAttempts 까지 소진했던 값)가 이번 시도로 넘어오면 안 된다.
         session.retryCount = 0
-        // pending 정리(review — plan v2 ③): "도달 불가"가 아니었다 — Disconnecting 은
-        // 재호출 가드를 통과하므로, write 진행 중 disconnect() 직후 connect() 하면 이전
-        // 생애주기의 ack 대기가 새 생애주기 첫 GATT 연산을 operationTimeout 까지 지연시킨다.
-        session.pendingWrite?.cancel()
-        session.pendingWrite = null
-        session.pendingCccd?.cancel()
-        session.pendingCccd = null
         session.autoConnect = options.autoConnect
         // plan blecore-app-tunables 결정① — 이번 연결 시도의 옵션값을 Session 에 보존한다.
         // BleRuntime.advanceConnectSequence 의 ServicesDiscovered 분기가 이 값을 그대로 읽어
@@ -1036,21 +932,16 @@ internal class GattBridge(
         // 두 갈래 규약상 즉시 실패 = BleException throw 다. BleRuntime가 이를 받아
         // Connecting 을 Disconnected 로 정리하고 재던진다.
         val gatt = try {
-            if (connectionGeneration == null) {
-                driver.connect(deviceId, options.autoConnect)
-            } else {
-                driver.connect(deviceId, options.autoConnect, connectionGeneration)
-            }
+            driver.connect(deviceId, options.autoConnect, connectionGeneration)
         } catch (e: BleException) {
-            if (connectionGeneration != null) {
-                session.suppressReconnect = true
-                session.terminalLifecycleCause = e.failure
-                session.connectionCoordinator.completeCleanup(
-                    connectionGeneration,
-                    TerminalCleanupReason.LinkStartRejected,
-                )
-                invalidateScheduledOperations(session, operationInvalidated(session))
-            }
+            session.suppressReconnect = true
+            session.terminalLifecycleCause = e.failure
+            session.prepareDisconnect(DisconnectReason.Failed(e.failure))
+            session.connectionCoordinator.completeCleanup(
+                connectionGeneration,
+                TerminalCleanupReason.LinkStartRejected,
+            )
+            invalidateScheduledOperations(session, operationInvalidated(session))
             throw e
         } catch (_: SecurityException) {
             val failure = FailureMapper.permissionDenied(
@@ -1058,65 +949,34 @@ internal class GattBridge(
                 operation = AndroidApiOperation.ConnectGatt,
                 context = connectionContext(session),
             )
-            if (connectionGeneration != null) {
-                session.suppressReconnect = true
-                session.terminalLifecycleCause = failure
-                session.connectionCoordinator.completeCleanup(
-                    connectionGeneration,
-                    TerminalCleanupReason.PermissionDenied,
-                )
-                invalidateScheduledOperations(session, operationInvalidated(session))
-            }
+            session.suppressReconnect = true
+            session.terminalLifecycleCause = failure
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
+            session.connectionCoordinator.completeCleanup(
+                connectionGeneration,
+                TerminalCleanupReason.PermissionDenied,
+            )
+            invalidateScheduledOperations(session, operationInvalidated(session))
             throw BleException(failure)
         } catch (_: Exception) {
-            if (connectionGeneration != null) {
-                val failure = FailureMapper.gattStartRejected(
-                    phase = FailurePhase.Connect,
-                    operation = AndroidApiOperation.ConnectGatt,
-                    context = connectionContext(session),
-                )
-                session.suppressReconnect = true
-                session.terminalLifecycleCause = failure
-                session.connectionCoordinator.completeCleanup(
-                    connectionGeneration,
-                    TerminalCleanupReason.LinkStartRejected,
-                )
-                invalidateScheduledOperations(session, operationInvalidated(session))
-            }
-            throw BleException(
-                FailureMapper.gattStartRejected(
-                    phase = FailurePhase.Connect,
-                    operation = AndroidApiOperation.ConnectGatt,
-                    context = connectionContext(session),
-                ),
+            val failure = FailureMapper.gattStartRejected(
+                phase = FailurePhase.Connect,
+                operation = AndroidApiOperation.ConnectGatt,
+                context = connectionContext(session),
             )
+            session.suppressReconnect = true
+            session.terminalLifecycleCause = failure
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
+            session.connectionCoordinator.completeCleanup(
+                connectionGeneration,
+                TerminalCleanupReason.LinkStartRejected,
+            )
+            invalidateScheduledOperations(session, operationInvalidated(session))
+            throw BleException(failure)
         }
         session.gatt = gatt
 
         // #15 — 연결 타임아웃. STATE_CONNECTED 가 오면(위 handleConnectionStateChange) 취소된다.
-        val timeoutMillis = options.timeoutMillis
-        if (readinessTimeouts == null && timeoutMillis != null) {
-            session.timeoutJob = scope.launch {
-                delay(timeoutMillis)
-                emitDiagnostic(
-                    Severity.Warning,
-                    failure(
-                        category = "connection",
-                        code = "CONNECT_TIMEOUT",
-                        phase = FailurePhase.Connect,
-                        retryability = Retryability.NewConnectionMayHelp,
-                        context = connectionContext(session),
-                    ),
-                )
-                // D2(review M-4) — 타임아웃 = 포기. gatt.disconnect() 보다 먼저 세워야 한다:
-                // disconnect() 가 STATE_DISCONNECTED 콜백을 유발하면 handleConnectionStateChange
-                // 가 advanceConnectSequence 로 Disconnected 를 emit 하는데, 그때 이미
-                // suppressReconnect 가 true 여야 scheduleReconnect 로 새지 않는다. 순서가
-                // 바뀌면 timeoutMillis 가 "포기 시점"이 아니라 "첫 재시도까지의 시간"이 된다.
-                session.suppressReconnect = true
-                driver.disconnect(deviceId, gatt)
-            }
-        }
     }
 
     /**
@@ -1128,15 +988,13 @@ internal class GattBridge(
      */
     fun disconnect(deviceId: DeviceId) {
         val session = registry.get(deviceId) ?: return
-        if (readinessTimeouts != null) {
-            val started = beginLifecycleCleanup(
-                session = session,
-                reason = TerminalCleanupReason.UserRequested,
-                cause = null,
-                suppressReconnect = true,
-            )
-            if (started || session.connectionCoordinator.stage != ConnectionStage.Disconnected) return
-        }
+        val started = beginLifecycleCleanup(
+            session = session,
+            reason = TerminalCleanupReason.UserRequested,
+            cause = null,
+            suppressReconnect = true,
+        )
+        if (started || session.connectionCoordinator.stage != ConnectionStage.Disconnected) return
         invalidateScheduledOperations(session, operationInvalidated(session))
         session.suppressReconnect = true // Reconnector 가 "의도적 해제"를 구분하는 근거(task 5 가 소비)
         session.reconnectJob?.cancel() // 배타(plan v3) — 백오프 대기 중이던 예약도 즉시 종료
@@ -1172,22 +1030,17 @@ internal class GattBridge(
         }
         if (failure != null) {
             emitDiagnostic(Severity.Error, failure)
-            if (readinessTimeouts != null) {
-                beginLifecycleCleanup(
-                    session = session,
-                    reason = if (failure.code.value == "PERMISSION_DENIED") {
-                        TerminalCleanupReason.PermissionDenied
-                    } else {
-                        TerminalCleanupReason.ServiceDiscoveryStartRejected
-                    },
-                    cause = failure,
-                    suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                        ConnectionAttemptOrigin.Reconnect,
-                )
-            } else {
-                session.state = ConnState.Disconnected(DisconnectReason.Failed(failure))
-                emit(BleEvent.ConnStateChanged(deviceId, session.state))
-            }
+            beginLifecycleCleanup(
+                session = session,
+                reason = if (failure.code.value == "PERMISSION_DENIED") {
+                    TerminalCleanupReason.PermissionDenied
+                } else {
+                    TerminalCleanupReason.ServiceDiscoveryStartRejected
+                },
+                cause = failure,
+                suppressReconnect = session.connectionCoordinator.attemptOrigin !=
+                    ConnectionAttemptOrigin.Reconnect,
+            )
         }
     }
 
@@ -1216,7 +1069,7 @@ internal class GattBridge(
         }
         if (failure != null) {
             emitDiagnostic(Severity.Warning, failure)
-            if (failure.code.value == "PERMISSION_DENIED" && readinessTimeouts != null) {
+            if (failure.code.value == "PERMISSION_DENIED") {
                 beginLifecycleCleanup(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,
@@ -1544,6 +1397,7 @@ internal class GattBridge(
         }
         session.suppressReconnect = (scheduled.operation as? QueuedCccdWrite)?.restore != true
         session.terminalLifecycleCause = invalidationCause
+        session.prepareDisconnect(DisconnectReason.Failed(invalidationCause))
         // Platform disconnect/close보다 먼저 connection generation을 terminalize한다.
         // disconnect가 callback을 동기 재진입시키더라도 OperationInvalidated 원인이
         // PlatformDisconnected로 먼저 확정되거나 coordinator가 Ready에 남지 않는다.
@@ -1563,9 +1417,7 @@ internal class GattBridge(
         session.chunkSize = null
 
         emitDiagnostic(Severity.Warning, invalidationCause)
-        val disconnected = ConnState.Disconnected(DisconnectReason.Failed(invalidationCause))
-        session.state = disconnected
-        emit(BleEvent.ConnStateChanged(session.deviceId, disconnected))
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
     }
 
     /** Lifecycle 종료가 pending/queued waiter를 callback 없이 유한 종결하는 단일 경로. */
@@ -1628,7 +1480,7 @@ internal class GattBridge(
             )
             scheduled.completion.completeExceptionally(BleException(attributedFailure))
             abortRemainingWriteChunks(session, scheduled, attributedFailure)
-            if (attributedFailure.code.value == "PERMISSION_DENIED" && readinessTimeouts != null) {
+            if (attributedFailure.code.value == "PERMISSION_DENIED") {
                 beginLifecycleCleanup(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,

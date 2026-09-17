@@ -77,7 +77,9 @@ internal enum class ConnectionAttemptOrigin {
  * 전이시킨다. Android handle/source 검사는 GattBridge의 IO 경계에 남고, callback은 generation과
  * expected stage를 이 API에 전달해야 현재 lifecycle을 변경할 수 있다.
  */
-internal class ConnectionCoordinator {
+internal class ConnectionCoordinator(
+    private val onStageChanged: (ConnectionStage) -> Unit = {},
+) {
     var generation: Long = 0L
         private set
 
@@ -214,6 +216,7 @@ internal class ConnectionCoordinator {
     fun completeCleanup(
         targetGeneration: Long,
         reason: TerminalCleanupReason? = null,
+        beforeStageChanged: () -> Unit = {},
     ): Boolean {
         if (targetGeneration != generation || stage == ConnectionStage.Disconnected) return false
         check(ConnectionStage.Disconnected in allowedSuccessors(stage)) {
@@ -222,7 +225,9 @@ internal class ConnectionCoordinator {
 
         cancelDeadline()
         terminalCleanupReason = reason ?: terminalCleanupReason ?: TerminalCleanupReason.PlatformDisconnected
+        beforeStageChanged()
         stage = ConnectionStage.Disconnected
+        onStageChanged(stage)
         return true
     }
 
@@ -242,6 +247,7 @@ internal class ConnectionCoordinator {
 
         cancelDeadline()
         stage = nextStage
+        onStageChanged(stage)
         if (timeoutReason == null) return
 
         val deadline = ConnectionStageDeadline(

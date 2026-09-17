@@ -4,7 +4,6 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,10 +20,13 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
+import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.CharRef
 import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.ReconnectPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,6 +40,40 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class GattLifecycleCharacterizationTest {
+
+    @Test
+    fun `stale cleanup generation cannot replace current disconnect reason projection`() = runTest {
+        val session = Session(DEVICE_ID)
+        val firstGeneration = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        assertTrue(
+            session.connectionCoordinator.completeCleanup(
+                firstGeneration,
+                TerminalCleanupReason.UserRequested,
+            ) { session.prepareDisconnect(DisconnectReason.Requested) },
+        )
+        val secondGeneration = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        assertTrue(
+            session.connectionCoordinator.completeCleanup(
+                secondGeneration,
+                TerminalCleanupReason.ClientClosed,
+            ) { session.prepareDisconnect(DisconnectReason.ClientClosed) },
+        )
+
+        val rejected = session.connectionCoordinator.completeCleanup(
+            firstGeneration,
+            TerminalCleanupReason.PlatformDisconnected,
+        ) { session.prepareDisconnect(DisconnectReason.Initial) }
+
+        assertFalse(rejected)
+        assertEquals(
+            ConnState.Disconnected(DisconnectReason.ClientClosed),
+            session.state,
+        )
+        assertEquals(
+            ConnectionState.Disconnected(BleDisconnectReason.ClientClosed),
+            session.connectionState.value,
+        )
+    }
 
     @Test
     fun `connect starts one coordinator generation and passes it to the driver fake`() = runTest {
@@ -64,7 +100,7 @@ class GattLifecycleCharacterizationTest {
     @Test
     fun `discovery permission exception enters bounded terminal cleanup`() = runTest {
         val registry = SessionRegistry()
-        val session = registry.getOrCreate(DEVICE_ID).apply { state = ConnState.DiscoveringServices }
+        val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this).apply { discoverFailure = SecurityException() }
         val bridge = GattBridge(
             registry = registry,
@@ -98,7 +134,7 @@ class GattLifecycleCharacterizationTest {
     @Test
     fun `operation permission exception is typed and enters bounded terminal cleanup`() = runTest {
         val registry = SessionRegistry()
-        val session = registry.getOrCreate(DEVICE_ID).apply { state = ConnState.Ready }
+        val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this)
         val bridge = GattBridge(
             registry = registry,
@@ -146,7 +182,6 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connecting
             requestedMtu = 185
         }
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
@@ -232,7 +267,6 @@ class GattLifecycleCharacterizationTest {
     fun `retained reconnect keeps MTU completion Configuring for Core restore orchestration`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connecting
             suppressReconnect = false
             requestedMtu = 185
         }
@@ -292,7 +326,6 @@ class GattLifecycleCharacterizationTest {
     fun `retained reconnect missing link callback uses coordinator deadline and remains retryable`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connecting
             suppressReconnect = false
         }
         val driver = FakeGattDriver(this)
@@ -319,7 +352,6 @@ class GattLifecycleCharacterizationTest {
     fun `terminal disconnect arms existing reconnect job completion into a fresh lifecycle`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Ready
             suppressReconnect = false
         }
         val firstGeneration = session.connectionCoordinator.beginConnection(this, 40) {}
@@ -356,7 +388,6 @@ class GattLifecycleCharacterizationTest {
                     reconnectStarted = true
                     session.reconnectJob = launch {
                         delay(10)
-                        session.state = ConnState.Connecting
                     }
                 }
             },
@@ -391,7 +422,6 @@ class GattLifecycleCharacterizationTest {
     fun `started operation timeout and cancellation terminalize lifecycle before the next attempt`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Ready
             suppressReconnect = false
         }
         val firstGeneration = session.connectionCoordinator.beginConnection(this, 40) {}
@@ -447,7 +477,6 @@ class GattLifecycleCharacterizationTest {
         assertEquals(listOf("disconnect", "close"), driver.commands)
 
         // BleCore.connect가 public state gate를 통과한 뒤 실행하는 실제 bridge path를 재현한다.
-        session.state = ConnState.Connecting
         bridge.connect(DEVICE_ID, kr.co.nucode.ble.ConnectOptions())
 
         assertEquals(firstGeneration + 1, session.connectionCoordinator.generation)
@@ -477,7 +506,6 @@ class GattLifecycleCharacterizationTest {
             ConnectionStage.Ready,
             this,
         )
-        session.state = ConnState.Ready
         val cancelledRead = async {
             bridge.read(
                 DEVICE_ID,
@@ -506,7 +534,7 @@ class GattLifecycleCharacterizationTest {
     fun `stale generation and wrong stage readiness callbacks cannot mutate lifecycle snapshots`() = runTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
-        val session = core.registry.getOrCreate(DEVICE_ID).apply { state = ConnState.Connecting }
+        val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
         val observed = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(observed) }
@@ -576,7 +604,6 @@ class GattLifecycleCharacterizationTest {
     fun `same-generation late non-terminal failures cannot tear down readiness stages`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.DiscoveringServices
             suppressReconnect = false
         }
         val generation = session.connectionCoordinator.beginConnection(this, 40) {}
@@ -624,7 +651,6 @@ class GattLifecycleCharacterizationTest {
             this,
             40,
         )
-        session.state = ConnState.Configuring
         val configurationDeadline = session.connectionCoordinator.activeDeadline
         driver.emit(
             GattDriverEvent.ConnectionStateChanged(
@@ -650,7 +676,6 @@ class GattLifecycleCharacterizationTest {
             ConnectionStage.Ready,
             this,
         )
-        session.state = ConnState.Ready
         driver.emit(
             GattDriverEvent.ConnectionStateChanged(
                 DEVICE_ID,
@@ -676,7 +701,7 @@ class GattLifecycleCharacterizationTest {
     fun `discovery status failure emits Diagnostic without publishing Ready`() = runTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
-        val session = core.registry.getOrCreate(DEVICE_ID).apply { state = ConnState.Connecting }
+        val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
         val observed = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(observed) }
@@ -713,7 +738,7 @@ class GattLifecycleCharacterizationTest {
     fun `missing discovery callback expires its deadline without publishing Ready`() = runTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
-        val session = core.registry.getOrCreate(DEVICE_ID).apply { state = ConnState.Connecting }
+        val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
         val observed = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(observed) }
@@ -740,7 +765,6 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connecting
             suppressReconnect = true
         }
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
@@ -794,15 +818,11 @@ class GattLifecycleCharacterizationTest {
             adapter = { null },
             gattDriver = driver,
         )
-        val pendingWrite = CompletableDeferred<Int>()
-        val pendingCccd = CompletableDeferred<Int>()
         val resubscribeJob = Job()
         val reconnectJob = Job()
         val timeoutJob = Job()
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connected
-            this.pendingWrite = pendingWrite
-            this.pendingCccd = pendingCccd
+            setStateForTest(ConnState.Ready)
             this.resubscribeJob = resubscribeJob
             this.reconnectJob = reconnectJob
             this.timeoutJob = timeoutJob
@@ -824,8 +844,6 @@ class GattLifecycleCharacterizationTest {
 
         core.close()
 
-        assertTrue(pendingWrite.isCancelled)
-        assertTrue(pendingCccd.isCancelled)
         assertTrue(resubscribeJob.isCancelled)
         assertTrue(reconnectJob.isCancelled)
         assertTrue(timeoutJob.isCancelled)
@@ -844,13 +862,18 @@ class GattLifecycleCharacterizationTest {
     fun `stale callbacks currently cannot mutate Session emit events or complete pending callback`() = runTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
-        val pendingWrite = CompletableDeferred<Int>()
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            state = ConnState.Connected
+            setStateForTest(ConnState.Ready)
             mtu = 185
             chunkSize = 182
-            this.pendingWrite = pendingWrite
         }
+        val identity = GattCharacteristicIdentity.from(
+            kr.co.nucode.ble.CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
+        )
+        val scheduledWrite = session.gattOperationScheduler.enqueue(
+            GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
+        )
+        session.gattOperationScheduler.startNext()
         val observed = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(observed) }
         runCurrent()
@@ -880,11 +903,11 @@ class GattLifecycleCharacterizationTest {
         )
         runCurrent()
 
-        assertEquals(ConnState.Connected, session.state)
+        assertEquals(ConnState.Ready, session.state)
         assertEquals(185, session.mtu)
         assertEquals(182, session.chunkSize)
-        assertSame(pendingWrite, session.pendingWrite)
-        assertFalse(pendingWrite.isCompleted)
+        assertSame(scheduledWrite, session.gattOperationScheduler.pending)
+        assertFalse(scheduledWrite.completion.isCompleted)
         assertTrue(observed.isEmpty())
         assertTrue(driver.commands.isEmpty())
     }

@@ -17,7 +17,6 @@ import kr.co.nucode.ble.WriteReceipt
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
 import kr.co.nucode.ble.BleEvent
-import kr.co.nucode.ble.BleRuntime
 
 /** Stateless per-peripheral view; Session remains the sole mutable state owner. */
 internal class DefaultBleSession(

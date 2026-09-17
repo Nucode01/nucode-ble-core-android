@@ -175,7 +175,7 @@ internal class Reconnector(
      * 안 해둔 앞단의 선택이 무의미해진다.
      *
      * `gatt.connect()` 가 `false` 를 돌려주면(호출 자체가 시작도 못 한 것) callback은 다시
-     * 오지 않는다. 이 시도가 [BleCore]의 `Disconnected` event로 다음 bounded retry/give-up을
+     * 오지 않는다. 이 시도가 [BleRuntime]의 `Disconnected` event로 다음 bounded retry/give-up을
      * 요청할 수 있도록, platform start 전에 현재 job guard를 해제한다. 여기서 직접 재귀
      * 호출하지 않는다. 재시도 정책과 backoff는 여전히 event 경로의 [scheduleReconnect] 한
      * 곳만 소유하므로, `runTest`에서는 `advanceTimeBy`로 각 attempt를 관찰할 수 있다.
@@ -183,11 +183,11 @@ internal class Reconnector(
     private suspend fun reconnect(deviceId: DeviceId, reconnectPolicy: ReconnectPolicy) {
         val session = registry.get(deviceId) ?: return
         // 실행 시점 재확인(review H-2): 예약(백오프 대기) 중에 사용자가 disconnect() 를
-        // 불렀을 수 있다 — 예약 시점 가드(BleCore.advanceConnectSequence)만으로는
+        // 불렀을 수 있다 — 예약 시점 가드(BleRuntime.advanceConnectSequence)만으로는
         // 이미 큐에 들어간 시도를 못 막는다. 사용자가 끊은 기기를 코어가 되붙이면 안 된다.
         if (session.suppressReconnect || session.autoConnect) return
         // 이 job이 곧 platform start를 끝내므로 더는 "backoff 대기 중"이 아니다. false
-        // start가 Disconnected를 emit하면 BleCore.advanceConnectSequence가 즉시 다음 retry를
+        // start가 Disconnected를 emit하면 BleRuntime.advanceConnectSequence가 즉시 다음 retry를
         // 예약한다. 이 참조를 남기면 isActive guard가 그 유일한 continuation을 막는다.
         session.reconnectJob = null
         session.state = ConnState.Connecting

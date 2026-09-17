@@ -29,15 +29,15 @@ import kr.co.nucode.ble.WriteType
 /**
  * write 직렬화 + 청킹(설계 §6 구성요소, §5 WriteResult, plan §잠재에러 chunkSize).
  *
- * 청크 하나를 실제로 내보내고 ack 를 기다리는 일은 [writeChunk] 람다가 한다 — BleCore
+ * 청크 하나를 실제로 내보내고 ack 를 기다리는 일은 [writeChunk] 람다가 한다 — BleRuntime
  * 조립부가 GattBridge 의 suspend 함수(`GattBridge.writeChunk`)를 그대로 넘겨준다
  * (plan §접근 ②). 이 파일은 GattBridge 타입을 import 하지 않는다 — 워커 간 직접 참조
- * 금지 원칙(설계 §1 원인②) 때문에, 두 워커를 잇는 건 오직 BleCore 조립 라인뿐이다.
+ * 금지 원칙(설계 §1 원인②) 때문에, 두 워커를 잇는 건 오직 BleRuntime 조립 라인뿐이다.
  * 이 클래스가 [writeChunk] 에 대해 아는 전부는 "청크 하나를 주면 [ackTimeoutMillis] 안에
  * GATT status (Int) 가 와야 한다"는 계약이다.
  *
  * [ackTimeoutMillis] 는 write 청크 하나의 ack(onCharacteristicWrite) 대기 상한이다(plan
- * blecore-app-tunables 결정③ — 구 상수 `WRITE_ACK_TIMEOUT_MS` 대체). `BleCore` 조립부가
+ * blecore-app-tunables 결정③ — 구 상수 `WRITE_ACK_TIMEOUT_MS` 대체). `BleRuntime` 조립부가
  * `BleConfig.operationTimeoutMillis` 를 그대로 넘긴다 — CCCD ack 쪽(GattBridge)과 값은
  * 같아도 워커 간 참조 금지 원칙상 상수를 공유하지 않고 각자 주입받는다.
  */

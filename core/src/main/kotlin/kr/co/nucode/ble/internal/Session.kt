@@ -97,7 +97,7 @@ internal class Session(val deviceId: DeviceId) {
     /**
      * Slice 2 connection lifecycle의 단일 소유자. connection generation, readiness stage,
      * stage deadline, terminal cleanup reason을 별도 DeviceId map으로 흩뜨리지 않고 Session과
-     * 함께 폐기한다. 기존 GattBridge/BleCore routing은 후속 수직 이관 task가 이 API로 옮긴다.
+     * 함께 폐기한다. 기존 GattBridge/BleRuntime routing은 후속 수직 이관 task가 이 API로 옮긴다.
      */
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator()
 
@@ -109,7 +109,7 @@ internal class Session(val deviceId: DeviceId) {
 
     /**
      * 플랫폼 연결 핸들. 코어 안에만 산다 — 연결의 소유자가 코어라는 설계 §2 의 근거가
-     * 바로 이 필드다. 공개 API(BleCore) 시그니처에는 절대 나오지 않는다.
+     * 바로 이 필드다. 공개 [kr.co.nucode.ble.BleClient] 시그니처에는 절대 나오지 않는다.
      */
     var gatt: BluetoothGatt? = null
 
@@ -158,7 +158,7 @@ internal class Session(val deviceId: DeviceId) {
 
     /**
      * 예약된 configuring-phase subscription restore `coreScope.launch` 손잡이,
-     * 규칙 8 — delay·await 를 품은 코루틴은 손잡이를 Session/BleCore 가 쥔다). 손잡이가
+     * 규칙 8 — delay·await 를 품은 코루틴은 손잡이를 Session/BleRuntime 가 쥔다). 손잡이가
      * 없으면 fire-and-forget 이라 새 `Connected` 가 구 재구독 루프를 대체(cancel)할 수
      * 없고, disconnect·sweep·시작 리셋 시점에도 이미 죽은 링크 위에서 재구독이 계속
      * 돈다 — `reconnectJob` 과 같은 규약으로 정리 지점마다 cancel 한다.
@@ -189,7 +189,7 @@ internal class Session(val deviceId: DeviceId) {
      * connect() 시점에 요청한 MTU 값(plan blecore-app-tunables 결정① — `ConnectOptions.requestedMtu`
      * 를 상수(구 `REQUESTED_MTU`) 대신 여기 보존한다). 기본 247 은 `ConnectOptions.requestedMtu`
      * 기본값과 같다. [GattBridge.connect] 가 `options.requestedMtu` 를 저장하고,
-     * `BleCore.advanceConnectSequence` 의 `ServicesDiscovered` 분기가 이 값을 그대로 읽어
+     * `BleRuntime.advanceConnectSequence` 의 `ServicesDiscovered` 분기가 이 값을 그대로 읽어
      * `gattBridge.requestMtu` 를 부른다 — 연결별/기기별로 다른 값을 허용하려면 상수로는 안 되고
      * Session 에 둬야 한다(규칙 2, 기기별 값은 Session).
      */
@@ -280,7 +280,7 @@ internal class Session(val deviceId: DeviceId) {
             (connectionCoordinator.generation == 0L && state is ConnState.Connected)
 
     /**
-     * BleCore.snapshot()(plan task 3)이 쓰는 값 변환.
+     * BleRuntime.snapshot()(plan task 3)이 쓰는 값 변환.
      * Session 자체는 절대 밖으로 안 나간다(설계 §3 규칙 5, `internal` 이라 컴파일러가 막는다).
      */
     fun toSnapshot(): DeviceSnapshot = DeviceSnapshot(

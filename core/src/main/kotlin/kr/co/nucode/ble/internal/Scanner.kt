@@ -65,7 +65,7 @@ internal class Scanner(
         return null
     }
 
-    /** Deprecated BleCore projection until its runtime migration. */
+    /** Internal compatibility projection retained only for the runtime ingress. */
     fun startScan(filter: ScanFilter, options: ScanOptions) {
         val request = ScanRequest(filter.toCommonFilter(), options.toCommonOptions())
         startScan(request)?.let { emit(BleEvent.Diagnostic(Severity.Error, it)) }

@@ -30,12 +30,12 @@ class BleClientContractTest {
     }
 
     @Test
-    fun `deprecated and official facades converge on one runtime truth`() {
-        val coreSource = source("BleCore.kt")
+    fun `official facade converges on one internal runtime truth`() {
+        val runtimeSource = source("internal/BleRuntime.kt")
         val clientSource = source("internal/DefaultBleClient.kt")
-        assertTrue(coreSource.contains("class BleCore private constructor(internal val runtime: BleRuntime)"))
-        assertTrue(clientSource.contains("internal constructor(core: BleCore) : this(core.runtime)"))
-        assertFalse("runtime must not retain the deprecated facade", coreSource.contains("BleRuntime private constructor(internal val core: BleCore)"))
+        assertTrue(runtimeSource.contains("internal class BleRuntime private constructor"))
+        assertFalse("runtime must not retain an official facade", runtimeSource.contains("DefaultBleClient"))
+        assertTrue(clientSource.contains("private val runtime: BleRuntime"))
     }
 
     private fun source(relativePath: String): String =

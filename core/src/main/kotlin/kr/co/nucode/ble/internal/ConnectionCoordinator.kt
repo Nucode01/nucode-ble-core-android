@@ -18,7 +18,7 @@ internal enum class ConnectionStage {
 /**
  * 현재 generation이 terminal cleanup에 들어간 이유.
  *
- * 플랫폼 status와 공개 Throwable 변환은 GattBridge/BleCore의 책임으로 남겨 두고 coordinator는
+ * 플랫폼 status와 공개 Throwable 변환은 GattBridge/BleRuntime의 책임으로 남겨 두고 coordinator는
  * lifecycle 분류만 소유한다.
  */
 internal enum class TerminalCleanupReason {
@@ -55,7 +55,7 @@ internal data class ConnectionLifecycleSnapshot(
     val terminalCleanupReason: TerminalCleanupReason?,
 )
 
-/** BleCore가 주입하는 successful readiness 단계별 timeout 묶음. */
+/** BleRuntime가 주입하는 successful readiness 단계별 timeout 묶음. */
 internal data class ConnectionReadinessTimeouts(
     val linkMillis: Long,
     val discoveryMillis: Long,
@@ -72,7 +72,7 @@ internal enum class ConnectionAttemptOrigin {
 /**
  * Session 하나의 connection lifecycle 상태 머신.
  *
- * 모든 호출과 [scope]는 BleCore의 단일 dispatcher에 귀속되어야 한다. coordinator는
+ * 모든 호출과 [scope]는 BleRuntime의 단일 dispatcher에 귀속되어야 한다. coordinator는
  * connection generation, stage, 최대 하나의 stage deadline, terminal cleanup reason을 같이
  * 전이시킨다. Android handle/source 검사는 GattBridge의 IO 경계에 남고, callback은 generation과
  * expected stage를 이 API에 전달해야 현재 lifecycle을 변경할 수 있다.

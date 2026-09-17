@@ -1055,13 +1055,13 @@ class GattDriverSeamTest {
     }
 
     @Test
-    fun `Android driver forwards callbacks through the supplied core scope`() = runTest {
+    fun `Android callback router forwards callbacks through the supplied core scope`() = runTest {
         val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val driver = AndroidGattDriver(context = null, adapter = { null }, scope = this)
+        val router = AndroidGattCallbackRouter(scope = this)
         var delivered = false
-        driver.setEventSink { delivered = true }
+        router.setEventSink { delivered = true }
 
-        driver.forward(
+        router.forward(
             GattDriverEvent.CharacteristicRead(
                 deviceId,
                 CURRENT_SOURCE,
@@ -1074,6 +1074,66 @@ class GattDriverSeamTest {
         assertFalse(delivered)
         runCurrent()
         assertTrue(delivered)
+    }
+
+    @Test
+    fun `Android callback event conversion snapshots bytes and exact attribute identity`() {
+        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val source = CURRENT_SOURCE
+        val identity = characteristicIdentity()
+        val characteristic = GattCharacteristicSnapshot(
+            serviceUuid = identity.serviceUuid,
+            charUuid = identity.characteristicUuid,
+            instanceIndex = identity.characteristicInstanceIndex,
+            propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
+            serviceInstanceIndex = identity.serviceInstanceIndex,
+        )
+        val changedBytes = byteArrayOf(1, 2)
+        val readBytes = byteArrayOf(3, 4)
+
+        val changed = characteristicChangedEvent(deviceId, source, characteristic, changedBytes)
+        val read = characteristicReadEvent(
+            deviceId,
+            source,
+            characteristic,
+            readBytes,
+            BluetoothGatt.GATT_SUCCESS,
+        )
+        val write = characteristicWriteEvent(deviceId, source, BluetoothGatt.GATT_SUCCESS, characteristic)
+        val descriptorUuid = UUID.randomUUID()
+        val descriptor = descriptorWriteEvent(
+            deviceId,
+            source,
+            BluetoothGatt.GATT_SUCCESS,
+            characteristic,
+            descriptorUuid,
+        )
+        changedBytes[0] = 9
+        readBytes[0] = 9
+
+        assertTrue(changed.value.contentEquals(byteArrayOf(1, 2)))
+        assertTrue(read.value.contentEquals(byteArrayOf(3, 4)))
+        assertEquals(identity, write.attributeIdentity)
+        assertEquals(identity, descriptor.attributeIdentity?.characteristic)
+        assertEquals(descriptorUuid, descriptor.attributeIdentity?.descriptorUuid)
+    }
+
+    @Test
+    fun `Android callback overload contract emits legacy values only before API 33`() {
+        val source = java.io.File(
+            "src/main/kotlin/kr/co/nucode/ble/internal/AndroidGattCallbackRouter.kt",
+        ).readText()
+
+        assertEquals(2, Regex("override fun onCharacteristicChanged\\(").findAll(source).count())
+        assertEquals(2, Regex("override fun onCharacteristicRead\\(").findAll(source).count())
+        assertEquals(
+            2,
+            Regex("Build\\.VERSION\\.SDK_INT < Build\\.VERSION_CODES\\.TIRAMISU")
+                .findAll(source)
+                .count(),
+        )
+        assertEquals(2, Regex("characteristicChangedEvent\\(").findAll(source).count() - 1)
+        assertEquals(2, Regex("characteristicReadEvent\\(").findAll(source).count() - 1)
     }
 
     private fun readFixture(scope: CoroutineScope): ReadFixture {

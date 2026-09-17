@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.internal.BleRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,7 +51,7 @@ class DiagnosticsWiringTest {
         val failure = failure()
 
         var observedOptions: DiagnosticOptions? = null
-        core.runtime.diagnosticIngress.report(Severity.Error, failure) { options ->
+        core.diagnosticIngress.report(Severity.Error, failure) { options ->
             observedOptions = options
             mapOf("payload-state" to DiagnosticValue.Redacted)
         }
@@ -95,7 +96,7 @@ class DiagnosticsWiringTest {
         val failure = failure()
 
         var valuesEvaluated = false
-        core.runtime.diagnosticIngress.report(Severity.Info, failure) { _: DiagnosticOptions ->
+        core.diagnosticIngress.report(Severity.Info, failure) { _: DiagnosticOptions ->
             valuesEvaluated = true
             mapOf("unexpected" to DiagnosticValue.Text("capture"))
         }
@@ -109,7 +110,7 @@ class DiagnosticsWiringTest {
     private fun kotlinx.coroutines.test.TestScope.newCore(
         logger: BleLogger?,
         diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
-    ): BleCore = BleCore(
+    ): BleRuntime = BleRuntime(
         // close() is synchronous; use the runtime's real single-thread dispatcher here rather
         // than a test dispatcher which requires this test thread to advance its scheduler.
         config = BleConfig(logger = logger, diagnosticOptions = diagnosticOptions),

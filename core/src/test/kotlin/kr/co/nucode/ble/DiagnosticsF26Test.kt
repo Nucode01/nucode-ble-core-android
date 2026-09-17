@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.internal.BleRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,7 +20,7 @@ class DiagnosticsF26Test {
     fun `one unknown platform failure preserves its typed tuple across event and logger projections`() = runTest {
         val records = mutableListOf<DiagnosticRecord>()
         val delivered = CountDownLatch(1)
-        val core = BleCore(
+        val core = BleRuntime(
             config = BleConfig(
                 logger = BleLogger { record ->
                     synchronized(records) { records += record }
@@ -50,7 +51,7 @@ class DiagnosticsF26Test {
 
     @Test
     fun `logger absent preserves compatibility diagnostic without evaluating unsafe values`() = runTest {
-        val core = BleCore(config = BleConfig(logger = null), adapter = { null })
+        val core = BleRuntime(config = BleConfig(logger = null), adapter = { null })
         val events = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(events) }
         runCurrent()

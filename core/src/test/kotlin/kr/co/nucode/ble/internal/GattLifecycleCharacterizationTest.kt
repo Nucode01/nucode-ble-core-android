@@ -21,7 +21,6 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
-import kr.co.nucode.ble.BleCore
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.CharRef
@@ -790,7 +789,7 @@ class GattLifecycleCharacterizationTest {
     @Test
     fun `close currently cancels pending work closes the driver and removes the Session`() {
         val driver = FakeGattDriver(CoroutineScope(Dispatchers.Unconfined))
-        val core = BleCore(
+        val core = BleRuntime(
             config = BleConfig(dispatcher = Dispatchers.Unconfined),
             adapter = { null },
             gattDriver = driver,
@@ -890,12 +889,12 @@ class GattLifecycleCharacterizationTest {
         assertTrue(driver.commands.isEmpty())
     }
 
-    private fun TestScope.newCore(driver: GattDriver): BleCore = BleCore(
+    private fun TestScope.newCore(driver: GattDriver): BleRuntime = BleRuntime(
         config = BleConfig(
             dispatcher = StandardTestDispatcher(testScheduler),
-            reconnectPolicy = ReconnectPolicy(maxAttempts = 0),
         ),
         adapter = { null },
+        reconnectPolicy = ReconnectPolicy(maxAttempts = 0),
         gattDriver = driver,
     )
 

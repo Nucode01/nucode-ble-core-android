@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
+import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.GattCallbackSource
 import kr.co.nucode.ble.internal.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.GattDriver
@@ -43,7 +44,7 @@ class BleClientFacadeTest {
                     BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
             )
         }
-        val core = BleCore(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver)
+        val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver)
         val view = DefaultBleClient(core).session(peripheralId)
         core.registry.get(DeviceId(peripheralId.value))!!.apply {
             state = ConnState.Connected
@@ -71,7 +72,7 @@ class BleClientFacadeTest {
     }
     @Test
     fun `same peripheral views observe the Session-owned state`() {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:01")
 
@@ -85,7 +86,7 @@ class BleClientFacadeTest {
 
     @Test
     fun `close terminalizes existing view and gates new view`() {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)
         val existing = client.session(PeripheralId("AA:BB:CC:DD:EE:02"))
 
@@ -102,10 +103,8 @@ class BleClientFacadeTest {
 
     @Test
     fun `runtime owns the live graph and facades own no registry or jobs`() {
-        // A compatibility adapter is allowed to hold one runtime only.  Reversing
-        // this edge would create two lifetime/state authorities.
         assertFalse(
-            BleRuntime::class.java.declaredFields.any { it.type == BleCore::class.java },
+            BleRuntime::class.java.declaredFields.any { it.type == DefaultBleClient::class.java },
         )
         val forbidden = setOf(SessionRegistry::class.java, kotlinx.coroutines.Job::class.java)
         listOf(DefaultBleClient::class.java, DefaultBleSession::class.java).forEach { facade ->
@@ -118,7 +117,7 @@ class BleClientFacadeTest {
 
     @Test
     fun `official exponential reconnect policy is accepted rather than rejected`() = kotlinx.coroutines.test.runTest {
-        val client = DefaultBleClient(BleCore(config = BleConfig(), adapter = { null }))
+        val client = DefaultBleClient(BleRuntime(config = BleConfig(), adapter = { null }))
 
         val error = runCatching {
             client.connect(
@@ -135,7 +134,7 @@ class BleClientFacadeTest {
 
     @Test
     fun `closed client retains frozen snapshot and permits repeated cleanup`() = runBlocking {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:05")
         val view = client.session(id)
@@ -157,7 +156,7 @@ class BleClientFacadeTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun `official edges retain ingress state when collector runs after later transitions`() = kotlinx.coroutines.test.runTest {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:07")
         client.session(id)
@@ -185,7 +184,7 @@ class BleClientFacadeTest {
 
     @Test(timeout = 5_000)
     fun `state collector can close inline on runtime without self deadlock`() = runBlocking {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:06")
         val view = client.session(id)
@@ -213,7 +212,7 @@ class BleClientFacadeTest {
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
         try {
             repeat(20) { iteration ->
-                val core = BleCore(config = BleConfig(), adapter = { null })
+                val core = BleRuntime(config = BleConfig(), adapter = { null })
                 val client = DefaultBleClient(core)
                 val start = java.util.concurrent.CountDownLatch(1)
                 val view = executor.submit<BleSession?> {

@@ -140,11 +140,11 @@ private class QueuedCccdWrite(
  * 이 클래스는 driver가 전달한 event를 이미 coreScope 위에 있다고 보고 처리한다. fake는
  * Android `BluetoothGatt`를 만들지 않고 같은 event를 주입할 수 있다.
  *
- * 권한 게이트는 `BleCore.ensureAdapterReady` 가 명령 진입에서 수행한다 — 이 클래스는
+ * 권한 게이트는 `BleRuntime.ensureAdapterReady` 가 명령 진입에서 수행한다 — 이 클래스는
  * 게이트 통과 후에만 불린다.
  *
  * [ackTimeoutMillis] 는 CCCD write(구독/해제) ack 대기 상한이다(plan blecore-app-tunables
- * 결정③ — 구 상수 `CCCD_ACK_TIMEOUT_MS` 대체). `BleCore` 조립부가 `BleConfig.operationTimeoutMillis`
+ * 결정③ — 구 상수 `CCCD_ACK_TIMEOUT_MS` 대체). `BleRuntime` 조립부가 `BleConfig.operationTimeoutMillis`
  * 를 그대로 넘긴다 — `OperationQueue` 의 write ack 타임아웃과 값은 같아도 워커 간 참조 금지
  * 원칙상 상수를 공유하지 않고 각자 주입받는다(OperationQueue KDoc과 동일 근거).
  */
@@ -677,7 +677,7 @@ internal class GattBridge(
         val session = currentSession(event) ?: return
 
         // MTU is only a fact for the active Configuring generation. Readiness completion
-        // belongs to BleCore because it must wait for subscription restore, but stale MTU
+        // belongs to BleRuntime because it must wait for subscription restore, but stale MTU
         // callbacks must still be discarded at the bridge boundary.
         if (readinessTimeouts != null) {
             val callbackGeneration = event.connectionGeneration ?: session.connectionCoordinator.generation
@@ -705,7 +705,7 @@ internal class GattBridge(
         session.mtu = mtu
         session.chunkSize = chunkSize
         emit(BleEvent.MtuChanged(deviceId, mtu, chunkSize))
-        // public Ready 상태 발행은 이 callback fact를 받은 BleCore orchestration이 담당한다.
+        // public Ready 상태 발행은 이 callback fact를 받은 BleRuntime orchestration이 담당한다.
     }
 
     /** notify/indicate 수신 → CharValue emit. Session 갱신은 없다(구독 목록은 subscribe()가 관리). */
@@ -962,9 +962,9 @@ internal class GattBridge(
      * connect() 시점의 최신 어댑터로 `getRemoteDevice` 한다. 어댑터가 아직 없으면(권한
      * 게이트를 통과했는데도 null 인 이례적 경우 — 게이트 통과 직후 어댑터가 사라진
      * 레이스)는 typed adapter failure로 던진다(D6, review M-7) — 예전에는 조용히
-     * 반환해 호출자(`BleCore.connect`)가 `Connecting` 을 emit 한 채로 세션이 영구 잔류했다.
+     * 반환해 호출자(`BleRuntime.connect`)가 `Connecting` 을 emit 한 채로 세션이 영구 잔류했다.
      * 조용한 실패 경로 자체를 없앤다 — 실패는 전부 두 갈래 규약대로 throw 한다. 권한/전원
-     * 판정 자체는 여전히 BleCore.ensureAdapterReady 의 몫이라 여기서 다시 판정하지 않고,
+     * 판정 자체는 여전히 BleRuntime.ensureAdapterReady 의 몫이라 여기서 다시 판정하지 않고,
      * 상태값은 [AdapterState.PoweredOff] 를 쓴다 — 방금 게이트를 통과했으므로 어댑터가
      * 사라졌다면 꺼졌다고 보는 쪽이 실체에 가장 가깝다.
      *
@@ -974,7 +974,7 @@ internal class GattBridge(
      */
     fun connect(deviceId: DeviceId, options: ConnectOptions) {
         // 조용한 반환 금지(review L — KDoc "조용한 실패 경로를 없앤다" 와 코드 일치).
-        // BleCore.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
+        // BleRuntime.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
         // 도달하면 정확히 M-7 유령 Connecting 이다.
         val session = registry.get(deviceId) ?: throw BleException(unknownDevice(deviceId))
         val connectionGeneration = readinessTimeouts?.let { timeouts ->
@@ -994,14 +994,14 @@ internal class GattBridge(
 
         // 기존 핸들·타임아웃 정리(review H-3): stale gatt 를 close 없이 덮어쓰면 프로세스당
         // GATT 클라이언트 상한(~32)을 소모해 결국 connectGatt 자체가 실패하기 시작한다.
-        // BleCore.connect 의 상태 가드가 Connecting/Connected 를 이미 걸렀으므로,
+        // BleRuntime.connect 의 상태 가드가 Connecting/Connected 를 이미 걸렀으므로,
         // 여기 도달한 기존 핸들은 전부 죽은(Disconnected) 것이다.
         session.timeoutJob?.cancel()
         session.timeoutJob = null
         session.gatt?.let { driver.close(deviceId, it) }
         session.gatt = null
         // D2/D6 — 이 재설정은 connectGatt 직전이어야 한다. 이전 시도가 사용자 disconnect()
-        // ·타임아웃 포기·connect 시작 실패(BleCore.connect 의 catch) 중 무엇으로든
+        // ·타임아웃 포기·connect 시작 실패(BleRuntime.connect 의 catch) 중 무엇으로든
         // suppressReconnect 를 true 로 남겼더라도, 지금 시작하는 이 시도는 새 시도라
         // "포기 상태"를 물려받으면 안 된다. connectGatt 호출 뒤로 미루면 그 사이 콜백이
         // (이례적으로) 동기 재진입해 stale 한 suppressReconnect 값을 보는 창이 생긴다.
@@ -1027,13 +1027,13 @@ internal class GattBridge(
         session.pendingCccd = null
         session.autoConnect = options.autoConnect
         // plan blecore-app-tunables 결정① — 이번 연결 시도의 옵션값을 Session 에 보존한다.
-        // BleCore.advanceConnectSequence 의 ServicesDiscovered 분기가 이 값을 그대로 읽어
+        // BleRuntime.advanceConnectSequence 의 ServicesDiscovered 분기가 이 값을 그대로 읽어
         // requestMtu 를 부른다(Session.requestedMtu KDoc, 구 상수 REQUESTED_MTU 대체).
         session.requestedMtu = options.requestedMtu
 
-        // D7(M-8+#16) 벨트 — BleCore.ensureAdapterReady 의 검사와 이 호출 사이의 레이스
+        // D7(M-8+#16) 벨트 — BleRuntime.ensureAdapterReady 의 검사와 이 호출 사이의 레이스
         // (예: 설정 앱에서 권한을 방금 회수)나 검사가 놓친 케이스를 막는다. connect() 는
-        // 두 갈래 규약상 즉시 실패 = BleException throw 다. BleCore가 이를 받아
+        // 두 갈래 규약상 즉시 실패 = BleException throw 다. BleRuntime가 이를 받아
         // Connecting 을 Disconnected 로 정리하고 재던진다.
         val gatt = try {
             if (connectionGeneration == null) {
@@ -1192,7 +1192,7 @@ internal class GattBridge(
     }
 
     /**
-     * MTU 협상 요청. BleCore.advanceConnectSequence 가 `ServicesDiscovered` 이후 부른다.
+     * MTU 협상 요청. BleRuntime.advanceConnectSequence 가 `ServicesDiscovered` 이후 부른다.
      * `requestMtu()` 가 `false` 를 돌려주면(호출 자체 실패) [handleMtuChanged] 콜백이 오지
      * 않으므로, requestMtu 실패도 handleMtuChanged 의 협상 실패와 같은 23/20 폴백 경로로
      * 처리해 Discovering 영구 정지를 막는다(review #4, plan §접근 ④).
@@ -1306,7 +1306,7 @@ internal class GattBridge(
      * 비대칭이다: 소비자 의도는 "이벤트 그만"이고 로컬 라우팅만 꺼도 달성된다 — CCCD
      * write 실패로 throw 하면 소비자가 불필요한 재시도 상태 기계를 만든다(규칙 1 유도).
      * 그래서 이 함수는 **throw 하지 않는다** — 실패는 전부 [Diagnostic][BleEvent.Diagnostic]
-     * 으로만 알린다. [Session.subscriptions] 정리는 호출자([kr.co.nucode.ble.BleCore.unsubscribe])
+     * 으로만 알린다. [Session.subscriptions] 정리는 호출자([BleRuntime.unsubscribe])
      * 가 이 함수 성패와 무관하게 항상 수행한다.
      *
      * subscribe/write와 동일한 scheduler FIFO를 사용한다.

@@ -11,13 +11,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.BleConfig
-import kr.co.nucode.ble.BleCore
-import kr.co.nucode.ble.BleEvent
-import kr.co.nucode.ble.DeviceId
-import kr.co.nucode.ble.DiscoveredService
+import kr.co.nucode.ble.BleClient
+import kr.co.nucode.ble.BleClientEvent
+import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.OfficialBleClientEvent
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.ScanResult
+import kr.co.nucode.ble.android.AndroidBleClientFactory
 
 class SampleApp : Application() {
-    lateinit var core: BleCore
+    lateinit var client: BleClient
         private set
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -27,19 +30,20 @@ class SampleApp : Application() {
     var onLogAppended: ((String) -> Unit)? = null // main thread 에서만 호출
 
     // discovered 캐시 — main thread 전용(events collect 가 Main.immediate). plan task 5 §④.
-    val discoveredServices = mutableMapOf<DeviceId, List<DiscoveredService>>()
+    val discoveredServices = mutableMapOf<PeripheralId, List<GattService>>()
 
     override fun onCreate() {
         super.onCreate()
-        core = BleCore(this, BleConfig())
+        client = AndroidBleClientFactory.create(this, BleConfig())
         scope.launch {
-            core.events.collect {
-                if (it is BleEvent.ServicesDiscovered) {
-                    discoveredServices[it.deviceId] = it.services
+            client.events.collect {
+                if (it is OfficialBleClientEvent.Services) {
+                    discoveredServices[it.peripheralId] = it.services
                 }
-                log(formatEvent(it))
+                if (it !is OfficialBleClientEvent.Scan) log(formatEvent(it))
             }
         }
+        scope.launch { client.scanResults.collect { log(formatScanResult(it)) } }
     }
 
     fun log(line: String) {
@@ -65,24 +69,16 @@ class SampleApp : Application() {
     }
 }
 
-private fun formatEvent(e: BleEvent): String = when (e) {
-    is BleEvent.ScanResult -> "SCAN ${e.deviceId} rssi=${e.rssi} name=${e.name}"
-
-    is BleEvent.ConnStateChanged -> "CONN ${e.deviceId} ${e.state}"
-
-    is BleEvent.ServicesDiscovered -> {
+private fun formatEvent(e: BleClientEvent): String = when (e) {
+    is OfficialBleClientEvent.Scan -> formatScanResult(e.result)
+    is OfficialBleClientEvent.Connection -> "CONN ${e.peripheralId} ${e.state}"
+    is OfficialBleClientEvent.Services -> {
         val charCount = e.services.sumOf { it.characteristics.size }
-        "SVCS ${e.deviceId} services=${e.services.size} chars=$charCount"
+        "SVCS ${e.peripheralId} services=${e.services.size} chars=$charCount"
     }
-
-    is BleEvent.CharValue -> {
-        val hex = e.bytes.take(8).joinToString(separator = "") { "%02X".format(it) }
-        "NTFY ${e.deviceId} ${e.charRef.charUuid} ${e.bytes.size}B $hex"
-    }
-
-    is BleEvent.MtuChanged -> "MTU  ${e.deviceId} mtu=${e.mtu} chunk=${e.chunkSize}"
-
-    is BleEvent.Diagnostic -> {
+    is OfficialBleClientEvent.SubscriptionRestoreFailed ->
+        "RESTORE ${e.peripheralId} ${e.characteristic.uuid} ${e.failure.code.value}"
+    is OfficialBleClientEvent.Diagnostic -> {
         val failure = e.failure
         val platform = when (val detail = failure.platformDetail) {
             is kr.co.nucode.ble.PlatformDetail.Android ->
@@ -97,3 +93,6 @@ private fun formatEvent(e: BleEvent): String = when (e) {
             "phase=${failure.phase} platform=$platform${failure.message?.let { " $it" }.orEmpty()}"
     }
 }
+
+private fun formatScanResult(result: ScanResult): String =
+    "SCAN ${result.peripheralId} rssi=${result.rssi} name=${result.advertisement.localName}"

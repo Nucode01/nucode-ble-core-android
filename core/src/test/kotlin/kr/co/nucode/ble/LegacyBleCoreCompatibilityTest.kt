@@ -7,12 +7,17 @@ import org.junit.Test
 
 class LegacyBleCoreCompatibilityTest {
     @Test
-    fun `legacy BleCore remains an explicitly deprecated compatibility facade`() {
-        val source = java.io.File("src/main/kotlin/kr/co/nucode/ble/BleCore.kt").readText()
-        assertTrue(source.contains("@Deprecated(\"Use AndroidBleClientFactory.create() and BleClient\")"))
-        assertTrue(source.contains("public val events: Flow<BleEvent> get() = runtime.events"))
-        assertTrue(source.contains("public suspend fun connect(deviceId: DeviceId, options: ConnectOptions"))
-        assertTrue(source.contains("public fun close(): Unit = runtime.close()"))
+    fun `legacy BleCore adapter is removed while the Android factory uses one runtime`() {
+        val sourceRoot = java.io.File("src/main/kotlin")
+        val sources = sourceRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .joinToString("\n") { it.readText() }
+        val factory = java.io.File(
+            "src/main/kotlin/kr/co/nucode/ble/android/AndroidBleClientFactory.kt",
+        ).readText()
+
+        assertFalse(Regex("\\b(class|interface|object)\\s+BleCore\\b").containsMatchIn(sources))
+        assertTrue(factory.contains("DefaultBleClient(BleRuntime(context, config))"))
     }
 
     @Test

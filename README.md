@@ -10,6 +10,11 @@
 > Slice 6 oracle로 검증된다. 실제 기기에서 장애 로그가 충분히 유용한지, PII/secret이
 > 노출되지 않는지는 아직 실행하지 않았으며 Slice 8 수동 검토 대상으로 남는다.
 
+> **Slice 7 API cleanup:** public 진입점은 `BleClient`/`BleSession`이며 Android 생성 경계는
+> `AndroidBleClientFactory`다. deprecated `BleCore`는 0.2.0에서 제거됐다. migration은
+> [0.2.0 changelog](CHANGELOG.md#020-unreleased), Kotlin-public 선언의 고정 JVM member signature는
+> [public API dump](core/api/ble-core.api)를 본다. 실기기 smoke는 아직 Slice 8 미실행이다.
+
 Swift 구현은 `02_ios_projects/` 에 별도 프로젝트로 (아직 없음 — 이 구현 다음).
 
 ---
@@ -77,7 +82,7 @@ git       아직 init 안 함
 ### 배포
 
 ```
-좌표      kr.co.nucode:ble-core:0.1.0
+좌표      kr.co.nucode:ble-core:0.2.0 (unreleased, local build only)
           ★ 기존 kr.co.nucode:ble (1.0.0~1.2.5) 와 의도적으로 다른 artifactId
             설계 §0 비목표 "마이그레이션이 아니라 대체다" — 병존하려면 좌표가 달라야 한다
 발행 대상  mavenLocal() 하나. 이 머신에서만 해석된다
@@ -92,6 +97,7 @@ api 스코프 kotlinx-coroutines 는 api 로 선언한다
 ```
 nucode_ble_core/
   core/                      라이브러리 모듈  (namespace kr.co.nucode.ble)
+    api/ble-core.api         0.2.0 Kotlin-public API의 JVM member signature 기준
     src/main/kotlin/kr/co/nucode/ble/
     src/test/kotlin/kr/co/nucode/ble/
     src/main/AndroidManifest.xml    권한 선언 없음 — uses-feature 만 (앱이 권한을 선언한다)
@@ -146,7 +152,7 @@ AGP 8.13.2 · Kotlin 2.0.21 · Gradle 8.13 · compileSdk 36 · minSdk 24 · JVM 
   1. 상태 기계 없음            Action / Reducer / Store 금지
   2. 기기별 상태는 객체 하나에   sessions: Map[DeviceId, Session] — 맵은 이것 하나
   3. 도메인 없음               프로토콜 · 판정 · 알림은 코어 밖
-  4. 진입점 한 겹              BleCore 하나. facade · Manager 금지
+  4. 진입점 한 겹              BleClient 하나 + peripheral view BleSession. Manager 금지
   5. 공개 API는 ID 기반         + 단일 이벤트 스트림 + snapshot(). 내부는 객체
 
 확장 보존 — 깨져도 v0.1은 돌지만 백그라운드가 재작성이 된다

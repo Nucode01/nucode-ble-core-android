@@ -4,7 +4,7 @@ package kr.co.nucode.ble
  * 코어가 내보내는 단일 이벤트 스트림의 원소.
  * 타입별로 스트림을 쪼개지 않는다 — 쪼개면 브리지에 EventChannel 관리 로직이 생긴다(설계 §5).
  */
-public sealed interface BleEvent {
+internal sealed interface BleEvent {
     public data class ScanResult(
         val deviceId: DeviceId,
         val name: String?,

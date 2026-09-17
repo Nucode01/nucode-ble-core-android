@@ -5,8 +5,6 @@ import kotlinx.coroutines.flow.map
 import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleClientEvent
 import kr.co.nucode.ble.BleConnectOptions
-import kr.co.nucode.ble.BleCore
-import kr.co.nucode.ble.BleRuntime
 import kr.co.nucode.ble.ClientSnapshot
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
@@ -16,8 +14,6 @@ import kr.co.nucode.ble.ScanResult
 internal class DefaultBleClient internal constructor(
     private val runtime: BleRuntime,
 ) : BleClient {
-    internal constructor(core: BleCore) : this(core.runtime)
-
     override val adapterState = runtime.adapterState
     override val scanResults: Flow<ScanResult> = runtime.scanObservations.map { observation ->
         ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)

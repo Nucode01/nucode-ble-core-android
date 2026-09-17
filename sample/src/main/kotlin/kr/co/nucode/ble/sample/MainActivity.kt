@@ -10,7 +10,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -18,19 +17,24 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kr.co.nucode.ble.BleEvent
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DeviceId
-import kr.co.nucode.ble.DiscoveredService
-import kr.co.nucode.ble.ManufacturerDataFilter
-import kr.co.nucode.ble.ScanFilter
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.BleManufacturerDataFilter
+import kr.co.nucode.ble.BleScanFilter
+import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.OfficialBleClientEvent
+import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.ScanResult
 
 /**
  * plan .plans/blecore-sample/v1.md task 3 — 권한 플로우·컨트롤 전체·로그 뷰.
@@ -57,19 +61,18 @@ class MainActivity : Activity() {
     private lateinit var mfgDataInput: EditText
     private lateinit var mfgMaskInput: EditText
 
-    // 5. 스캔 결과 — Map<DeviceId, 최근표시문자열> 유지(plan §구조 UI 명세)
+    // 5. 스캔 결과 — Map<PeripheralId, 최근표시문자열> 유지(plan §구조 UI 명세)
     private lateinit var scanResultsContainer: LinearLayout
-    private val scanResultViews = mutableMapOf<DeviceId, TextView>()
-    private var selectedDeviceId: DeviceId? = null
-
-    // 6. 연결 옵션
-    private lateinit var autoConnectCheck: CheckBox
-    private lateinit var mtu23Check: CheckBox
+    private val scanResultViews = mutableMapOf<PeripheralId, TextView>()
+    private var selectedDeviceId: PeripheralId? = null
 
     // 7. characteristic 리스트
     private lateinit var charListContainer: LinearLayout
-    private val charViews = mutableMapOf<CharRef, TextView>()
-    private var selectedCharRef: CharRef? = null
+    private val charViews = mutableMapOf<CharacteristicRef, TextView>()
+    private var selectedCharRef: CharacteristicRef? = null
+    private var subscriptionJob: Job? = null
+    private var notificationJob: Job? = null
+    private var notificationGeneration: Long = 0
 
     // 9. 로그 뷰
     private lateinit var logText: TextView
@@ -102,24 +105,26 @@ class MainActivity : Activity() {
         app.onLogAppended = { line -> appendLogLine(line) }
 
         scope.launch {
-            app.core.adapterState.collect { state -> adapterStateText.text = "Adapter: $state" }
+            app.client.adapterState.collect { state -> adapterStateText.text = "Adapter: $state" }
         }
 
         scope.launch {
-            app.core.events.collect { event ->
-                when (event) {
-                    is BleEvent.ScanResult -> handleScanResult(event)
-                    is BleEvent.ServicesDiscovered -> handleServicesDiscovered(event)
-                    else -> Unit
-                }
+            app.client.scanResults.collect(::handleScanResult)
+        }
+        scope.launch {
+            app.client.events.collect { event ->
+                if (event is OfficialBleClientEvent.Services) handleServicesDiscovered(event)
             }
         }
 
         // 콜드 스타트(화면 회전 등) 복원 — Activity 재생성 후에도 기기 선택·[해제]가 가능해진다.
         scope.launch {
-            runCatching { app.core.snapshot() }.onSuccess { snap ->
-                snap.devices.forEach { d ->
-                    addOrUpdateScanRow(d.deviceId, "restored ${d.deviceId} state=${d.connState}")
+            runCatching { app.client.snapshot() }.onSuccess { snap ->
+                snap.sessions.forEach { session ->
+                    addOrUpdateScanRow(
+                        session.peripheralId,
+                        "restored ${session.peripheralId} state=${session.connectionState}",
+                    )
                 }
             }
         }
@@ -187,8 +192,7 @@ class MainActivity : Activity() {
         scanButton.setOnClickListener {
             scope.launch {
                 try {
-                    val filter = buildScanFilter()
-                    app.core.startScan(filter)
+                    app.client.startScan(ScanRequest(filter = buildScanFilter()))
                 } catch (e: Exception) {
                     app.log("ERR startScan $e")
                 }
@@ -197,7 +201,7 @@ class MainActivity : Activity() {
         stopButton.setOnClickListener {
             scope.launch {
                 try {
-                    app.core.stopScan()
+                    app.client.stopScan()
                 } catch (e: Exception) {
                     app.log("ERR stopScan $e")
                 }
@@ -214,17 +218,7 @@ class MainActivity : Activity() {
             },
         )
 
-        // 6. 연결 옵션 + 연결/해제
-        autoConnectCheck = CheckBox(this).apply { text = "autoConnect" }
-        mtu23Check = CheckBox(this).apply { text = "MTU 23" }
-        controls.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(autoConnectCheck)
-                addView(mtu23Check)
-            },
-        )
-
+        // 6. 연결/해제 — Android autoConnect와 requested MTU는 공통 API가 아니다.
         val connectButton = Button(this).apply { text = "연결" }
         val disconnectButton = Button(this).apply { text = "해제" }
         controls.addView(
@@ -243,11 +237,7 @@ class MainActivity : Activity() {
             } else {
                 scope.launch {
                     try {
-                        val options = ConnectOptions(
-                            autoConnect = autoConnectCheck.isChecked,
-                            requestedMtu = if (mtu23Check.isChecked) 23 else 247,
-                        )
-                        app.core.connect(target, options)
+                        app.client.connect(target)
                     } catch (e: Exception) {
                         app.log("ERR connect $e")
                     }
@@ -261,7 +251,7 @@ class MainActivity : Activity() {
             } else {
                 scope.launch {
                     try {
-                        app.core.disconnect(target)
+                        app.client.session(target).disconnect()
                     } catch (e: Exception) {
                         app.log("ERR disconnect $e")
                     }
@@ -275,15 +265,25 @@ class MainActivity : Activity() {
         controls.addView(charListContainer)
 
         // 8. 동작 버튼
+        val readButton = Button(this).apply { text = "Read" }
         val write20Button = Button(this).apply { text = "Write 20B" }
         val write600Button = Button(this).apply { text = "Write 600B" }
         controls.addView(
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                addView(readButton)
                 addView(write20Button)
                 addView(write600Button)
             },
         )
+        readButton.setOnClickListener {
+            val target = requireTarget() ?: return@setOnClickListener
+            scope.launch {
+                runCatching { app.client.session(target.first).read(target.second) }
+                    .onSuccess { value -> app.log("READ ${value.size}B ${value.toHexPreview()}") }
+                    .onFailure { failure -> app.log("ERR read $failure") }
+            }
+        }
         write20Button.setOnClickListener { onWrite(20) }
         write600Button.setOnClickListener { onWrite(600) }
 
@@ -298,20 +298,44 @@ class MainActivity : Activity() {
         )
         subscribeButton.setOnClickListener {
             val target = requireTarget() ?: return@setOnClickListener
-            scope.launch {
+            cancelNotificationWork()
+            val generation = notificationGeneration
+            subscriptionJob = scope.launch {
+                var collector: Job? = null
                 try {
-                    app.core.subscribe(target.first, target.second)
+                    val session = app.client.session(target.first)
+                    collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        session.notifications(target.second).collect { value ->
+                            app.log("NTFY ${target.second.uuid} ${value.size}B ${value.toHexPreview()}")
+                        }
+                    }
+                    notificationJob = collector
+                    session.subscribe(target.second)
+                    if (
+                        generation != notificationGeneration ||
+                        selectedDeviceId != target.first ||
+                        selectedCharRef != target.second
+                    ) {
+                        collector?.cancel()
+                        return@launch
+                    }
                     app.log("SUBSCRIBED ${target.second}")
+                } catch (cancelled: CancellationException) {
+                    collector?.cancel()
+                    throw cancelled
                 } catch (e: Exception) {
+                    collector?.cancel()
+                    if (notificationJob === collector) notificationJob = null
                     app.log("ERR subscribe $e")
                 }
             }
         }
         unsubscribeButton.setOnClickListener {
             val target = requireTarget() ?: return@setOnClickListener
+            cancelNotificationWork()
             scope.launch {
                 try {
-                    app.core.unsubscribe(target.first, target.second)
+                    app.client.session(target.first).unsubscribe(target.second)
                     app.log("UNSUBSCRIBED ${target.second}")
                 } catch (e: Exception) {
                     app.log("ERR unsubscribe $e")
@@ -331,16 +355,17 @@ class MainActivity : Activity() {
         snapshotButton.setOnClickListener {
             scope.launch {
                 try {
-                    app.log("SNAPSHOT dropped=${app.core.droppedEventCount} ${app.core.snapshot()}")
+                    app.log("SNAPSHOT ${app.client.snapshot()}")
                 } catch (e: Exception) {
                     app.log("ERR snapshot $e")
                 }
             }
         }
         closeButton.setOnClickListener {
+            cancelNotificationWork()
             scope.launch {
                 try {
-                    app.core.close()
+                    app.client.close()
                     app.log("closed — 이후 명령은 throw, 앱 재시작 필요")
                 } catch (e: Exception) {
                     app.log("ERR close $e")
@@ -381,7 +406,8 @@ class MainActivity : Activity() {
         val target = requireTarget() ?: return
         scope.launch {
             try {
-                val result = app.core.write(target.first, target.second, ByteArray(size) { it.toByte() })
+                val result = app.client.session(target.first)
+                    .write(target.second, ByteArray(size) { it.toByte() })
                 app.log("WRITE${size} $result")
             } catch (e: Exception) {
                 app.log("ERR write$size $e")
@@ -389,7 +415,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun requireTarget(): Pair<DeviceId, CharRef>? {
+    private fun requireTarget(): Pair<PeripheralId, CharacteristicRef>? {
         val deviceId = selectedDeviceId
         val charRef = selectedCharRef
         if (deviceId == null || charRef == null) {
@@ -421,18 +447,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildScanFilter(): ScanFilter = when {
-        serviceRadio.isChecked -> ScanFilter(serviceUuids = listOf(UUID.fromString(serviceUuidInput.text.toString().trim())))
-        mfgRadio.isChecked -> ScanFilter(
+    private fun buildScanFilter(): BleScanFilter = when {
+        serviceRadio.isChecked -> BleScanFilter(
+            serviceUuids = listOf(BleUuid(UUID.fromString(serviceUuidInput.text.toString().trim()))),
+        )
+        mfgRadio.isChecked -> BleScanFilter(
             manufacturerData = listOf(
-                ManufacturerDataFilter(
+                BleManufacturerDataFilter(
                     parseCompanyId(companyIdInput.text.toString()),
                     parseHex(mfgDataInput.text.toString()),
                     parseHex(mfgMaskInput.text.toString()),
                 ),
             ),
         )
-        else -> ScanFilter() // "없음" — 기본 ScanFilter() 로 UNFILTERED_SCAN Diagnostic 유도
+        else -> BleScanFilter() // "없음" — 기본 BleScanFilter() 로 UNFILTERED_SCAN Diagnostic 유도
     }
 
     private fun requestBlePermissions() {
@@ -456,12 +484,15 @@ class MainActivity : Activity() {
 
     // ── 이벤트 소비(UI 상태) ─────────────────────────────────────────────────
 
-    private fun handleScanResult(event: BleEvent.ScanResult) {
-        addOrUpdateScanRow(event.deviceId, "${event.deviceId}  rssi=${event.rssi}  ${event.name ?: ""}")
+    private fun handleScanResult(result: ScanResult) {
+        addOrUpdateScanRow(
+            result.peripheralId,
+            "${result.peripheralId}  rssi=${result.rssi}  ${result.advertisement.localName ?: ""}",
+        )
     }
 
     // scanResultsContainer 행 추가/갱신 — handleScanResult 와 snapshot 복원 시드가 공유(plan task 5 §④).
-    private fun addOrUpdateScanRow(deviceId: DeviceId, display: String) {
+    private fun addOrUpdateScanRow(deviceId: PeripheralId, display: String) {
         val existing = scanResultViews[deviceId]
         if (existing != null) {
             existing.text = display
@@ -477,7 +508,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun selectDevice(deviceId: DeviceId) {
+    private fun selectDevice(deviceId: PeripheralId) {
+        cancelNotificationWork()
         selectedDeviceId = deviceId
         scanResultViews.forEach { (id, view) ->
             view.setBackgroundColor(if (id == deviceId) Color.LTGRAY else Color.TRANSPARENT)
@@ -487,33 +519,36 @@ class MainActivity : Activity() {
         updateSelectionText()
     }
 
-    private fun handleServicesDiscovered(event: BleEvent.ServicesDiscovered) {
-        if (event.deviceId != selectedDeviceId) return
+    private fun handleServicesDiscovered(event: OfficialBleClientEvent.Services) {
+        if (event.peripheralId != selectedDeviceId) return
         // 캐시 갱신은 SampleApp 몫 — 여기는 선택 기기일 때 렌더만.
         renderCharList(event.services)
         updateSelectionText()
     }
 
-    private fun renderCharList(services: List<DiscoveredService>?) {
+    private fun renderCharList(services: List<GattService>?) {
+        cancelNotificationWork()
         charListContainer.removeAllViews()
         charViews.clear()
         selectedCharRef = null
         services?.forEach { service ->
             for (characteristic in service.characteristics) {
-                val label = "${service.serviceUuid} / ${characteristic.charRef.charUuid} [${characteristic.properties.joinToString(",")}]"
+                val label = "${service.ref.uuid} / ${characteristic.ref.uuid} " +
+                    "[${characteristic.properties.joinToString(",")}]"
                 val view = TextView(this).apply {
                     text = label
                     val pad = dp(4)
                     setPadding(pad, pad, pad, pad)
-                    setOnClickListener { selectChar(characteristic.charRef) }
+                    setOnClickListener { selectChar(characteristic.ref) }
                 }
-                charViews[characteristic.charRef] = view
+                charViews[characteristic.ref] = view
                 charListContainer.addView(view)
             }
         }
     }
 
-    private fun selectChar(charRef: CharRef) {
+    private fun selectChar(charRef: CharacteristicRef) {
+        cancelNotificationWork()
         selectedCharRef = charRef
         charViews.forEach { (ref, view) ->
             view.setBackgroundColor(if (ref == charRef) Color.LTGRAY else Color.TRANSPARENT)
@@ -523,8 +558,18 @@ class MainActivity : Activity() {
 
     private fun updateSelectionText() {
         val deviceLabel = selectedDeviceId?.toString() ?: "없음"
-        val charLabel = selectedCharRef?.let { "${it.serviceUuid}/${it.charUuid}#${it.instanceIndex}" } ?: "없음"
+        val charLabel = selectedCharRef?.let {
+            "${it.service.uuid}/${it.uuid}#${it.instanceIndex}"
+        } ?: "없음"
         selectionText.text = "선택: 기기=$deviceLabel / characteristic=$charLabel"
+    }
+
+    private fun cancelNotificationWork() {
+        notificationGeneration++
+        subscriptionJob?.cancel()
+        subscriptionJob = null
+        notificationJob?.cancel()
+        notificationJob = null
     }
 
     // ── 로그 렌더(렌더 전용 — 수집은 SampleApp) ────────────────────────────────
@@ -561,6 +606,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         app.onLogAppended = null
+        cancelNotificationWork()
         scope.cancel()
     }
 
@@ -569,3 +615,6 @@ class MainActivity : Activity() {
         const val LOG_RESYNC_THRESHOLD = 2000
     }
 }
+
+private fun ByteArray.toHexPreview(): String =
+    take(8).joinToString(separator = "") { byte -> "%02X".format(byte) }

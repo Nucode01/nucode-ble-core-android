@@ -156,7 +156,7 @@ public class BleException(
 ) : Exception(failure.message ?: failure.code.value)
 
 /** Stable reason that a session is disconnected. */
-public sealed interface DisconnectReason {
+internal sealed interface DisconnectReason {
     public data object Initial : DisconnectReason
     public data object Requested : DisconnectReason
     public data object ClientClosed : DisconnectReason

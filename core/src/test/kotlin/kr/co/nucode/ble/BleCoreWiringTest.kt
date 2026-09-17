@@ -35,6 +35,8 @@ import kr.co.nucode.ble.internal.GattOperationTarget
 import kr.co.nucode.ble.internal.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.ConnectionStage
+import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.evaluatePermissionState
 import kr.co.nucode.ble.internal.Session
 import kr.co.nucode.ble.internal.SessionRegistry
 import org.junit.Assert.assertEquals
@@ -46,7 +48,7 @@ import org.junit.Test
  * plan blecore-wiring v2 task 6 — review #14("28개 green 이지만 배선 자체는 테스트 0줄")의
  * 회귀 테스트. [EventEmissionTest] 는 `MutableSharedFlow` 를 새로 만들어 코루틴 라이브러리
  * 자체를 검증했을 뿐 [BleCore] 배선을 건드리지 않았다 — 이 파일은 task 5 가 만든 internal
- * 테스트 seam(`BleCore(BleConfig, adapter)` 보조 생성자 + `emit` + `registry`)으로 실제
+ * 테스트 seam(`BleRuntime(BleConfig, adapter)` 보조 생성자 + `emit` + `registry`)으로 실제
  * `advanceConnectSequence` 분기 · emit 순서 · dropped 카운터를 직접 두드린다.
  *
  * `adapter = { null }` 이라 [kr.co.nucode.ble.internal.Scanner]/[kr.co.nucode.ble.internal.GattBridge]
@@ -73,11 +75,10 @@ class BleCoreWiringTest {
         disconnectCleanupTimeoutMillis: Long = 5_000,
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
-    ): BleCore = BleCore(
+    ): BleRuntime = BleRuntime(
         config = BleConfig(
             dispatcher = StandardTestDispatcher(testScheduler),
             eventBufferCapacity = eventBufferCapacity,
-            reconnectPolicy = reconnectPolicy,
             operationTimeoutMillis = operationTimeoutMillis,
             linkTimeoutMillis = linkTimeoutMillis,
             discoveryTimeoutMillis = discoveryTimeoutMillis,
@@ -85,6 +86,7 @@ class BleCoreWiringTest {
             disconnectCleanupTimeoutMillis = disconnectCleanupTimeoutMillis,
         ),
         adapter = { null },
+        reconnectPolicy = reconnectPolicy,
         gattDriver = gattDriver,
         gattOperationTargetResolver = gattOperationTargetResolver,
     )
@@ -1232,12 +1234,12 @@ class BleCoreWiringTest {
      * plan F — `close()` 의 세션 정리 루프가 pendingWrite/pendingCccd/resubscribeJob/
      * reconnectJob/timeoutJob 을 전부 취소하는지 확인한다(D1 close 테스트 확장). `coreDispatcherOnly`
      * 가 `StandardTestDispatcher` 이면 close() 의 `runBlocking` 이 데드락한다(D1 KDoc) —
-     * 그래서 여기서는 `BleCore(config = BleConfig(), adapter = { null })` 로 진짜
+     * 그래서 여기서는 `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜
      * `Dispatchers.Default` 기반 인스턴스를 별도로 만들어 close() 를 동기 호출한다.
      */
     @Test
     fun `PL-F close 후 pendingWrite pendingCccd resubscribeJob reconnectJob timeoutJob이 모두 취소된다`() {
-        val core = BleCore(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig(), adapter = { null })
         val id = testDeviceId()
         val pendingWrite = kotlinx.coroutines.CompletableDeferred<Int>()
         val pendingCccd = kotlinx.coroutines.CompletableDeferred<Int>()
@@ -1540,7 +1542,7 @@ class BleCoreWiringTest {
 
         val officialEvents = mutableListOf<BleClientEvent>()
         var restoreJobAtReady: kotlinx.coroutines.Job? = null
-        backgroundScope.launch { core.runtime.officialEvents.toList(officialEvents) }
+        backgroundScope.launch { core.officialEvents.toList(officialEvents) }
         backgroundScope.launch {
             core.events.collect { event ->
                 if (event == BleEvent.ConnStateChanged(id, ConnState.Ready)) {
@@ -1656,7 +1658,7 @@ class BleCoreWiringTest {
     @Test
     fun `Slice2 close는 lifecycle timer와 scheduler work를 함께 drain한다`() {
         val driver = LifecycleFakeGattDriver()
-        val core = BleCore(
+        val core = BleRuntime(
             config = BleConfig(dispatcher = kotlinx.coroutines.Dispatchers.Unconfined),
             adapter = { null },
             gattDriver = driver,
@@ -1816,7 +1818,7 @@ class BleCoreWiringTest {
     }
 
     private data class PublicGattFixture(
-        val core: BleCore,
+        val core: BleRuntime,
         val deviceId: DeviceId,
         val ref: CharRef,
         val queuedRef: CharRef,

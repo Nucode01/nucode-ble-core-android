@@ -1,6 +1,7 @@
 package kr.co.nucode.ble
 
 import java.lang.reflect.ParameterizedType
+import java.lang.reflect.Modifier
 import java.lang.reflect.Type
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,78 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PublicApiSurfaceTest {
+    @Test
+    fun `checked in API dump matches JVM signatures of Kotlin public declarations`() {
+        val baseline = java.io.File("api/ble-core.api")
+        assertTrue("public API baseline must be checked in at ${baseline.path}", baseline.isFile)
+
+        val expected = baseline.readLines()
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .sorted()
+        val actual = publicApiSignatures()
+
+        assertEquals(expected.joinToString("\n"), actual.joinToString("\n"))
+    }
+
+    private fun publicApiSignatures(): List<String> {
+        val sourceRoot = java.io.File("src/main/kotlin")
+        val declaration = Regex(
+            "^public (?:(?:data|sealed|value|fun) )?(?:class|interface|object|enum class) ([A-Za-z0-9_]+)",
+            RegexOption.MULTILINE,
+        )
+        val topLevelTypes = sourceRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { file ->
+                val source = file.readText()
+                val packageName = Regex("^package ([A-Za-z0-9_.]+)", RegexOption.MULTILINE)
+                    .find(source)?.groupValues?.get(1).orEmpty()
+                declaration.findAll(source).map { match -> "$packageName.${match.groupValues[1]}" }
+            }
+            .distinct()
+            .toList()
+
+        return buildList {
+            topLevelTypes.forEach { addPublicSignatures(Class.forName(it)) }
+        }.sorted()
+    }
+
+    @Test
+    fun `legacy entrypoint and models are absent from the public dump`() {
+        val dump = java.io.File("api/ble-core.api").readText()
+        listOf(
+            "BleCore", "BleEvent", "DeviceId", "CharRef", "ConnState", "ConnectOptions",
+            "ReconnectPolicy", "DisconnectReason", "WriteResult", "WriteType", "Chunking",
+            "Snapshot", "DeviceSnapshot",
+        ).forEach { forbidden ->
+            val qualifiedName = "kr.co.nucode.ble.$forbidden"
+            assertFalse(
+                "legacy public API remains: $forbidden",
+                Regex("(^|[^A-Za-z0-9_$])${Regex.escape(qualifiedName)}([^A-Za-z0-9_$]|$)")
+                    .containsMatchIn(dump),
+            )
+        }
+    }
+
+    @Test
+    fun `core source owns no product codec beacon or Android app component`() {
+        val sourceRoot = java.io.File("src/main/kotlin")
+        val productionDeclarations = sourceRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .joinToString("\n") { file ->
+                file.readLines().filterNot { line -> line.trimStart().startsWith("//") || line.trimStart().startsWith("*") }
+                    .joinToString("\n")
+            }
+        listOf(
+            Regex("^package .*\\.(?:codec|beacon)(?:\\.|$)", RegexOption.MULTILINE),
+            Regex("\\b(?:class|interface|object)\\s+.*(?:Codec|Beacon)\\b"),
+        ).forEach { forbidden -> assertFalse(forbidden.containsMatchIn(productionDeclarations)) }
+
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText().lowercase()
+        listOf("<uses-permission", "<activity", "<service", "foreground_service").forEach { forbidden ->
+            assertFalse("core manifest must not own $forbidden", manifest.contains(forbidden))
+        }
+    }
+
     @Test
     fun `official connect overloads use only neutral options`() {
         val clientConnect = BleClient::class.java.methods.single { method ->
@@ -125,5 +198,67 @@ class PublicApiSurfaceTest {
             assertFalse("forbidden common API type: $name", !allowed && name.contains(forbidden))
         }
         if (type is ParameterizedType) type.actualTypeArguments.forEach(::assertCommonType)
+    }
+
+    private fun MutableList<String>.addPublicSignatures(type: Class<*>) {
+        val typeFlags = buildList {
+            add(Modifier.toString(type.modifiers))
+            if (type.isSynthetic) add("synthetic")
+        }.filter { it.isNotBlank() }.joinToString(" ")
+        add(
+            "TYPE $typeFlags ${type.name} extends=${type.genericSuperclass?.typeName ?: "-"} " +
+                "implements=${type.genericInterfaces.joinToString(",") { it.typeName }}",
+        )
+
+        type.declaredConstructors
+            .filter { Modifier.isPublic(it.modifiers) || Modifier.isProtected(it.modifiers) }
+            .filterNot { it.isSynthetic }
+            .forEach { constructor ->
+                val flags = buildList {
+                    add(Modifier.toString(constructor.modifiers))
+                    if (constructor.isSynthetic) add("synthetic")
+                }.filter { it.isNotBlank() }.joinToString(" ")
+                add(
+                    "CONSTRUCTOR $flags ${type.name}(" +
+                        constructor.genericParameterTypes.joinToString(",") { it.typeName } +
+                        ") throws=${constructor.genericExceptionTypes.joinToString(",") { it.typeName }}",
+                )
+            }
+        type.declaredFields
+            .filter { Modifier.isPublic(it.modifiers) || Modifier.isProtected(it.modifiers) }
+            .filterNot { it.isSynthetic }
+            .forEach { field ->
+                val flags = buildList {
+                    add(Modifier.toString(field.modifiers))
+                    if (field.isSynthetic) add("synthetic")
+                    if (field.isEnumConstant) add("enum")
+                }.filter { it.isNotBlank() }.joinToString(" ")
+                add("FIELD $flags ${field.genericType.typeName} ${type.name}.${field.name}")
+            }
+        type.declaredMethods
+            .filter { Modifier.isPublic(it.modifiers) || Modifier.isProtected(it.modifiers) }
+            .filterNot { method ->
+                method.isSynthetic ||
+                    method.name in setOf("equals", "hashCode", "toString")
+            }
+            .forEach { method ->
+                val flags = buildList {
+                    add(Modifier.toString(method.modifiers))
+                    if (method.isDefault) add("default")
+                    if (method.isBridge) add("bridge")
+                    if (method.isSynthetic) add("synthetic")
+                }.filter { it.isNotBlank() }.joinToString(" ")
+                val typeParameters = method.typeParameters.joinToString(",", prefix = "<", postfix = ">") { parameter ->
+                    parameter.name + ":" + parameter.bounds.joinToString("&") { it.typeName }
+                }
+                add(
+                    "METHOD $flags $typeParameters ${method.genericReturnType.typeName} ${type.name}.${method.name}(" +
+                        method.genericParameterTypes.joinToString(",") { it.typeName } +
+                        ") throws=${method.genericExceptionTypes.joinToString(",") { it.typeName }}",
+                )
+            }
+        type.declaredClasses
+            .filter { Modifier.isPublic(it.modifiers) || Modifier.isProtected(it.modifiers) }
+            .forEach { nested -> addPublicSignatures(nested) }
     }
 }

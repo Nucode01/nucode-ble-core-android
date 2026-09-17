@@ -1,0 +1,543 @@
+# nucode BLE Core 0.2.0 Kotlin-public API (JVM member signatures)
+CONSTRUCTOR public kr.co.nucode.ble.AdapterState$Unauthorized(boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.AdvertisementData(java.lang.String,java.util.Set<kr.co.nucode.ble.BleUuid>,java.util.Map<java.lang.Integer, byte[]>,java.util.Map<kr.co.nucode.ble.BleUuid, byte[]>,java.lang.Integer,java.lang.Boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleChunking$Fixed(int) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConfig() throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConfig(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions() throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions(kr.co.nucode.ble.BleReconnectPolicy) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleDisconnectReason$Failed(kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleException(kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleManufacturerDataFilter(int,byte[],byte[]) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff(int,long,long) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleScanFilter() throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleScanFilter(java.util.List<kr.co.nucode.ble.BleUuid>,java.lang.String,java.util.List<kr.co.nucode.ble.BleManufacturerDataFilter>,java.util.List<kr.co.nucode.ble.BleServiceDataFilter>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleScanOptions() throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleScanOptions(kr.co.nucode.ble.BleScanMode) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleWriteOptions() throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleWriteOptions(kr.co.nucode.ble.BleWriteMode,kr.co.nucode.ble.BleChunking) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ClientSnapshot(kr.co.nucode.ble.AdapterState,boolean,java.util.List<kr.co.nucode.ble.SessionSnapshot>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ConnectionState$Disconnected(kr.co.nucode.ble.BleDisconnectReason) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ConnectionState$Recovering(int,long,kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticFailure(kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticOptions() throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticOptions(boolean,int,java.util.Set<kr.co.nucode.ble.CharacteristicRef>,java.util.Set<kr.co.nucode.ble.CharacteristicRef>,int) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticRecord(kr.co.nucode.ble.DiagnosticSeverity,kr.co.nucode.ble.DiagnosticFailure,java.util.Map<java.lang.String, ? extends kr.co.nucode.ble.DiagnosticValue>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Flag(boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Number(long) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Payload(byte[],int,boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Text(java.lang.String) throws=
+CONSTRUCTOR public kr.co.nucode.ble.FailureContext() throws=
+CONSTRUCTOR public kr.co.nucode.ble.FailureContext(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason) throws=
+CONSTRUCTOR public kr.co.nucode.ble.GattCharacteristic(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.GattService(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.OfficialBleClientEvent$Scan(kr.co.nucode.ble.ScanResult) throws=
+CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Android(java.lang.String,java.lang.Integer,java.lang.Integer,java.lang.String,java.lang.String) throws=
+CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Ios(java.lang.String,int,java.lang.String,java.lang.String) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ScanRequest() throws=
+CONSTRUCTOR public kr.co.nucode.ble.ScanRequest(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
+CONSTRUCTOR public kr.co.nucode.ble.WriteProgress(int,int,int,int,java.lang.Integer,java.lang.Integer,boolean,kr.co.nucode.ble.DeliverySemantics,boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.WriteReceipt(int,int,kr.co.nucode.ble.DeliverySemantics) throws=
+FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.Balanced
+FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.LowLatency
+FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.LowPower
+FIELD public static final enum kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteMode.WithResponse
+FIELD public static final enum kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteMode.WithoutResponse
+FIELD public static final enum kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.Indicate
+FIELD public static final enum kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.Notify
+FIELD public static final enum kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.Read
+FIELD public static final enum kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.WriteWithResponse
+FIELD public static final enum kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.WriteWithoutResponse
+FIELD public static final enum kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.AdapterUnavailable
+FIELD public static final enum kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.GenerationPoisoned
+FIELD public static final enum kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.LinkLost
+FIELD public static final enum kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.PermissionDenied
+FIELD public static final enum kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.UserRequested
+FIELD public static final enum kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.DeliverySemantics.RemoteAcknowledged
+FIELD public static final enum kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.DeliverySemantics.SubmittedToPlatform
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticSensitivity.Safe
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticSensitivity.Sensitive
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticSensitivity.Unknown
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticSeverity.Error
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticSeverity.Info
+FIELD public static final enum kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticSeverity.Warning
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Adapter
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Close
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Configure
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Connect
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.DiscoverServices
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Link
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Operation
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Reconnect
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Scan
+FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Validation
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Read
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.RequestMtu
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Subscribe
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Unsubscribe
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.WriteWithResponse
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.WriteWithoutResponse
+FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.AfterEnvironmentChange
+FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.Never
+FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.NewConnectionMayHelp
+FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.TransientMayHelp
+FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.Unknown
+FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Error
+FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Info
+FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Warning
+FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_MAX_RAW_PAYLOAD_BYTES
+FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_QUEUE_CAPACITY
+FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.MAX_QUEUE_CAPACITY
+FIELD public static final int kr.co.nucode.ble.DiagnosticRecord.MAX_VALUE_COUNT
+FIELD public static final int kr.co.nucode.ble.DiagnosticRecord.MAX_VALUE_KEY_LENGTH
+FIELD public static final int kr.co.nucode.ble.DiagnosticValue$Companion.MAX_PAYLOAD_BYTES
+FIELD public static final int kr.co.nucode.ble.DiagnosticValue$Companion.MAX_TEXT_LENGTH
+FIELD public static final int kr.co.nucode.ble.DiagnosticValue.MAX_PAYLOAD_BYTES
+FIELD public static final int kr.co.nucode.ble.DiagnosticValue.MAX_TEXT_LENGTH
+FIELD public static final kr.co.nucode.ble.AdapterState$PoweredOff kr.co.nucode.ble.AdapterState$PoweredOff.INSTANCE
+FIELD public static final kr.co.nucode.ble.AdapterState$Ready kr.co.nucode.ble.AdapterState$Ready.INSTANCE
+FIELD public static final kr.co.nucode.ble.AdapterState$Resetting kr.co.nucode.ble.AdapterState$Resetting.INSTANCE
+FIELD public static final kr.co.nucode.ble.AdapterState$Unsupported kr.co.nucode.ble.AdapterState$Unsupported.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleChunking$Automatic kr.co.nucode.ble.BleChunking$Automatic.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleChunking$Disabled kr.co.nucode.ble.BleChunking$Disabled.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleDisconnectReason$ClientClosed kr.co.nucode.ble.BleDisconnectReason$ClientClosed.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleDisconnectReason$Initial kr.co.nucode.ble.BleDisconnectReason$Initial.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleDisconnectReason$Requested kr.co.nucode.ble.BleDisconnectReason$Requested.INSTANCE
+FIELD public static final kr.co.nucode.ble.BleReconnectPolicy$Disabled kr.co.nucode.ble.BleReconnectPolicy$Disabled.INSTANCE
+FIELD public static final kr.co.nucode.ble.ConnectionState$Configuring kr.co.nucode.ble.ConnectionState$Configuring.INSTANCE
+FIELD public static final kr.co.nucode.ble.ConnectionState$Connecting kr.co.nucode.ble.ConnectionState$Connecting.INSTANCE
+FIELD public static final kr.co.nucode.ble.ConnectionState$Disconnecting kr.co.nucode.ble.ConnectionState$Disconnecting.INSTANCE
+FIELD public static final kr.co.nucode.ble.ConnectionState$DiscoveringServices kr.co.nucode.ble.ConnectionState$DiscoveringServices.INSTANCE
+FIELD public static final kr.co.nucode.ble.ConnectionState$Ready kr.co.nucode.ble.ConnectionState$Ready.INSTANCE
+FIELD public static final kr.co.nucode.ble.DiagnosticOptions$Companion kr.co.nucode.ble.DiagnosticOptions.Companion
+FIELD public static final kr.co.nucode.ble.DiagnosticRecord$Companion kr.co.nucode.ble.DiagnosticRecord.Companion
+FIELD public static final kr.co.nucode.ble.DiagnosticValue$Companion kr.co.nucode.ble.DiagnosticValue.Companion
+FIELD public static final kr.co.nucode.ble.DiagnosticValue$Redacted kr.co.nucode.ble.DiagnosticValue$Redacted.INSTANCE
+FIELD public static final kr.co.nucode.ble.android.AndroidBleClientFactory kr.co.nucode.ble.android.AndroidBleClientFactory.INSTANCE
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.connect-bxWR3DE(java.lang.String,kr.co.nucode.ble.BleConnectOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.BleSession>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.snapshot(kotlin.coroutines.Continuation<? super kr.co.nucode.ble.ClientSnapshot>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.startScan(kr.co.nucode.ble.ScanRequest,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.stopScan(kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.connect(kr.co.nucode.ble.BleConnectOptions,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.disconnect(kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.read(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super byte[]>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.subscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.unsubscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.write(kr.co.nucode.ble.CharacteristicRef,byte[],kr.co.nucode.ble.BleWriteOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.WriteReceipt>) throws=
+METHOD public abstract <> java.lang.String kr.co.nucode.ble.BleSession.getPeripheralId-f9B3WOg() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.Flow<byte[]> kr.co.nucode.ble.BleSession.notifications(kr.co.nucode.ble.CharacteristicRef) throws=
+METHOD public abstract <> kotlinx.coroutines.flow.Flow<kr.co.nucode.ble.BleClientEvent> kr.co.nucode.ble.BleClient.getEvents() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.Flow<kr.co.nucode.ble.ScanResult> kr.co.nucode.ble.BleClient.getScanResults() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<java.util.List<kr.co.nucode.ble.GattService>> kr.co.nucode.ble.BleSession.getServices() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.AdapterState> kr.co.nucode.ble.BleClient.getAdapterState() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ConnectionState> kr.co.nucode.ble.BleSession.getConnectionState() throws=
+METHOD public abstract <> kr.co.nucode.ble.BleSession kr.co.nucode.ble.BleClient.session-fb5K3to(java.lang.String) throws=
+METHOD public abstract <> void kr.co.nucode.ble.BleClient.close() throws=
+METHOD public abstract <> void kr.co.nucode.ble.BleLogger.log(kr.co.nucode.ble.DiagnosticRecord) throws=
+METHOD public final <> boolean kr.co.nucode.ble.AdapterState$Unauthorized.component1() throws=
+METHOD public final <> boolean kr.co.nucode.ble.AdapterState$Unauthorized.getCanRequest() throws=
+METHOD public final <> boolean kr.co.nucode.ble.ClientSnapshot.component2() throws=
+METHOD public final <> boolean kr.co.nucode.ble.ClientSnapshot.isScanning() throws=
+METHOD public final <> boolean kr.co.nucode.ble.DiagnosticOptions.getRawPayloadsEnabled() throws=
+METHOD public final <> boolean kr.co.nucode.ble.DiagnosticValue$Flag.component1() throws=
+METHOD public final <> boolean kr.co.nucode.ble.DiagnosticValue$Flag.getValue() throws=
+METHOD public final <> boolean kr.co.nucode.ble.DiagnosticValue$Payload.getTruncated() throws=
+METHOD public final <> boolean kr.co.nucode.ble.WriteProgress.component7() throws=
+METHOD public final <> boolean kr.co.nucode.ble.WriteProgress.component9() throws=
+METHOD public final <> boolean kr.co.nucode.ble.WriteProgress.getCurrentChunkDeliveryUnknown() throws=
+METHOD public final <> boolean kr.co.nucode.ble.WriteProgress.getFailedChunkWasStarted() throws=
+METHOD public final <> byte[] kr.co.nucode.ble.BleManufacturerDataFilter.getData() throws=
+METHOD public final <> byte[] kr.co.nucode.ble.BleManufacturerDataFilter.getMask() throws=
+METHOD public final <> byte[] kr.co.nucode.ble.BleServiceDataFilter.getData() throws=
+METHOD public final <> byte[] kr.co.nucode.ble.BleServiceDataFilter.getMask() throws=
+METHOD public final <> byte[] kr.co.nucode.ble.DiagnosticValue$Payload.getBytes() throws=
+METHOD public final <> int kr.co.nucode.ble.BleChunking$Fixed.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.BleChunking$Fixed.getMaxBytes() throws=
+METHOD public final <> int kr.co.nucode.ble.BleConfig.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.BleConfig.getEventBufferCapacity() throws=
+METHOD public final <> int kr.co.nucode.ble.BleManufacturerDataFilter.getCompanyId() throws=
+METHOD public final <> int kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.getMaxAttempts() throws=
+METHOD public final <> int kr.co.nucode.ble.CharacteristicRef.component3() throws=
+METHOD public final <> int kr.co.nucode.ble.CharacteristicRef.getInstanceIndex() throws=
+METHOD public final <> int kr.co.nucode.ble.ConnectionState$Recovering.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.ConnectionState$Recovering.getAttempt() throws=
+METHOD public final <> int kr.co.nucode.ble.DiagnosticOptions.getMaxRawPayloadBytes() throws=
+METHOD public final <> int kr.co.nucode.ble.DiagnosticOptions.getQueueCapacity() throws=
+METHOD public final <> int kr.co.nucode.ble.DiagnosticValue$Payload.getOriginalLength() throws=
+METHOD public final <> int kr.co.nucode.ble.PlatformDetail$Ios.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.PlatformDetail$Ios.getCode() throws=
+METHOD public final <> int kr.co.nucode.ble.ScanResult.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.ScanResult.getRssi() throws=
+METHOD public final <> int kr.co.nucode.ble.ServiceRef.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.ServiceRef.getInstanceIndex() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.component3() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.component4() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.getBytesCompleted() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.getChunksCompleted() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.getTotalBytes() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteProgress.getTotalChunks() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteReceipt.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteReceipt.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteReceipt.getBytesCompleted() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteReceipt.getChunksCompleted() throws=
+METHOD public final <> java.lang.Boolean kr.co.nucode.ble.AdvertisementData.isConnectable() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.AdvertisementData.getTxPower() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.component2() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.component3() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.getReasonCode() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.getStatusCode() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.WriteProgress.component5() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.WriteProgress.component6() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.WriteProgress.getFailedChunkBytes() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.WriteProgress.getFailedChunkIndex() throws=
+METHOD public final <> java.lang.Long kr.co.nucode.ble.FailureContext.component2() throws=
+METHOD public final <> java.lang.Long kr.co.nucode.ble.FailureContext.getConnectionGeneration() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.AdvertisementData.getLocalName() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.component1-ALpsltA() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.component2-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.component8() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.getCategory-ALpsltA() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.getCode-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleFailure.getMessage() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.BleScanFilter.getNamePrefix() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticFailure.component1-ALpsltA() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticFailure.component2-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticFailure.getCategory-ALpsltA() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticFailure.getCode-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticValue$Text.component1() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticValue$Text.getValue() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCategory.getValue() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode.getValue() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.component1() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.component3() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.getOperationId() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.getSessionId() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$Connection.component1-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$Connection.getPeripheralId-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$Services.component1-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$Services.getPeripheralId-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component1-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.getPeripheralId-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PeripheralId.getValue() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.component1() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.component4() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.component5() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.getApiOperation() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.getDomain() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Android.getSymbolicName() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.component1() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.component3() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.component4() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.getApiOperation() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.getDomain() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.PlatformDetail$Ios.getSymbolicName() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.ScanResult.component1-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.ScanResult.getPeripheralId-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.SessionSnapshot.component1-f9B3WOg() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.SessionSnapshot.getPeripheralId-f9B3WOg() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.BleManufacturerDataFilter> kr.co.nucode.ble.BleScanFilter.getManufacturerData() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.BleServiceDataFilter> kr.co.nucode.ble.BleScanFilter.getServiceData() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.BleUuid> kr.co.nucode.ble.BleScanFilter.getServiceUuids() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattCharacteristic> kr.co.nucode.ble.GattService.component2() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattCharacteristic> kr.co.nucode.ble.GattService.getCharacteristics() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.OfficialBleClientEvent$Services.component2() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.OfficialBleClientEvent$Services.getServices() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.SessionSnapshot.component3() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.SessionSnapshot.getServices() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.SessionSnapshot> kr.co.nucode.ble.ClientSnapshot.component3() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.SessionSnapshot> kr.co.nucode.ble.ClientSnapshot.getSessions() throws=
+METHOD public final <> java.util.Map<java.lang.Integer, byte[]> kr.co.nucode.ble.AdvertisementData.getManufacturerData() throws=
+METHOD public final <> java.util.Map<java.lang.String, kr.co.nucode.ble.DiagnosticValue> kr.co.nucode.ble.DiagnosticRecord.getValues() throws=
+METHOD public final <> java.util.Map<kr.co.nucode.ble.BleUuid, byte[]> kr.co.nucode.ble.AdvertisementData.getServiceData() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.BleUuid> kr.co.nucode.ble.AdvertisementData.getServiceUuids() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicProperty> kr.co.nucode.ble.GattCharacteristic.component2() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicProperty> kr.co.nucode.ble.GattCharacteristic.getProperties() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicRef> kr.co.nucode.ble.DiagnosticOptions.getSafeCharacteristics() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicRef> kr.co.nucode.ble.DiagnosticOptions.getSensitiveCharacteristics() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicRef> kr.co.nucode.ble.SessionSnapshot.component4() throws=
+METHOD public final <> java.util.Set<kr.co.nucode.ble.CharacteristicRef> kr.co.nucode.ble.SessionSnapshot.getSubscriptions() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.BleServiceDataFilter.getServiceUuid-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.BleUuid.getValue() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.CharacteristicRef.component2-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.CharacteristicRef.getUuid-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.ServiceRef.component1-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.ServiceRef.getUuid-YZPGo4Q() throws=
+METHOD public final <> kotlin.coroutines.CoroutineContext kr.co.nucode.ble.BleConfig.component1() throws=
+METHOD public final <> kotlin.coroutines.CoroutineContext kr.co.nucode.ble.BleConfig.getDispatcher() throws=
+METHOD public final <> kr.co.nucode.ble.AdapterState kr.co.nucode.ble.ClientSnapshot.component1() throws=
+METHOD public final <> kr.co.nucode.ble.AdapterState kr.co.nucode.ble.ClientSnapshot.getAdapterState() throws=
+METHOD public final <> kr.co.nucode.ble.AdapterState$Unauthorized kr.co.nucode.ble.AdapterState$Unauthorized.copy(boolean) throws=
+METHOD public final <> kr.co.nucode.ble.AdvertisementData kr.co.nucode.ble.ScanResult.component3() throws=
+METHOD public final <> kr.co.nucode.ble.AdvertisementData kr.co.nucode.ble.ScanResult.getAdvertisement() throws=
+METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOptions.component2() throws=
+METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOptions.getChunking() throws=
+METHOD public final <> kr.co.nucode.ble.BleChunking$Fixed kr.co.nucode.ble.BleChunking$Fixed.copy(int) throws=
+METHOD public final <> kr.co.nucode.ble.BleConfig kr.co.nucode.ble.BleConfig.copy(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
+METHOD public final <> kr.co.nucode.ble.BleConnectOptions kr.co.nucode.ble.BleConnectOptions.copy(kr.co.nucode.ble.BleReconnectPolicy) throws=
+METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.getReason() throws=
+METHOD public final <> kr.co.nucode.ble.BleDisconnectReason$Failed kr.co.nucode.ble.BleDisconnectReason$Failed.copy(kr.co.nucode.ble.BleFailure) throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.BleDisconnectReason$Failed.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.BleDisconnectReason$Failed.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.BleException.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.BleFailure.copy-G6UYMbU(java.lang.String,java.lang.String,kr.co.nucode.ble.FailurePhase,kr.co.nucode.ble.Retryability,kr.co.nucode.ble.FailureContext,kr.co.nucode.ble.PlatformDetail,kr.co.nucode.ble.WriteProgress,java.lang.String) throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.ConnectionState$Recovering.component3() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.ConnectionState$Recovering.getLastFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.component2() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component3() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.component8() throws=
+METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.getLogger() throws=
+METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy kr.co.nucode.ble.BleConnectOptions.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy kr.co.nucode.ble.BleConnectOptions.getReconnectPolicy() throws=
+METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.copy(int,long,long) throws=
+METHOD public final <> kr.co.nucode.ble.BleScanFilter kr.co.nucode.ble.ScanRequest.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleScanFilter kr.co.nucode.ble.ScanRequest.getFilter() throws=
+METHOD public final <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanOptions.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanOptions.getMode() throws=
+METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.BleScanOptions.copy(kr.co.nucode.ble.BleScanMode) throws=
+METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.ScanRequest.component2() throws=
+METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.ScanRequest.getOptions() throws=
+METHOD public final <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteOptions.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteOptions.getMode() throws=
+METHOD public final <> kr.co.nucode.ble.BleWriteOptions kr.co.nucode.ble.BleWriteOptions.copy(kr.co.nucode.ble.BleWriteMode,kr.co.nucode.ble.BleChunking) throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.CharacteristicRef.copy-3nOLlxo(kr.co.nucode.ble.ServiceRef,java.util.UUID,int) throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.GattCharacteristic.component1() throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.GattCharacteristic.getRef() throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component2() throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.getCharacteristic() throws=
+METHOD public final <> kr.co.nucode.ble.ClientSnapshot kr.co.nucode.ble.ClientSnapshot.copy(kr.co.nucode.ble.AdapterState,boolean,java.util.List<kr.co.nucode.ble.SessionSnapshot>) throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.FailureContext.component5() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.FailureContext.getInvalidationReason() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState kr.co.nucode.ble.OfficialBleClientEvent$Connection.component2() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState kr.co.nucode.ble.OfficialBleClientEvent$Connection.getState() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState kr.co.nucode.ble.SessionSnapshot.component2() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState kr.co.nucode.ble.SessionSnapshot.getConnectionState() throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState$Disconnected kr.co.nucode.ble.ConnectionState$Disconnected.copy(kr.co.nucode.ble.BleDisconnectReason) throws=
+METHOD public final <> kr.co.nucode.ble.ConnectionState$Recovering kr.co.nucode.ble.ConnectionState$Recovering.copy(int,long,kr.co.nucode.ble.BleFailure) throws=
+METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.WriteProgress.component8() throws=
+METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.WriteProgress.getDelivery() throws=
+METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.WriteReceipt.component3() throws=
+METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.WriteReceipt.getDelivery() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticFailure kr.co.nucode.ble.DiagnosticFailure.copy-K4SEpQQ(java.lang.String,java.lang.String,kr.co.nucode.ble.FailurePhase,kr.co.nucode.ble.Retryability,kr.co.nucode.ble.FailureContext,kr.co.nucode.ble.PlatformDetail,kr.co.nucode.ble.WriteProgress) throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticFailure kr.co.nucode.ble.DiagnosticRecord.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticOptions kr.co.nucode.ble.BleConfig.component9() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticOptions kr.co.nucode.ble.BleConfig.getDiagnosticOptions() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticOptions.sensitivityFor(kr.co.nucode.ble.CharacteristicRef) throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticRecord.getSeverity() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticValue$Flag kr.co.nucode.ble.DiagnosticValue$Flag.copy(boolean) throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticValue$Number kr.co.nucode.ble.DiagnosticValue$Number.copy(long) throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticValue$Text kr.co.nucode.ble.DiagnosticValue$Text.copy(java.lang.String) throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.BleFailure.component5() throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.BleFailure.getContext() throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.DiagnosticFailure.component5() throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.DiagnosticFailure.getContext() throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.FailureContext.copy(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason) throws=
+METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.BleFailure.component3() throws=
+METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.BleFailure.getPhase() throws=
+METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.DiagnosticFailure.component3() throws=
+METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.DiagnosticFailure.getPhase() throws=
+METHOD public final <> kr.co.nucode.ble.GattCharacteristic kr.co.nucode.ble.GattCharacteristic.copy(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>) throws=
+METHOD public final <> kr.co.nucode.ble.GattService kr.co.nucode.ble.GattService.copy(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
+METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Connection kr.co.nucode.ble.OfficialBleClientEvent$Connection.copy-hhuSfVg(java.lang.String,kr.co.nucode.ble.ConnectionState) throws=
+METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.copy(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
+METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Scan kr.co.nucode.ble.OfficialBleClientEvent$Scan.copy(kr.co.nucode.ble.ScanResult) throws=
+METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Services kr.co.nucode.ble.OfficialBleClientEvent$Services.copy-hhuSfVg(java.lang.String,java.util.List<kr.co.nucode.ble.GattService>) throws=
+METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.copy-bxWR3DE(java.lang.String,kr.co.nucode.ble.CharacteristicRef,kr.co.nucode.ble.BleFailure) throws=
+METHOD public final <> kr.co.nucode.ble.OperationKind kr.co.nucode.ble.FailureContext.component4() throws=
+METHOD public final <> kr.co.nucode.ble.OperationKind kr.co.nucode.ble.FailureContext.getOperationKind() throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail kr.co.nucode.ble.BleFailure.component6() throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail kr.co.nucode.ble.BleFailure.getPlatformDetail() throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail kr.co.nucode.ble.DiagnosticFailure.component6() throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail kr.co.nucode.ble.DiagnosticFailure.getPlatformDetail() throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail$Android kr.co.nucode.ble.PlatformDetail$Android.copy(java.lang.String,java.lang.Integer,java.lang.Integer,java.lang.String,java.lang.String) throws=
+METHOD public final <> kr.co.nucode.ble.PlatformDetail$Ios kr.co.nucode.ble.PlatformDetail$Ios.copy(java.lang.String,int,java.lang.String,java.lang.String) throws=
+METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.BleFailure.component4() throws=
+METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.BleFailure.getRetryability() throws=
+METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.component4() throws=
+METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.getRetryability() throws=
+METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanRequest.copy(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
+METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.OfficialBleClientEvent$Scan.component1() throws=
+METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.OfficialBleClientEvent$Scan.getResult() throws=
+METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.ScanResult.copy-bxWR3DE(java.lang.String,int,kr.co.nucode.ble.AdvertisementData) throws=
+METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.component1() throws=
+METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.getService() throws=
+METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.GattService.component1() throws=
+METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.GattService.getRef() throws=
+METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.ServiceRef.copy-VSTba2I(java.util.UUID,int) throws=
+METHOD public final <> kr.co.nucode.ble.SessionSnapshot kr.co.nucode.ble.SessionSnapshot.copy-yNm8nfo(java.lang.String,kr.co.nucode.ble.ConnectionState,java.util.List<kr.co.nucode.ble.GattService>,java.util.Set<kr.co.nucode.ble.CharacteristicRef>) throws=
+METHOD public final <> kr.co.nucode.ble.Severity kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.component1() throws=
+METHOD public final <> kr.co.nucode.ble.Severity kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.getSeverity() throws=
+METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.BleFailure.component7() throws=
+METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.BleFailure.getWriteProgress() throws=
+METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.DiagnosticFailure.component7() throws=
+METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.DiagnosticFailure.getWriteProgress() throws=
+METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.WriteProgress.copy(int,int,int,int,java.lang.Integer,java.lang.Integer,boolean,kr.co.nucode.ble.DeliverySemantics,boolean) throws=
+METHOD public final <> kr.co.nucode.ble.WriteReceipt kr.co.nucode.ble.WriteReceipt.copy(int,int,kr.co.nucode.ble.DeliverySemantics) throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component3() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component4() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component5() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component6() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component7() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getConfigurationTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getDisconnectCleanupTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getDiscoveryTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getLinkTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getOperationTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.component2() throws=
+METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.component3() throws=
+METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.getInitialDelayMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.getMaxDelayMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.ConnectionState$Recovering.component2() throws=
+METHOD public final <> long kr.co.nucode.ble.ConnectionState$Recovering.getRetryAfterMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.DiagnosticValue$Number.component1() throws=
+METHOD public final <> long kr.co.nucode.ble.DiagnosticValue$Number.getValue() throws=
+METHOD public static <> boolean kr.co.nucode.ble.BleUuid.equals-impl(java.util.UUID,java.lang.Object) throws=
+METHOD public static <> boolean kr.co.nucode.ble.FailureCategory.equals-impl(java.lang.String,java.lang.Object) throws=
+METHOD public static <> boolean kr.co.nucode.ble.FailureCode.equals-impl(java.lang.String,java.lang.Object) throws=
+METHOD public static <> boolean kr.co.nucode.ble.PeripheralId.equals-impl(java.lang.String,java.lang.Object) throws=
+METHOD public static <> int kr.co.nucode.ble.BleUuid.hashCode-impl(java.util.UUID) throws=
+METHOD public static <> int kr.co.nucode.ble.FailureCategory.hashCode-impl(java.lang.String) throws=
+METHOD public static <> int kr.co.nucode.ble.FailureCode.hashCode-impl(java.lang.String) throws=
+METHOD public static <> int kr.co.nucode.ble.PeripheralId.hashCode-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.BleUuid.toString-impl(java.util.UUID) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.FailureCategory.constructor-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.FailureCategory.toString-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.FailureCode.constructor-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.FailureCode.toString-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.PeripheralId.constructor-impl(java.lang.String) throws=
+METHOD public static <> java.lang.String kr.co.nucode.ble.PeripheralId.toString-impl(java.lang.String) throws=
+METHOD public static <> java.util.UUID kr.co.nucode.ble.BleUuid.constructor-impl(java.util.UUID) throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.BleScanMode> kr.co.nucode.ble.BleScanMode.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.BleWriteMode> kr.co.nucode.ble.BleWriteMode.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.CharacteristicProperty> kr.co.nucode.ble.CharacteristicProperty.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.ConnectionInvalidationReason> kr.co.nucode.ble.ConnectionInvalidationReason.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.DeliverySemantics> kr.co.nucode.ble.DeliverySemantics.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.DiagnosticSensitivity> kr.co.nucode.ble.DiagnosticSensitivity.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.DiagnosticSeverity> kr.co.nucode.ble.DiagnosticSeverity.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.FailurePhase> kr.co.nucode.ble.FailurePhase.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.OperationKind> kr.co.nucode.ble.OperationKind.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Retryability> kr.co.nucode.ble.Retryability.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Severity> kr.co.nucode.ble.Severity.getEntries() throws=
+METHOD public static <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.BleScanMode[] kr.co.nucode.ble.BleScanMode.values() throws=
+METHOD public static <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteMode.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.BleWriteMode[] kr.co.nucode.ble.BleWriteMode.values() throws=
+METHOD public static <> kr.co.nucode.ble.CharacteristicProperty kr.co.nucode.ble.CharacteristicProperty.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.CharacteristicProperty[] kr.co.nucode.ble.CharacteristicProperty.values() throws=
+METHOD public static <> kr.co.nucode.ble.ConnectionInvalidationReason kr.co.nucode.ble.ConnectionInvalidationReason.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.ConnectionInvalidationReason[] kr.co.nucode.ble.ConnectionInvalidationReason.values() throws=
+METHOD public static <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.DeliverySemantics.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.DeliverySemantics[] kr.co.nucode.ble.DeliverySemantics.values() throws=
+METHOD public static <> kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticSensitivity.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.DiagnosticSensitivity[] kr.co.nucode.ble.DiagnosticSensitivity.values() throws=
+METHOD public static <> kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticSeverity.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.DiagnosticSeverity[] kr.co.nucode.ble.DiagnosticSeverity.values() throws=
+METHOD public static <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.FailurePhase[] kr.co.nucode.ble.FailurePhase.values() throws=
+METHOD public static <> kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.OperationKind[] kr.co.nucode.ble.OperationKind.values() throws=
+METHOD public static <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.Retryability[] kr.co.nucode.ble.Retryability.values() throws=
+METHOD public static <> kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.Severity[] kr.co.nucode.ble.Severity.values() throws=
+METHOD public static final <> boolean kr.co.nucode.ble.BleUuid.equals-impl0(java.util.UUID,java.util.UUID) throws=
+METHOD public static final <> boolean kr.co.nucode.ble.FailureCategory.equals-impl0(java.lang.String,java.lang.String) throws=
+METHOD public static final <> boolean kr.co.nucode.ble.FailureCode.equals-impl0(java.lang.String,java.lang.String) throws=
+METHOD public static final <> boolean kr.co.nucode.ble.PeripheralId.equals-impl0(java.lang.String,java.lang.String) throws=
+METHOD public static final <> kr.co.nucode.ble.BleClient kr.co.nucode.ble.android.AndroidBleClientFactory.create(android.content.Context,kr.co.nucode.ble.BleConfig) throws=
+TYPE public abstract interface kr.co.nucode.ble.AdapterState extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleChunking extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleClient extends=- implements=java.io.Closeable
+TYPE public abstract interface kr.co.nucode.ble.BleClientEvent extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleDisconnectReason extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleLogger extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleReconnectPolicy extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.BleSession extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.ConnectionState extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.DiagnosticValue extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.OfficialBleClientEvent extends=- implements=kr.co.nucode.ble.BleClientEvent
+TYPE public abstract interface kr.co.nucode.ble.PlatformDetail extends=- implements=
+TYPE public final kr.co.nucode.ble.AdvertisementData extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleConfig extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleConnectOptions extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleException extends=java.lang.Exception implements=
+TYPE public final kr.co.nucode.ble.BleFailure extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleManufacturerDataFilter extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleScanFilter extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleScanMode extends=java.lang.Enum<kr.co.nucode.ble.BleScanMode> implements=
+TYPE public final kr.co.nucode.ble.BleScanOptions extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleServiceDataFilter extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleUuid extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.BleWriteMode extends=java.lang.Enum<kr.co.nucode.ble.BleWriteMode> implements=
+TYPE public final kr.co.nucode.ble.BleWriteOptions extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.CharacteristicProperty extends=java.lang.Enum<kr.co.nucode.ble.CharacteristicProperty> implements=
+TYPE public final kr.co.nucode.ble.CharacteristicRef extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.ClientSnapshot extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.ConnectionInvalidationReason extends=java.lang.Enum<kr.co.nucode.ble.ConnectionInvalidationReason> implements=
+TYPE public final kr.co.nucode.ble.DeliverySemantics extends=java.lang.Enum<kr.co.nucode.ble.DeliverySemantics> implements=
+TYPE public final kr.co.nucode.ble.DiagnosticFailure extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.DiagnosticOptions extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.DiagnosticRecord extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.DiagnosticSensitivity extends=java.lang.Enum<kr.co.nucode.ble.DiagnosticSensitivity> implements=
+TYPE public final kr.co.nucode.ble.DiagnosticSeverity extends=java.lang.Enum<kr.co.nucode.ble.DiagnosticSeverity> implements=
+TYPE public final kr.co.nucode.ble.FailureCategory extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.FailureCode extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.FailureContext extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.FailurePhase extends=java.lang.Enum<kr.co.nucode.ble.FailurePhase> implements=
+TYPE public final kr.co.nucode.ble.GattCharacteristic extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.GattService extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.OperationKind extends=java.lang.Enum<kr.co.nucode.ble.OperationKind> implements=
+TYPE public final kr.co.nucode.ble.PeripheralId extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.Retryability extends=java.lang.Enum<kr.co.nucode.ble.Retryability> implements=
+TYPE public final kr.co.nucode.ble.ScanRequest extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.ScanResult extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.ServiceRef extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.SessionSnapshot extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.Severity extends=java.lang.Enum<kr.co.nucode.ble.Severity> implements=
+TYPE public final kr.co.nucode.ble.WriteProgress extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.WriteReceipt extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.android.AndroidBleClientFactory extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.AdapterState$PoweredOff extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.AdapterState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.AdapterState$Resetting extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.AdapterState$Unauthorized extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.AdapterState$Unsupported extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.BleChunking$Automatic extends=java.lang.Object implements=kr.co.nucode.ble.BleChunking
+TYPE public static final kr.co.nucode.ble.BleChunking$Disabled extends=java.lang.Object implements=kr.co.nucode.ble.BleChunking
+TYPE public static final kr.co.nucode.ble.BleChunking$Fixed extends=java.lang.Object implements=kr.co.nucode.ble.BleChunking
+TYPE public static final kr.co.nucode.ble.BleClient$DefaultImpls extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.BleDisconnectReason$ClientClosed extends=java.lang.Object implements=kr.co.nucode.ble.BleDisconnectReason
+TYPE public static final kr.co.nucode.ble.BleDisconnectReason$Failed extends=java.lang.Object implements=kr.co.nucode.ble.BleDisconnectReason
+TYPE public static final kr.co.nucode.ble.BleDisconnectReason$Initial extends=java.lang.Object implements=kr.co.nucode.ble.BleDisconnectReason
+TYPE public static final kr.co.nucode.ble.BleDisconnectReason$Requested extends=java.lang.Object implements=kr.co.nucode.ble.BleDisconnectReason
+TYPE public static final kr.co.nucode.ble.BleReconnectPolicy$Disabled extends=java.lang.Object implements=kr.co.nucode.ble.BleReconnectPolicy
+TYPE public static final kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff extends=java.lang.Object implements=kr.co.nucode.ble.BleReconnectPolicy
+TYPE public static final kr.co.nucode.ble.BleSession$DefaultImpls extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.ConnectionState$Configuring extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$Connecting extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$Disconnected extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$Disconnecting extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$DiscoveringServices extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.ConnectionState$Recovering extends=java.lang.Object implements=kr.co.nucode.ble.ConnectionState
+TYPE public static final kr.co.nucode.ble.DiagnosticOptions$Companion extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.DiagnosticRecord$Companion extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Companion extends=java.lang.Object implements=
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Flag extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Number extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Payload extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Redacted extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.DiagnosticValue$Text extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Connection extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
+TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
+TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Scan extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
+TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
+TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
+TYPE public static final kr.co.nucode.ble.PlatformDetail$Android extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
+TYPE public static final kr.co.nucode.ble.PlatformDetail$Ios extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail

@@ -17,7 +17,7 @@ private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {
  * 문자열로 직렬화 가능해야 한다 — 이 포맷이 나중 Flutter 브리지의 직렬화 계약이 된다(plan §영향범위).
  */
 @JvmInline
-public value class DeviceId(public val value: String) {
+internal value class DeviceId(val value: String) {
     override fun toString(): String = value
 }
 
@@ -25,7 +25,7 @@ public value class DeviceId(public val value: String) {
  * characteristic 참조. instanceIndex 가 없으면 같은 UUID 를 중복 노출하는 기기에서
  * 엉뚱한 characteristic 에 write 할 수 있다(설계 §5).
  */
-public data class CharRef(
+internal data class CharRef(
     val serviceUuid: UUID,
     val charUuid: UUID,
     val instanceIndex: Int = 0,
@@ -34,14 +34,14 @@ public data class CharRef(
 )
 
 /** write 방식. Auto 는 characteristic 속성을 보고 코어가 고른다. */
-public enum class WriteType {
+internal enum class WriteType {
     WithResponse,
     WithoutResponse,
     Auto,
 }
 
 /** 청킹 정책. None 인데 페이로드가 청크 한도를 넘으면 조용히 쪼개지 않고 TooLarge 로 실패한다. */
-public sealed interface Chunking {
+internal sealed interface Chunking {
     public data object Auto : Chunking
     public data object None : Chunking
     /** Split at this size, provided it does not exceed the negotiated link capability. */
@@ -56,7 +56,7 @@ public sealed interface Chunking {
  * write 결과. partiallyDelivered 를 타입으로 강제한다 — 로그 문자열로 흘리면
  * 소비 제품이 무시하고, 기기는 불완전한 명령을 받은 상태가 된다(설계 §5).
  */
-public sealed interface WriteResult {
+internal sealed interface WriteResult {
     /** Every chunk completed successfully; the count includes an empty payload's one chunk. */
     public data class Completed(val chunksCompleted: Int) : WriteResult {
         init {
@@ -108,7 +108,7 @@ public sealed interface AdapterState {
  * 연결 상태. Reconnecting 이 없다 — 재연결은 정책이고 코어는 메커니즘만 갖는다(설계 §5).
  * 추가하지 않는다.
  */
-public sealed interface ConnState {
+internal sealed interface ConnState {
     /** A terminal session state with a stable, cross-platform reason. */
     public data class Disconnected(
         val reason: DisconnectReason = DisconnectReason.Initial,
@@ -144,7 +144,7 @@ public sealed interface ConnState {
  * ★ [data]/[mask] 배열은 생성 후 변형하지 마라 — 방어 복사를 하지 않는다(성능·단순성).
  * 변형해도 크래시는 없지만 의도와 다른 필터로 조용히 스캔되고 equals/hashCode 가 흔들린다.
  */
-public data class ManufacturerDataFilter(
+internal data class ManufacturerDataFilter(
     val companyId: Int,
     val data: ByteArray? = null,
     val mask: ByteArray? = null,
@@ -187,7 +187,7 @@ public data class ManufacturerDataFilter(
  * 광고 콜백에서 소프트웨어로 적용한다([ManufacturerDataFilter] 와 동일 규약).
  * ★ [data]/[mask] 배열은 생성 후 변형하지 마라 — [ManufacturerDataFilter] 와 동일.
  */
-public data class ServiceDataFilter(
+internal data class ServiceDataFilter(
     val serviceUuid: UUID,
     val data: ByteArray? = null,
     val mask: ByteArray? = null,
@@ -229,7 +229,7 @@ public data class ServiceDataFilter(
  * 은 필터 목록을 OR 로 매칭하고 `Builder` 하나 안의 조건은 AND 라 각 항목을 독립된 플랫폼
  * 필터 하나씩으로 매핑한다 — 이 규약과 일치한다.
  */
-public data class ScanFilter(
+internal data class ScanFilter(
     val serviceUuids: List<UUID> = emptyList(),
     val namePrefix: String? = null,
     val manufacturerData: List<ManufacturerDataFilter> = emptyList(),
@@ -237,14 +237,14 @@ public data class ScanFilter(
 )
 
 /** 스캔 전력/지연 모드. 플랫폼 상수를 그대로 노출하지 않고 최소 3단계로만 추상화한다. */
-public enum class ScanMode {
+internal enum class ScanMode {
     LowPower,
     Balanced,
     LowLatency,
 }
 
 /** 스캔 옵션. 최소한만 — 과설계하지 않는다. */
-public data class ScanOptions(
+internal data class ScanOptions(
     val scanMode: ScanMode = ScanMode.Balanced,
 )
 
@@ -257,7 +257,7 @@ public data class ScanOptions(
  * 상한이다(청크 244 바이트). 기기 펌웨어가 큰 MTU 요청에 이상 동작하면 낮춰라. 협상이 실패하면
  * 코어는 기본 23/20 으로 폴백한다(설계 §12 결정).
  */
-public data class ConnectOptions(
+internal data class ConnectOptions(
     /**
      * true 면 플랫폼 백그라운드 연결 — 기기가 전파 범위에 나타날 때까지 시스템이 대기·재연결한다.
      * **재연결 소유권이 플랫폼으로 넘어간다**: 코어 Reconnector(BleConfig.reconnectPolicy)는
@@ -285,7 +285,7 @@ public data class ConnectOptions(
  * 이 정규화된 값으로 판단해야 한다.
  *
  * link가 이미 성공한 뒤에는 이 값이 현재 연결 동작에 영향을 주지 않는다. 그 시점의
- * duplicate connect 비교는 autoConnect와 requestedMtu만으로 충분하며, `BleCore`가 그
+ * duplicate connect 비교는 autoConnect와 requestedMtu만으로 충분하며, `BleRuntime`가 그
  * lifecycle 경계를 적용한다.
  */
 internal fun ConnectOptions.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis: Long): Long =
@@ -298,7 +298,7 @@ internal fun ConnectOptions.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis:
  * BleEvent.MtuChanged 가 실어 나르는 두 값을 스냅샷도 그대로 갖는다.
  * 연결 전에는 MTU 협상이 일어나지 않으므로 null 로 둔다(23 바이트 기본값을 임의로 채우지 않는다).
  */
-public data class DeviceSnapshot(
+internal data class DeviceSnapshot(
     val deviceId: DeviceId,
     val connState: ConnState,
     val mtu: Int? = null,
@@ -309,7 +309,7 @@ public data class DeviceSnapshot(
  * snapshot() 반환형 — 콜드 스타트(화면 회전 · 새 화면 · hot reload) 대응 장치(설계 §5).
  * 기기별 상태는 DeviceId 기반 값 타입 목록으로만 노출한다.
  */
-public data class Snapshot(
+internal data class Snapshot(
     val adapterState: AdapterState,
     val devices: List<DeviceSnapshot>,
 )
@@ -321,7 +321,7 @@ public data class Snapshot(
  * 설계 §4 "재연결 정책(횟수·백오프·조건)은 주입" 의 주입구다(plan 결정②) — 이전에는
  * `internal` 이라 [BleConfig] 에서 주입할 수 없었다.
  */
-public data class ReconnectPolicy(
+internal data class ReconnectPolicy(
     val maxAttempts: Int = 5,
     val baseDelayMillis: Long = 1_000L,
     val maxDelayMillis: Long = 30_000L,
@@ -348,11 +348,10 @@ public data class ReconnectPolicy(
 }
 
 /**
- * 코어 배선 설정. dispatcher / eventBufferCapacity / reconnectPolicy / operationTimeoutMillis와
- * lifecycle 단계별 timeout은 각각 설계 §12 미결정 항목(백프레셔 정책·스레드 계약)과
- * §4(재연결 정책 주입)의 주입 지점이다.
+ * 코어 배선 설정. dispatcher / eventBufferCapacity / operationTimeoutMillis와 lifecycle
+ * 단계별 timeout의 주입 지점이다. 연결별 재연결 정책은 [BleConnectOptions]가 소유한다.
  *
- * dispatcher 가 null 이면 BleCore 가 자기 기본 디스패처(단일 스레드 확정)를 만든다.
+ * dispatcher 가 null 이면 BleRuntime 가 자기 기본 디스패처(단일 스레드 확정)를 만든다.
  * 주입은 테스트에서 runTest 디스패처를 넣기 위한 것이다.
  *
  * ★ 주입 시 주의(D10/review L-2):
@@ -362,29 +361,26 @@ public data class ReconnectPolicy(
  * - Dispatchers.Main 을 넣고 메인 스레드에서 close() 를 부르면 close() 내부의
  *   runBlocking 이 데드락한다. 코어 디스패처 위에서 close() 호출 금지와 같은 뿌리다.
  *
- * @param reconnectPolicy 재연결 정책(plan 결정②) — Reconnector 가 주입받는다.
  * @param operationTimeoutMillis write ack 와 CCCD ack 공용 대기 상한(plan 결정③). 느린 기기·
  * 혼잡 환경이면 늘려라.
- * @param linkTimeoutMillis connect 시작부터 link callback까지의 기본 상한. 개별
- * [ConnectOptions.timeoutMillis]가 있으면 그 값이 우선한다.
+ * @param linkTimeoutMillis connect 시작부터 link callback까지의 상한.
  * @param discoveryTimeoutMillis service discovery callback 대기 상한.
  * @param configurationTimeoutMillis MTU 등 필수 연결 설정 callback 대기 상한.
  * @param disconnectCleanupTimeoutMillis disconnect callback이 누락됐을 때 local cleanup을
  * 강제하는 상한.
  */
-public data class BleConfig(
-    val dispatcher: CoroutineContext? = null,
-    val eventBufferCapacity: Int = 64,
-    val reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
-    val operationTimeoutMillis: Long = 5_000,
-    val linkTimeoutMillis: Long = 15_000,
-    val discoveryTimeoutMillis: Long = 10_000,
-    val configurationTimeoutMillis: Long = 10_000,
-    val disconnectCleanupTimeoutMillis: Long = 5_000,
+public data class BleConfig public constructor(
+    public val dispatcher: CoroutineContext? = null,
+    public val eventBufferCapacity: Int = 64,
+    public val operationTimeoutMillis: Long = 5_000,
+    public val linkTimeoutMillis: Long = 15_000,
+    public val discoveryTimeoutMillis: Long = 10_000,
+    public val configurationTimeoutMillis: Long = 10_000,
+    public val disconnectCleanupTimeoutMillis: Long = 5_000,
     /** Optional non-authoritative diagnostics sink. Null keeps diagnostics delivery disabled. */
-    val logger: BleLogger? = null,
+    public val logger: BleLogger? = null,
     /** Privacy-first diagnostic capture policy; raw payload capture is disabled by default. */
-    val diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
+    public val diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
 ) {
     init {
         require(operationTimeoutMillis > 0) {
@@ -409,7 +405,7 @@ public data class BleConfig(
  * GATT characteristic 속성. v0.1 범위에서 의미 있는 것만 둔다 —
  * Broadcast/SignedWrite/ExtendedProps 는 v0.1 이 쓰지 않으므로 넣지 않는다.
  */
-public enum class CharProperty {
+internal enum class CharProperty {
     Read,
     Write,
     WriteNoResponse,
@@ -423,13 +419,13 @@ public enum class CharProperty {
  * properties 없이는 터미널(소비 앱)이 WRITE/NOTIFY 지원 여부를 몰라 목록 UI 를 그릴 수 없고,
  * 결국 터미널이 자기 GATT 접근을 갖게 된다 — 설계 §0 "BLE 코드 0줄" 목표가 깨진다.
  */
-public data class DiscoveredCharacteristic(
+internal data class DiscoveredCharacteristic(
     val charRef: CharRef,
     val properties: Set<CharProperty>,
 )
 
 /** ServicesDiscovered 이벤트가 실어 나르는 service 값 타입. */
-public data class DiscoveredService(
+internal data class DiscoveredService(
     val serviceUuid: UUID,
     val characteristics: List<DiscoveredCharacteristic>,
     /** Same-UUID service ordinal from this discovery snapshot. */

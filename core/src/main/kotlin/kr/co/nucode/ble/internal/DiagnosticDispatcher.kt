@@ -42,14 +42,17 @@ internal class DiagnosticDispatcher(
         val admission = limiter.admit(record)
         if (!admission.allowed) return true
         if (!records.offer(Envelope(record))) {
+            limiter.restoreSuppressed(record, admission.recoveredSuppressed)
             dropped.incrementSaturated()
             return false
         }
         if (admission.recoveredSuppressed > 0) {
-            offerSummary(records, record, "suppressed", admission.recoveredSuppressed)
+            if (!offerSummary(records, record, "suppressed", admission.recoveredSuppressed)) {
+                limiter.restoreSuppressed(record, admission.recoveredSuppressed)
+            }
         }
-        val lost = dropped.getAndSet(0)
-        if (lost > 0) offerSummary(records, record, "dropped", lost)
+        val lost = dropped.get()
+        if (lost > 0 && offerSummary(records, record, "dropped", lost)) dropped.set(0)
         true
     }
 
@@ -65,11 +68,7 @@ internal class DiagnosticDispatcher(
         cause: DiagnosticRecord,
         kind: String,
         count: Long,
-    ) {
-        if (!records.offer(Envelope(summary(cause, kind, count), summary = true))) {
-            dropped.incrementSaturated()
-        }
-    }
+    ): Boolean = records.offer(Envelope(summary(cause, kind, count), summary = true))
 
     private fun drain(records: ArrayBlockingQueue<Envelope>, logger: BleLogger) {
         while (accepting.get()) {

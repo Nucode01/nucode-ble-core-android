@@ -45,17 +45,38 @@ internal class DiagnosticRateLimiter(
     @Synchronized
     internal fun trackedKeyCount(): Int = entries.size
 
+    /** Restores a recovery count when its structured summary could not enter the bounded queue. */
+    @Synchronized
+    internal fun restoreSuppressed(record: DiagnosticRecord, count: Long) {
+        if (count <= 0) return
+        val entry = entries[Key(record)] ?: return
+        entry.suppressed = entry.suppressed.saturatedAdd(count)
+    }
+
     internal data class Admission(
         val allowed: Boolean,
         val recoveredSuppressed: Long = 0,
     )
 
-    private data class Key(val severity: Any, val category: Any, val code: Any, val phase: Any) {
+    private data class Key(
+        val severity: Any,
+        val category: Any,
+        val code: Any,
+        val phase: Any,
+        val retryability: Any,
+        val context: Any,
+        val platformDetail: Any?,
+        val writeProgress: Any?,
+    ) {
         constructor(record: DiagnosticRecord) : this(
             record.severity,
             record.failure.category,
             record.failure.code,
             record.failure.phase,
+            record.failure.retryability,
+            record.failure.context,
+            record.failure.platformDetail,
+            record.failure.writeProgress,
         )
     }
 
@@ -68,3 +89,10 @@ internal class DiagnosticRateLimiter(
 }
 
 internal fun Long.saturatedIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
+
+internal fun Long.saturatedAdd(amount: Long): Long =
+    when {
+        amount <= 0 -> this
+        Long.MAX_VALUE - this < amount -> Long.MAX_VALUE
+        else -> this + amount
+    }

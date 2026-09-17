@@ -154,6 +154,104 @@ class DiagnosticDispatcherTest {
         dispatcher.close()
     }
 
+    @Test
+    fun `failed drop summary retains the complete pending count`() {
+        val firstEntered = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val secondEntered = CountDownLatch(1)
+        val releaseSecond = CountDownLatch(1)
+        val queueDrained = CountDownLatch(2)
+        val summaryDelivered = CountDownLatch(1)
+        val records = mutableListOf<DiagnosticRecord>()
+        val dispatcher = DiagnosticDispatcher(
+            logger = BleLogger { record ->
+                synchronized(records) { records += record }
+                when (record.failure.code.value) {
+                    "BLOCKING_ONE" -> {
+                        firstEntered.countDown()
+                        releaseFirst.await()
+                    }
+                    "BLOCKING_TWO" -> {
+                        secondEntered.countDown()
+                        releaseSecond.await()
+                    }
+                    "QUEUED", "RECOVERY" -> queueDrained.countDown()
+                }
+                if ((record.values["diagnostic_summary"] as? kr.co.nucode.ble.DiagnosticValue.Text)?.value == "dropped") {
+                    summaryDelivered.countDown()
+                }
+            },
+            capacity = 2,
+        )
+
+        assertTrue(dispatcher.dispatch(record("BLOCKING_ONE")))
+        assertTrue(firstEntered.await(2, TimeUnit.SECONDS))
+        assertTrue(dispatcher.dispatch(record("BLOCKING_TWO")))
+        assertTrue(dispatcher.dispatch(record("QUEUED")))
+        repeat(3) { assertFalse(dispatcher.dispatch(record("DROPPED_$it"))) }
+
+        releaseFirst.countDown()
+        assertTrue(secondEntered.await(2, TimeUnit.SECONDS))
+        assertTrue(dispatcher.dispatch(record("RECOVERY")))
+        releaseSecond.countDown()
+        assertTrue(queueDrained.await(2, TimeUnit.SECONDS))
+
+        assertTrue(dispatcher.dispatch(record("NEXT")))
+        assertTrue(summaryDelivered.await(2, TimeUnit.SECONDS))
+        val summary = synchronized(records) {
+            records.single { (it.values["diagnostic_summary"] as? kr.co.nucode.ble.DiagnosticValue.Text)?.value == "dropped" }
+        }
+        assertEquals(3L, (summary.values["diagnostic_count"] as kr.co.nucode.ble.DiagnosticValue.Number).value)
+        dispatcher.close()
+    }
+
+    @Test
+    fun `full queue at window recovery retains suppressed count`() {
+        val blockingEntered = CountDownLatch(1)
+        val releaseBlocking = CountDownLatch(1)
+        val queuedRecordsDrained = CountDownLatch(2)
+        val summaryDelivered = CountDownLatch(1)
+        val records = mutableListOf<DiagnosticRecord>()
+        val dispatcher = DiagnosticDispatcher(
+            logger = BleLogger { record ->
+                synchronized(records) { records += record }
+                if (record.failure.code.value == "BLOCKING") {
+                    blockingEntered.countDown()
+                    releaseBlocking.await()
+                }
+                if (record.failure.code.value == "ONE" || record.failure.code.value == "FILLER") {
+                    queuedRecordsDrained.countDown()
+                }
+                if ((record.values["diagnostic_summary"] as? kr.co.nucode.ble.DiagnosticValue.Text)?.value == "suppressed") {
+                    summaryDelivered.countDown()
+                }
+            },
+            capacity = 2,
+            limiter = DiagnosticRateLimiter(windowMillis = 10, maxKeys = 4, clockMillis = { clock }),
+        )
+
+        clock = 0
+        assertTrue(dispatcher.dispatch(record("BLOCKING")))
+        assertTrue(blockingEntered.await(2, TimeUnit.SECONDS))
+        assertTrue(dispatcher.dispatch(record("ONE")))
+        assertTrue(dispatcher.dispatch(record("FILLER")))
+        repeat(3) { assertTrue(dispatcher.dispatch(record("ONE"))) }
+
+        clock = 10
+        assertFalse(dispatcher.dispatch(record("ONE")))
+        releaseBlocking.countDown()
+        assertTrue(queuedRecordsDrained.await(2, TimeUnit.SECONDS))
+
+        clock = 20
+        assertTrue(dispatcher.dispatch(record("ONE")))
+        assertTrue(summaryDelivered.await(2, TimeUnit.SECONDS))
+        val summary = synchronized(records) {
+            records.single { (it.values["diagnostic_summary"] as? kr.co.nucode.ble.DiagnosticValue.Text)?.value == "suppressed" }
+        }
+        assertEquals(3L, (summary.values["diagnostic_count"] as kr.co.nucode.ble.DiagnosticValue.Number).value)
+        dispatcher.close()
+    }
+
     private fun record(code: String) = DiagnosticRecord(
         severity = DiagnosticSeverity.Error,
         failure = DiagnosticFailure(

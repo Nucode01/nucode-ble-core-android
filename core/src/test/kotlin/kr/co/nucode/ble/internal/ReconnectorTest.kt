@@ -186,6 +186,41 @@ class ReconnectorTest {
     }
 
     @Test
+    fun `예약 상태를 알리는 동기 이벤트가 같은 재연결을 중복 예약하지 않는다`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = DeviceId("AA:BB:CC:DD:EE:04")
+        val session = registry.getOrCreate(deviceId).apply {
+            effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
+                maxAttempts = 4,
+                initialDelayMillis = 500,
+                maxDelayMillis = 2_000,
+            )
+        }
+        val emitted = mutableListOf<BleEvent>()
+        lateinit var reconnector: Reconnector
+        reconnector = Reconnector(
+            registry = registry,
+            emit = { event ->
+                emitted += event
+                if (event is BleEvent.ConnStateChanged && event.state is ConnState.Disconnected) {
+                    reconnector.scheduleReconnect(deviceId)
+                }
+            },
+            scope = this,
+        )
+
+        reconnector.scheduleReconnect(deviceId)
+
+        assertEquals(1, session.retryCount)
+        assertEquals(
+            1,
+            emitted.filterIsInstance<BleEvent.Diagnostic>()
+                .count { it.failure.code.value == "RECONNECT_ATTEMPT" },
+        )
+        assertTrue(session.reconnectJob != null)
+    }
+
+    @Test
     fun `reconnect start rejection shares the owner failure with terminal state`() = runTest {
         val registry = SessionRegistry()
         val deviceId = DeviceId("AA:BB:CC:DD:EE:03")

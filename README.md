@@ -114,6 +114,32 @@ AGP 8.13.2 · Kotlin 2.0.21 · Gradle 8.13 · compileSdk 36 · minSdk 24 · JVM 
 **:sample 은 검증 도구다, 소비자가 아니다.** 실기기 전제 항목(.plans 미해결 절)을 조작으로 재현하는 판이며, API 설계의 입력으로 삼지 않는다 — 두 번째 소비자가 API 를 왜곡하는 문제(설계 §10)는 여전히 경계한다.
 매니페스트에 **Foreground Service 선언이 없다.** 앱이 소유한다 (설계 §7).
 
+### 실기기 자동 테스트
+
+전용 peripheral 펌웨어가 올라간 보드와 ADB로 연결된 Android 기기가 필요하다. 테스트는 NUS service UUID로 보드를 찾고 다음 항목을 검증한다.
+
+- 600 byte write with response / without response 및 peripheral 수신 결과
+- 같은 기기에 대한 중복 connect 억제
+- peripheral 강제 연결 해제 후 자동 재연결·구독 복원
+- 중복 disconnect 호출이 코어의 disconnect 전이 1회로 처리되고 세션을 다시 사용할 수 있는지
+
+하드웨어 테스트는 명시적으로 활성화한 경우에만 실행된다.
+
+```bash
+./gradlew :sample:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.hardwareBle=true
+```
+
+주변에 같은 NUS 보드가 여러 대면 대상 Bluetooth 주소를 고정한다.
+
+```bash
+./gradlew :sample:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.hardwareBle=true \
+  -Pandroid.testInstrumentationRunnerArguments.blePeripheralId=F0:2F:24:A8:0F:9E
+```
+
+보드가 없는 일반 빌드와 계측 테스트에서는 해당 테스트가 skip된다.
+
 ---
 
 ## 확정된 결정 — 재논의하려면 근거를 대라

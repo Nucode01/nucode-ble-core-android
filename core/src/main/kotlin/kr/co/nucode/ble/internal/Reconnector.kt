@@ -94,19 +94,10 @@ internal class Reconnector(
      * "삼키지 않는다"는 계약이라, 코어가 내부적으로 재시도했다는 사실 자체가 반드시 남아야
      * 한다(설계 §5).
      *
-     * ★ 판단(plan task 5 §작업⑤, review #10 중복 호출 질문) — 같은 기기에 이미 재연결이
-     * 진행 중일 때 중복 호출을 막는 가드는 **의도적으로 넣지 않았다**. `session.state` 가
-     * 이미 `Connecting` 이면 skip 하는 방식(plan 이 예시로 든 접근)은 두 가지로 틀린다:
-     * (1) 진짜 동시 중복(백오프 지연이 끝나기 전에 같은 기기가 다시 호출되는 경우)은 그
-     * 시점에 아직 상태가 `Connecting` 으로 바뀌기 전이라 이 가드를 그냥 통과해버리고,
-     * (2) 백오프가 끝나 이미 `Connecting` 인 상태에서 실제로 새 끊김이 들어온 정상 케이스
-     * (`ReconnectorTest` 가 attempt 마다 순차로 `scheduleReconnect` 를 직접 불러 검증하는
-     * 시나리오)까지 걸러버려 재시도 자체가 멈춘다 — 실측: 이 가드를 넣으면 기존
-     * `ReconnectorTest`(이 task 소유 파일 아님, task 6 이전엔 수정 불가)가 깨진다.
-     * 안전한 교정은 [Session](task 1 소유, 이 파일 밖)에 "예약된 재연결 Job" 전용 필드를
-     * 추가해 진짜 진행 중 여부를 아는 것인데, DeviceId 키 맵을 Reconnector 안에 새로 두는
-     * 것도 금지다(규칙 2, iOS `connectionTimeoutTasks` 붕괴와 같은 패턴). 그래서 이 결정은
-     * task 5 범위 밖으로 미루고 판단만 남긴다.
+     * 기기별 예약 손잡이는 [Session.reconnectJob] 하나다. LAZY job을 이벤트 방출 전에 이
+     * 필드에 설치하므로, 방출된 Disconnected가 동기 재진입해도 같은 재연결을 다시 예약하지
+     * 않는다. 실제 platform start 직전에 손잡이를 비워야 시작 실패로 방출된 다음
+     * Disconnected가 다음 bounded retry를 예약할 수 있다.
      */
     fun scheduleReconnect(deviceId: DeviceId, cause: BleFailure? = null) {
         val session = registry.get(deviceId) ?: return
@@ -114,8 +105,9 @@ internal class Reconnector(
         // 예약하면 give-up Diagnostic 이 거짓이 된다(플랫폼 대기는 계속 살아 있으므로).
         if (session.suppressReconnect || session.autoConnect) return
         if (cause?.retryability == Retryability.Never) return
-        // 중복 방지: 예약은 기기당 하나. 이미 대기 중이면 새로 걸지 않는다.
-        if (session.reconnectJob?.isActive == true) return
+        // 중복 방지: 예약은 기기당 하나. LAZY job은 start() 전 동기 event 방출 구간에서
+        // isActive가 false이므로, 손잡이의 존재 자체를 예약 중인 상태로 취급한다.
+        if (session.reconnectJob != null) return
         val attempt = session.retryCount
         val effectivePolicy = session.effectiveReconnectPolicy
         val reconnectPolicy = effectivePolicy.toReconnectPolicyOrNull() ?: policy

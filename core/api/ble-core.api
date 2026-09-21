@@ -541,3 +541,24 @@ TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extend
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Android extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Ios extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.AlreadyBonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Bonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Failed
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.StartRejected
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.TimedOut
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonding
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.None
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.android.AndroidBondController.createBond-bxWR3DE(java.lang.String,long,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.android.AndroidBondResult>) throws=
+METHOD public abstract <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondController.bondState-fb5K3to(java.lang.String) throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondResult> kr.co.nucode.ble.android.AndroidBondResult.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondState> kr.co.nucode.ble.android.AndroidBondState.getEntries() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult[] kr.co.nucode.ble.android.AndroidBondResult.values() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondState[] kr.co.nucode.ble.android.AndroidBondState.values() throws=
+METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
+TYPE public abstract interface kr.co.nucode.ble.android.AndroidBondController extends=- implements=
+TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
+TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=
+TYPE public static final kr.co.nucode.ble.android.AndroidBondController$DefaultImpls extends=java.lang.Object implements=

@@ -11,4 +11,9 @@ public object AndroidBleClientFactory {
     @JvmStatic
     public fun create(context: Context, config: BleConfig = BleConfig()): BleClient =
         DefaultBleClient(BleRuntime(context, config))
+
+    /** Creates the Android-only bonding boundary for devices discovered by [BleClient]. */
+    @JvmStatic
+    public fun createBondController(context: Context): AndroidBondController =
+        DefaultAndroidBondController(ContextAndroidBondPlatform(context.applicationContext))
 }

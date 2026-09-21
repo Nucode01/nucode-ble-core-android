@@ -3,14 +3,22 @@ package kr.co.nucode.ble.sample
 import android.Manifest
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import java.util.UUID
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
@@ -39,6 +47,8 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.android.AndroidBleClientFactory
+import kr.co.nucode.ble.android.AndroidBondController
+import kr.co.nucode.ble.android.AndroidBondResult
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -240,6 +250,86 @@ class BleHardwareIntegrationTest {
         Unit
     }
 
+    @Test(timeout = 180_000)
+    fun bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware() = runBlocking {
+        awaitAdapterReady()
+        val peripheralId = discoverPeripheral()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val testBondController = AndroidBondTestController(context)
+        val removal = testBondController.removeBond(peripheralId)
+        assertTrue(
+            "local bond cleanup failed explicitly: $removal",
+            removal == BondRemovalResult.Removed || removal == BondRemovalResult.AlreadyAbsent,
+        )
+
+        var scenarioFailure: Throwable? = null
+        try {
+            val bondController = AndroidBleClientFactory.createBondController(context)
+            val bondResult = createBondWithSystemApproval(bondController, peripheralId)
+            assertTrue(
+                "bond creation failed: $bondResult",
+                bondResult == AndroidBondResult.Bonded || bondResult == AndroidBondResult.AlreadyBonded,
+            )
+
+            openSubscribedSession(peripheralId).useSession { first ->
+                val firstBond = readBondStatus(first.session, first.nus.rx, first.messages)
+                assertEquals(1L, firstBond.requiredLong("count"))
+                assertTrue("connection is not encrypted: $firstBond", firstBond.requiredLong("level") >= 2L)
+            }
+
+            openSubscribedSession(peripheralId).useSession { second ->
+                val restoredBond = readBondStatus(second.session, second.nus.rx, second.messages)
+                assertEquals(1L, restoredBond.requiredLong("count"))
+                assertTrue("bonded reconnect is not encrypted: $restoredBond", restoredBond.requiredLong("level") >= 2L)
+
+                second.session.writeCommand(second.nus.rx, "IT:BOND_RESET")
+                second.messages.awaitMessage {
+                    it == "IT|RESULT|test=BOND_RESET|status=ACCEPTED"
+                }
+                withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                    second.session.connectionState.first { it is ConnectionState.Disconnected }
+                }
+            }
+
+            val postResetRemoval = testBondController.removeBond(peripheralId)
+            assertTrue(
+                "local bond cleanup after firmware reset failed explicitly: $postResetRemoval",
+                postResetRemoval == BondRemovalResult.Removed ||
+                    postResetRemoval == BondRemovalResult.AlreadyAbsent,
+            )
+            val rebound = createBondWithSystemApproval(bondController, peripheralId)
+            assertTrue(
+                "bond recreation after firmware reset failed: $rebound",
+                rebound == AndroidBondResult.Bonded || rebound == AndroidBondResult.AlreadyBonded,
+            )
+
+            openSubscribedSession(peripheralId).useSession { third ->
+                val resetStatus = readBondStatus(third.session, third.nus.rx, third.messages)
+                assertEquals(1L, resetStatus.requiredLong("count"))
+                assertEquals("PASS", resetStatus.required("reset"))
+                assertTrue("re-bonded connection is not encrypted: $resetStatus", resetStatus.requiredLong("level") >= 2L)
+            }
+        } catch (failure: Throwable) {
+            scenarioFailure = failure
+            throw failure
+        } finally {
+            val cleanupFailure = runCatching {
+                val finalRemoval = testBondController.removeBond(peripheralId)
+                check(
+                    finalRemoval == BondRemovalResult.Removed ||
+                        finalRemoval == BondRemovalResult.AlreadyAbsent,
+                ) { "local bond cleanup after scenario failed explicitly: $finalRemoval" }
+            }.exceptionOrNull()
+            if (cleanupFailure != null) {
+                if (scenarioFailure != null) {
+                    scenarioFailure.addSuppressed(cleanupFailure)
+                } else {
+                    throw cleanupFailure
+                }
+            }
+        }
+    }
+
     private suspend fun awaitAdapterReady() {
         withTimeout(5_000) {
             client.adapterState.first { state ->
@@ -328,6 +418,65 @@ class BleHardwareIntegrationTest {
         return PeripheralStatus(parts)
     }
 
+    private suspend fun readBondStatus(
+        session: BleSession,
+        rx: CharacteristicRef,
+        messages: ReceiveChannel<String>,
+    ): Map<String, String> {
+        session.writeCommand(rx, "IT:BOND_STATUS")
+        return messages.awaitMessage { it.startsWith("IT|BOND|") }.parseFields()
+    }
+
+    private suspend fun CoroutineScope.openSubscribedSession(peripheralId: PeripheralId): SubscribedSession {
+        var session: BleSession? = null
+        val messages = Channel<String>(Channel.UNLIMITED)
+        var notificationJob: kotlinx.coroutines.Job? = null
+        try {
+            val connectedSession = client.connect(peripheralId).also {
+                session = it
+                activeSession = it
+            }
+            awaitReady(connectedSession)
+            val nus = connectedSession.nusCharacteristics()
+            notificationJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                connectedSession.notifications(nus.tx).collect { messages.send(it.decodeToString().trim()) }
+            }
+            connectedSession.subscribe(nus.tx)
+            messages.awaitSequence()
+            return SubscribedSession(connectedSession, nus, messages, notificationJob)
+        } catch (failure: Throwable) {
+            notificationJob?.cancel()
+            messages.close()
+            val disconnectFailure = session?.let { partialSession ->
+                runCatching {
+                    partialSession.disconnect()
+                    withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                        partialSession.connectionState.first { it is ConnectionState.Disconnected }
+                    }
+                }.exceptionOrNull()
+            }
+            if (disconnectFailure != null) failure.addSuppressed(disconnectFailure)
+            throw failure
+        }
+    }
+
+    private suspend fun <T> SubscribedSession.useSession(
+        block: suspend (SubscribedSession) -> T,
+    ): T {
+        var primaryFailure: Throwable? = null
+        try {
+            return block(this)
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            val closeFailure = runCatching { close() }.exceptionOrNull()
+            if (closeFailure != null) {
+                if (primaryFailure != null) primaryFailure.addSuppressed(closeFailure) else throw closeFailure
+            }
+        }
+    }
+
     private suspend fun BleSession.writeCommand(rx: CharacteristicRef, command: String) {
         val receipt = write(
             rx,
@@ -376,10 +525,74 @@ class BleHardwareIntegrationTest {
 
     private fun instrumentationArguments() = InstrumentationRegistry.getArguments()
 
+    private suspend fun createBondWithSystemApproval(
+        controller: AndroidBondController,
+        peripheralId: PeripheralId,
+    ): AndroidBondResult = coroutineScope {
+        val approval = async(Dispatchers.IO) { approveSystemPairing() }
+        val result = controller.createBond(
+            peripheralId,
+            timeoutMillis = BOND_CONFIRMATION_TIMEOUT_MILLIS,
+        )
+        approval.await()
+        result
+    }
+
+    private fun approveSystemPairing() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val deadline = SystemClock.elapsedRealtime() + PAIRING_UI_TIMEOUT_MILLIS
+
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val pairButton = device.findObject(By.res("android:id/button1"))
+            if (pairButton != null) {
+                pairButton.click()
+                return
+            }
+
+            device.openNotification()
+            val request = device.wait(
+                Until.findObject(By.textContains(PERIPHERAL_NAME)),
+                PAIRING_UI_POLL_MILLIS,
+            )
+            if (request != null) {
+                request.click()
+                device.wait(
+                    Until.hasObject(By.res("android:id/button1")),
+                    PAIRING_DIALOG_TIMEOUT_MILLIS,
+                )
+            }
+        }
+
+        error("System pairing confirmation UI did not appear")
+    }
+
     private data class NusCharacteristics(
         val rx: CharacteristicRef,
         val tx: CharacteristicRef,
     )
+
+    private data class SubscribedSession(
+        val session: BleSession,
+        val nus: NusCharacteristics,
+        val messages: Channel<String>,
+        val notificationJob: kotlinx.coroutines.Job,
+    ) {
+        suspend fun close() {
+            try {
+                session.disconnect()
+                withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                    session.connectionState.first { it is ConnectionState.Disconnected }
+                }
+            } finally {
+                cancelNotifications()
+            }
+        }
+
+        fun cancelNotifications() {
+            notificationJob.cancel()
+            messages.close()
+        }
+    }
 
     private data class PeripheralStatus(val parts: Map<String, Map<String, String>>) {
         fun part(name: String): Map<String, String> = parts[name] ?: error("Missing status part $name: $parts")
@@ -395,6 +608,11 @@ class BleHardwareIntegrationTest {
         const val STATUS_PART_COUNT = 3
         const val SCAN_TIMEOUT_MILLIS = 20_000L
         const val READY_TIMEOUT_MILLIS = 30_000L
+        const val BOND_CONFIRMATION_TIMEOUT_MILLIS = 120_000L
+        const val PAIRING_UI_TIMEOUT_MILLIS = 30_000L
+        const val PAIRING_UI_POLL_MILLIS = 1_000L
+        const val PAIRING_DIALOG_TIMEOUT_MILLIS = 3_000L
+        const val PERIPHERAL_NAME = "Nordic_UART_Service"
         const val RECONNECT_TIMEOUT_MILLIS = 45_000L
         const val DISCONNECT_TIMEOUT_MILLIS = 15_000L
         const val STATUS_TIMEOUT_MILLIS = 10_000L

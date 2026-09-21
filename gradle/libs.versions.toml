@@ -5,6 +5,7 @@ coroutines = "1.9.0"
 junit = "4.13.2"
 androidxTest = "1.7.0"
 androidxTestJunit = "1.3.0"
+androidxTestUiAutomator = "2.4.0"
 
 [libraries]
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -13,6 +14,7 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTest" }
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidxTest" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
+androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "androidxTestUiAutomator" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }

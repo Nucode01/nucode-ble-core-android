@@ -12,6 +12,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.CharRef
 import kr.co.nucode.ble.Chunking
 import kr.co.nucode.ble.ConnState
+import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
@@ -309,6 +310,74 @@ class OperationQueueTest {
         assertEquals(244, calls[1].size)
         assertEquals(244, calls[2].size)
         assertEquals(168, calls[3].size)
+    }
+
+    @Test
+    fun `MTU 65에서 600바이트 쓰기는 62바이트 단위 10청크로 완료된다`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        registry.getOrCreate(deviceId).apply {
+            setStateForTest(ConnState.Ready)
+            chunkSize = chunkSizeForMtu(65)
+            updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
+        }
+        val chunks = mutableListOf<ByteArray>()
+        val queue = OperationQueue(registry, emit = {}, writeChunk = { _, _, _, chunk, _ ->
+            chunks += chunk.copyOf()
+            GATT_SUCCESS
+        }, ackTimeoutMillis = 5_000)
+
+        val result = queue.write(
+            deviceId,
+            charRef,
+            ByteArray(600) { it.toByte() },
+            WriteType.WithResponse,
+            Chunking.Auto,
+        )
+
+        assertEquals(WriteResult.Completed(10), result)
+        assertEquals(List(9) { 62 } + 42, chunks.map(ByteArray::size))
+        assertEquals(ByteArray(600) { it.toByte() }.toList(), chunks.flatMap(ByteArray::toList))
+    }
+
+    @Test
+    fun `600바이트 쓰기 중 3번째 청크에서 연결이 끊기면 부분 진행률을 남기고 재전송하지 않는다`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        registry.getOrCreate(deviceId).apply {
+            setStateForTest(ConnState.Ready)
+            chunkSize = chunkSizeForMtu(65)
+            updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
+        }
+        var callCount = 0
+        val queue = OperationQueue(registry, emit = {}, writeChunk = { _, _, _, _, _ ->
+            callCount += 1
+            if (callCount == 3) throw CancellationException("gatt disconnected")
+            GATT_SUCCESS
+        }, ackTimeoutMillis = 5_000)
+
+        val result = queue.write(
+            deviceId,
+            charRef,
+            ByteArray(600) { it.toByte() },
+            WriteType.WithResponse,
+            Chunking.Auto,
+        ) as WriteResult.Failed
+        val progress = requireNotNull(result.failure.writeProgress)
+
+        assertEquals("OPERATION_INVALIDATED", result.failure.code.value)
+        assertEquals(600, progress.totalBytes)
+        assertEquals(10, progress.totalChunks)
+        assertEquals(124, progress.bytesCompleted)
+        assertEquals(2, progress.chunksCompleted)
+        assertEquals(2, progress.failedChunkIndex)
+        assertEquals(62, progress.failedChunkBytes)
+        assertTrue(progress.failedChunkWasStarted)
+        assertEquals(DeliverySemantics.RemoteAcknowledged, progress.delivery)
+        assertTrue(progress.currentChunkDeliveryUnknown)
+        assertEquals(3, callCount)
     }
 
     @Test

@@ -1,12 +1,10 @@
 package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.os.Build
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -32,22 +30,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
+import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
+import kr.co.nucode.ble.internal.platform.android.AndroidPeripheralRediscovery
 import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
-
-/**
- * [context] 로부터 [BluetoothAdapter] 를 매 호출 시 다시 조회하는 provider 를 만든다.
- * 고정 값으로 캐시하면 BT off → on 전환 사이에 갱신되지 않는 낡은 참조를 쓰게 된다
- * (GattBridge/Scanner 의 같은 계약, plan §접근 ①) — 조립부에 흩어져 있던 어댑터 획득
- * 람다 2개(task 2·4 가 임시로 넣은 것) + `computeAdapterState` 전용 캐시 val 을 이
- * 함수 하나로 합친다(plan task 5 §작업①).
- *
- * Runtime construction resolves the current adapter on every access so Bluetooth off/on never
- * retains a stale instance.
- */
-private fun defaultAdapterProvider(context: Context): () -> BluetoothAdapter? = {
-    (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
-}
 
 /**
  * D7(M-8+#16) 권한 판정 순수 함수 — `sdkInt`/매니페스트 선언 셋/런타임 grant 조회를 인자로
@@ -92,8 +78,8 @@ internal fun evaluatePermissionState(
  * 를 직접 들고 있는 대신 provider 람다([adapter])로 매 호출 시 다시 얻는다. 공개 생성자와
  * 내부 테스트 생성자가 이 주 생성자로 수렴한다(plan task 5 §작업①).
  *
- * [appContext] 는 반드시 applicationContext 로 좁혀 저장한다 — Activity 를 그대로 잡으면
- * 코어가 소유하는 [coreScope](규칙 6, 수집자 0 이어도 계속 돈다)가 Activity 보다 오래 살아
+ * [central] 은 프로덕션 생성자가 applicationContext 로 만든다 — Activity 를 잡으면 코어가
+ * 소유하는 [coreScope](규칙 6, 수집자 0 이어도 계속 돈다)가 Activity 보다 오래 살아
  * 라이브러리가 누수를 만든다. 내부 테스트 생성자 경로에서는 null 이다.
  */
 /**
@@ -102,13 +88,14 @@ internal fun evaluatePermissionState(
  * than becoming a second owner.
  */
 internal class BleRuntime private constructor(
-    private val appContext: Context?,
+    private val central: AndroidCentral?,
     config: BleConfig,
     reconnectPolicy: ReconnectPolicy,
-    private val adapter: () -> BluetoothAdapter?,
+    adapterProvider: (() -> BluetoothAdapter?)?,
     private val registerAdapterReceiver: Boolean,
     private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
     private val gattOperationTargetResolver: GattOperationTargetResolver?,
+    private val rediscoveryOverride: PeripheralRediscovery?,
 ) {
 
     private val closeGate = AtomicBoolean(false)
@@ -117,14 +104,23 @@ internal class BleRuntime private constructor(
     @Volatile
     private var closedOfficialSnapshot: ClientSnapshot? = null
 
+    /**
+     * 어댑터 획득 provider — 프로덕션 경로는 [central]에 매 호출 시 다시 위임해 BT off → on
+     * 전환 사이에 갱신되지 않는 낡은 참조를 쓰지 않는다(GattBridge/Scanner 의 같은 계약,
+     * plan §접근 ①). [scanner]·[gattDriver]·[computeAdapterState] 가 초기화 블록에서 이
+     * 프로퍼티를 쓰므로 그것들보다 앞에 선언해야 한다(Kotlin 초기화 순서).
+     */
+    private val adapter: () -> BluetoothAdapter? = adapterProvider ?: { central?.adapter() }
+
     constructor(context: Context, config: BleConfig = BleConfig()) : this(
-        appContext = context.applicationContext,
+        central = AndroidCentral(context.applicationContext),
         config = config,
         reconnectPolicy = ReconnectPolicy(),
-        adapter = defaultAdapterProvider(context.applicationContext),
+        adapterProvider = null,
         registerAdapterReceiver = true,
         gattDriverFactory = null,
         gattOperationTargetResolver = null,
+        rediscoveryOverride = null,
     )
 
     /**
@@ -132,14 +128,15 @@ internal class BleRuntime private constructor(
      * 배선 로직(`advanceConnectSequence` 분기 · [emit] 순서 · [droppedEventCount])만
      * 검증한다 — task 6 이 이 생성자로 `BleCoreWiringTest` 를 만든다.
      *
-     * `appContext` 가 null 이라 [declaredPermissions] 는 항상 빈 집합이고 [permissionState] 는
-     * 항상 `Unauthorized(canRequest = false)`, 브로드캐스트 리시버는 등록하지 않는다.
-     * (다만 [computeAdapterState] 가 어댑터 null 을 먼저 걸러 이 경로 자체를 안 탄다 — 아래
-     * 참고.) production `AndroidGattDriver.connect()` 는 null context 를 만나면 typed
-     * adapter failure로 즉시 막는다(GattBridge KDoc, plan task 5 §작업①
-     * 선택 (a)) — [gattDriver]와 [gattOperationTargetResolver]를 함께 주입하면 Android
-     * `BluetoothGatt` 객체 없이도 공개 read/write/subscribe의 driver start 경계를 검증할 수
-     * 있다. 둘 다 생략한 기본 production 조립은 실제 Android target resolution을 유지한다.
+     * [central] 이 null 이라 [computeAdapterState] 는 항상 `evaluatePermissionState` 의
+     * 빈 선언 집합 경로를 타 `Unauthorized(canRequest = false)` 가 나오고, 브로드캐스트
+     * 리시버는 등록하지 않는다. (다만 [computeAdapterState] 가 어댑터 null 을 먼저 걸러 이
+     * 경로 자체를 안 탄다 — 아래 참고.) production `AndroidGattDriver.connect()` 는 null
+     * context 를 만나면 typed adapter failure로 즉시 막는다(GattBridge KDoc, plan task 5
+     * §작업① 선택 (a)) — [gattDriver]와 [gattOperationTargetResolver]를 함께 주입하면
+     * Android `BluetoothGatt` 객체 없이도 공개 read/write/subscribe의 driver start 경계를
+     * 검증할 수 있다. 둘 다 생략한 기본 production 조립은 실제 Android target resolution을
+     * 유지한다.
      */
     constructor(
         config: BleConfig,
@@ -147,14 +144,16 @@ internal class BleRuntime private constructor(
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
+        rediscovery: PeripheralRediscovery? = null,
     ) : this(
-        appContext = null,
+        central = null,
         config = config,
         reconnectPolicy = reconnectPolicy,
-        adapter = adapter,
+        adapterProvider = adapter,
         registerAdapterReceiver = false,
         gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
         gattOperationTargetResolver = gattOperationTargetResolver,
+        rediscoveryOverride = rediscovery,
     )
 
     // ── 배선 ① coreScope — 규칙 6: 구독이 아니라 이 스코프가 동작을 구동한다 ──────────
@@ -290,6 +289,7 @@ internal class BleRuntime private constructor(
 
     private fun emitScanObservation(observation: ScanObservation) {
         if (closed) return
+        warmAddresses += observation.legacyDeviceId
         _scanObservations.tryEmit(observation)
         if (!_officialEvents.tryEmit(
                 OfficialBleClientEvent.Scan(ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)),
@@ -306,6 +306,11 @@ internal class BleRuntime private constructor(
      */
     internal val registry = SessionRegistry()
 
+    /**
+     * 이 클라이언트가 마지막 adapter Ready 이후 광고나 링크로 본 주소. 없으면 connect 앞에 재발견 스캔.
+     */
+    private val warmAddresses = mutableSetOf<DeviceId>()
+
     private val scanner = Scanner(
         emit = ::emit,
         scope = coreScope,
@@ -313,7 +318,9 @@ internal class BleRuntime private constructor(
         emitObservation = ::emitScanObservation,
     )
     private val gattDriver = gattDriverFactory?.invoke(coreScope)
-        ?: AndroidGattDriver(appContext, adapter, coreScope)
+        ?: AndroidGattDriver(central?.context, adapter, coreScope)
+    private val rediscovery: PeripheralRediscovery? = rediscoveryOverride
+        ?: central?.let { c -> AndroidPeripheralRediscovery { c.adapter()?.bluetoothLeScanner } }
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
@@ -327,7 +334,10 @@ internal class BleRuntime private constructor(
             discoveryMillis = config.discoveryTimeoutMillis,
             configurationMillis = config.configurationTimeoutMillis,
             disconnectCleanupMillis = config.disconnectCleanupTimeoutMillis,
+            rediscoveryMillis = config.rediscoveryTimeoutMillis,
         ),
+        rediscovery = rediscovery,
+        linkCacheWarm = { deviceId -> deviceId in warmAddresses },
     )
     private val operationQueue = OperationQueue(
         registry = registry,
@@ -369,7 +379,10 @@ internal class BleRuntime private constructor(
     private fun advanceConnectSequence(e: BleEvent) {
         when (e) {
             is BleEvent.ConnStateChanged -> when (val st = e.state) {
-                is ConnState.DiscoveringServices -> gattBridge.discoverServices(e.deviceId)
+                is ConnState.DiscoveringServices -> {
+                    warmAddresses += e.deviceId
+                    gattBridge.discoverServices(e.deviceId)
+                }
 
                 is ConnState.Ready -> {
                     val session = registry.get(e.deviceId) ?: return
@@ -473,30 +486,6 @@ internal class BleRuntime private constructor(
 
     // ── adapterState ────────────────────────────────────────────────────────────
 
-    /**
-     * 앱 매니페스트(머지 결과)에 선언된 권한 집합(D7/M-8+#16 §잠재에러 "getPackageInfo IPC
-     * 비용"). 불변이라 init 1회만 조회한다 — 명령마다 `PackageManager` IPC 를 타면 매
-     * `startScan`/`connect` 호출마다 바인더 왕복이 생긴다.
-     *
-     * [appContext] 가 null(내부 테스트 생성자 경로)이면 조회할 대상이 없어 빈 집합이다 —
-     * 이 경우 [evaluatePermissionState] 의 "필요 권한 중 선언 안 된 게 있다" 분기가 항상
-     * 먼저 걸려 `Unauthorized(canRequest = false)` 로 판정된다(테스트 경로는 [computeAdapterState]
-     * 의 어댑터 null 체크가 먼저라 실제로 이 분기까지 안 간다 — 아래 [computeAdapterState] 참고).
-     *
-     * API 33+ 전용 `getPackageInfo(String, PackageInfoFlags)` 오버로드 대신 구 오버로드
-     * (`getPackageInfo(String, Int)`)를 그대로 쓴다 — minSdk 24 를 포함한 전 버전에서
-     * 동작하고, 이 호출 자체가 deprecation 경고를 내지 않는다(경고가 나면 SDK_INT 분기로
-     * 바꾼다는 게 원래 방침이었으나 이 시그니처는 여전히 유효해 분기가 필요 없다).
-     */
-    private val declaredPermissions: Set<String> = appContext?.let { ctx ->
-        try {
-            ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.GET_PERMISSIONS)
-                .requestedPermissions?.toSet()
-        } catch (e: Exception) {
-            null
-        }
-    } ?: emptySet()
-
     private val _adapterState = MutableStateFlow(computeAdapterState())
 
     /** 어댑터/권한 상태. `Unauthorized(canRequest)`로 요청 가능/미허용을 구분한다(설계 §5, D7). */
@@ -504,48 +493,26 @@ internal class BleRuntime private constructor(
 
     /**
      * 어댑터 검사가 권한 검사보다 먼저다(plan task 7 §테스트) — 내부 테스트 생성자
-     * (`adapter = { null }`)는 [appContext] 도 null 이라 [permissionState] 를 타면
-     * `declaredPermissions` 가 비어 있어 조회 대상 없이도 항상 `Unauthorized(false)` 가
-     * 나오는데, 이 순서 덕분에 그 경로 자체를 안 타고 `Unsupported` 로 먼저 끝난다 —
-     * `BleCoreWiringTest` 56개가 이 순서에 기대고 있다.
+     * (`adapter = { null }`)는 [central] 도 null 이라 권한 판정 경로를 타면 항상 빈 선언
+     * 집합으로 `Unauthorized(false)` 가 나오는데, 이 순서 덕분에 그 경로 자체를 안 타고
+     * `Unsupported` 로 먼저 끝난다 — `BleCoreWiringTest` 56개가 이 순서에 기대고 있다.
+     *
+     * 권한 판정 자체(D7/M-8+#16, BLE 스캔 결과 배달 조건 — review #2)는 [central] 이
+     * 있으면 [AndroidCentral.permissionState] 로, 없으면(테스트 생성자 경로) 파일 최상위
+     * [evaluatePermissionState] 에 빈 선언 집합/미허용을 직접 채워 위임한다 — 둘 다 최종
+     * 판정 로직은 [AndroidPermissionState.evaluate] 로 수렴한다.
      */
     private fun computeAdapterState(): AdapterState {
         val adapterInstance = adapter() ?: return AdapterState.Unsupported
-        permissionState()?.let { return it }
+        val unauthorized = if (central != null) {
+            central.permissionState()
+        } else {
+            // 테스트 생성자 경로(Context 없음): 선언 집합이 비어 있고 grant 조회가 불가한 현재 동작과 동치.
+            evaluatePermissionState(sdkInt = Build.VERSION.SDK_INT, declared = emptySet(), isGranted = { false })
+        }
+        unauthorized?.let { return it }
         return if (adapterInstance.isEnabled) AdapterState.Ready else AdapterState.PoweredOff
     }
-
-    /**
-     * BLE 스캔 결과 배달 조건(review #2 — 이전 근거가 틀렸다) + D7(M-8+#16) 미선언/미허용
-     * 구분. API 레벨별로 요구되는 권한이 다르다:
-     *
-     * ```
-     * S(31)+          BLUETOOTH_SCAN + BLUETOOTH_CONNECT
-     * Q(29)~R(30)     BLUETOOTH · BLUETOOTH_ADMIN(선언만) + ACCESS_FINE_LOCATION
-     * N(24)~P(28)     BLUETOOTH · BLUETOOTH_ADMIN(선언만) + ACCESS_FINE_LOCATION 또는 ACCESS_COARSE_LOCATION
-     * ```
-     *
-     * "BLUETOOTH/BLUETOOTH_ADMIN 은 설치 시 부여되는 일반 권한이라 확인 대상이 아니다"는
-     * 예전 주석은 BLUETOOTH_SCAN/BLUETOOTH_CONNECT 자체의 권한 유형(런타임 권한)에는
-     * 맞지만, 31 미만에서는 그 두 권한이 아예 존재하지 않고 대신 안드로이드 플랫폼이
-     * BLE 스캔 "결과 배달"을 위치 권한에 묶어 놓았다는 사실을 놓쳤다(review #2). 다만
-     * pre-31 앱이 `BLUETOOTH`/`BLUETOOTH_ADMIN` 자체를 매니페스트에서 뺐으면(M-8) 위치
-     * 권한 검사만 통과해도 `startScan`/`connectGatt` 가 `SecurityException` 을 던진다 —
-     * 그래서 이 두 권한은 grant 가 아니라 **선언 여부**를 [evaluatePermissionState] 에서
-     * 함께 본다.
-     *
-     * 실제 판정은 [evaluatePermissionState](파일 최상위, 순수 함수)에 위임한다 —
-     * `Build.VERSION.SDK_INT`/`declaredPermissions`/`context.checkSelfPermission` 을
-     * 여기서 인자로 채워 넣기만 한다.
-     */
-    private fun permissionState(): AdapterState.Unauthorized? = evaluatePermissionState(
-        sdkInt = Build.VERSION.SDK_INT,
-        targetSdkInt = appContext?.applicationInfo?.targetSdkVersion ?: Build.VERSION.SDK_INT,
-        declared = declaredPermissions,
-        isGranted = { permission ->
-            appContext?.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-        },
-    )
 
     /**
      * 어댑터 on/off 브로드캐스트(review #3 해동) — 잡는 즉시 [_adapterState] 를 다시
@@ -589,6 +556,8 @@ internal class BleRuntime private constructor(
      * connect() 를 다시 불러 되살릴 수 있어야 한다(D4 원문 "BT 복귀 자동 재연결은 안 함").
      */
     internal fun sweepSessions(cause: AdapterState) {
+        // 어댑터가 Ready 를 벗어나면 스택 LE 캐시도 비워진다고 가정한다 — 다음 connect 는 재발견부터.
+        warmAddresses.clear()
         // 스캔도 어댑터와 함께 죽는다(review L) — isScanning 잔류를 두면 BT 복귀 후
         // startScan() 이 조용한 no-op 이 된다. 소비자에게는 Diagnostic 으로 알린다
         // (onScanFailed 는 이 경로에서 보장되지 않는다).
@@ -631,7 +600,7 @@ internal class BleRuntime private constructor(
 
     init {
         if (registerAdapterReceiver) {
-            appContext?.registerReceiver(adapterStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+            central?.context?.registerReceiver(adapterStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         }
     }
 
@@ -1091,7 +1060,7 @@ internal class BleRuntime private constructor(
                 },
             )
             sessions.forEach { registry.remove(it.deviceId) }
-            if (registerAdapterReceiver) appContext?.unregisterReceiver(adapterStateReceiver)
+            if (registerAdapterReceiver) central?.context?.unregisterReceiver(adapterStateReceiver)
             diagnosticDispatcher.close()
             coreScope.cancel()
             closeCompleted.complete(Unit)

@@ -71,6 +71,9 @@ class BleCoreWiringTest {
         discoveryTimeoutMillis: Long = 10_000,
         configurationTimeoutMillis: Long = 10_000,
         disconnectCleanupTimeoutMillis: Long = 5_000,
+        // BleConfig 는 재발견 상한이 link 상한을 넘지 못하게 강제한다 — 짧은 link 로 timeout 을 재현하는
+        // 테스트가 그 계약에 걸리지 않도록 기본값을 link 안으로 맞춘다.
+        rediscoveryTimeoutMillis: Long = minOf(3_000L, linkTimeoutMillis),
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
     ): BleRuntime = BleRuntime(
@@ -82,6 +85,7 @@ class BleCoreWiringTest {
             discoveryTimeoutMillis = discoveryTimeoutMillis,
             configurationTimeoutMillis = configurationTimeoutMillis,
             disconnectCleanupTimeoutMillis = disconnectCleanupTimeoutMillis,
+            rediscoveryTimeoutMillis = rediscoveryTimeoutMillis,
         ),
         adapter = { null },
         reconnectPolicy = reconnectPolicy,
@@ -710,7 +714,7 @@ class BleCoreWiringTest {
             ackTimeoutMillis = 5_000,
         )
 
-        val thrown = runCatching { bridge.connect(id, ConnectOptions()) }.exceptionOrNull()
+        val thrown = runCatching { kotlinx.coroutines.runBlocking { bridge.connect(id, ConnectOptions()) } }.exceptionOrNull()
 
         assertTrue(
             "adapter() 가 null 이면 AdapterUnavailable(PoweredOff) 를 던져야 한다(D6): $thrown",

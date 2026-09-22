@@ -332,6 +332,8 @@ public sealed interface AdapterState {
  * @param configurationTimeoutMillis MTU 등 필수 연결 설정 callback 대기 상한.
  * @param disconnectCleanupTimeoutMillis disconnect callback이 누락됐을 때 local cleanup을
  * 강제하는 상한.
+ * @param rediscoveryTimeoutMillis Bluetooth 재시작 등으로 플랫폼 LE 캐시가 비어 있을 때 connect
+ * 앞에 도는 주소 필터 스캔의 상한. link timeout 안에서 소비된다.
  */
 public data class BleConfig public constructor(
     public val dispatcher: CoroutineContext? = null,
@@ -341,6 +343,7 @@ public data class BleConfig public constructor(
     public val discoveryTimeoutMillis: Long = 10_000,
     public val configurationTimeoutMillis: Long = 10_000,
     public val disconnectCleanupTimeoutMillis: Long = 5_000,
+    public val rediscoveryTimeoutMillis: Long = 3_000,
     /** Optional non-authoritative diagnostics sink. Null keeps diagnostics delivery disabled. */
     public val logger: BleLogger? = null,
     /** Privacy-first diagnostic capture policy; raw payload capture is disabled by default. */
@@ -361,6 +364,10 @@ public data class BleConfig public constructor(
         }
         require(disconnectCleanupTimeoutMillis > 0) {
             "disconnectCleanupTimeoutMillis 는 0보다 커야 한다: $disconnectCleanupTimeoutMillis"
+        }
+        require(rediscoveryTimeoutMillis > 0) { "rediscoveryTimeoutMillis 는 0보다 커야 한다: $rediscoveryTimeoutMillis" }
+        require(rediscoveryTimeoutMillis <= linkTimeoutMillis) {
+            "rediscoveryTimeoutMillis($rediscoveryTimeoutMillis) 는 linkTimeoutMillis($linkTimeoutMillis) 이하여야 한다"
         }
     }
 }

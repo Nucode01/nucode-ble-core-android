@@ -3,7 +3,7 @@ CONSTRUCTOR public kr.co.nucode.ble.AdapterState$Unauthorized(boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.AdvertisementData(java.lang.String,java.util.Set<kr.co.nucode.ble.BleUuid>,java.util.Map<java.lang.Integer, byte[]>,java.util.Map<kr.co.nucode.ble.BleUuid, byte[]>,java.lang.Integer,java.lang.Boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleChunking$Fixed(int) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConfig() throws=
-CONSTRUCTOR public kr.co.nucode.ble.BleConfig(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConfig(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions() throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions(kr.co.nucode.ble.BleReconnectPolicy) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleDisconnectReason$Failed(kr.co.nucode.ble.BleFailure) throws=
@@ -86,6 +86,14 @@ FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Re
 FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Error
 FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Info
 FIELD public static final enum kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.Warning
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.AlreadyBonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Bonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Failed
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.StartRejected
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.TimedOut
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonded
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonding
+FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.None
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_MAX_RAW_PAYLOAD_BYTES
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_QUEUE_CAPACITY
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.MAX_QUEUE_CAPACITY
@@ -125,6 +133,7 @@ METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.read(kr.c
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.subscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.unsubscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.write(kr.co.nucode.ble.CharacteristicRef,byte[],kr.co.nucode.ble.BleWriteOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.WriteReceipt>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.android.AndroidBondController.createBond-bxWR3DE(java.lang.String,long,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.android.AndroidBondResult>) throws=
 METHOD public abstract <> java.lang.String kr.co.nucode.ble.BleSession.getPeripheralId-f9B3WOg() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.Flow<byte[]> kr.co.nucode.ble.BleSession.notifications(kr.co.nucode.ble.CharacteristicRef) throws=
 METHOD public abstract <> kotlinx.coroutines.flow.Flow<kr.co.nucode.ble.BleClientEvent> kr.co.nucode.ble.BleClient.getEvents() throws=
@@ -133,6 +142,7 @@ METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<java.util.List<kr.co
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.AdapterState> kr.co.nucode.ble.BleClient.getAdapterState() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ConnectionState> kr.co.nucode.ble.BleSession.getConnectionState() throws=
 METHOD public abstract <> kr.co.nucode.ble.BleSession kr.co.nucode.ble.BleClient.session-fb5K3to(java.lang.String) throws=
+METHOD public abstract <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondController.bondState-fb5K3to(java.lang.String) throws=
 METHOD public abstract <> void kr.co.nucode.ble.BleClient.close() throws=
 METHOD public abstract <> void kr.co.nucode.ble.BleLogger.log(kr.co.nucode.ble.DiagnosticRecord) throws=
 METHOD public final <> boolean kr.co.nucode.ble.AdapterState$Unauthorized.component1() throws=
@@ -276,7 +286,7 @@ METHOD public final <> kr.co.nucode.ble.AdvertisementData kr.co.nucode.ble.ScanR
 METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOptions.component2() throws=
 METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOptions.getChunking() throws=
 METHOD public final <> kr.co.nucode.ble.BleChunking$Fixed kr.co.nucode.ble.BleChunking$Fixed.copy(int) throws=
-METHOD public final <> kr.co.nucode.ble.BleConfig kr.co.nucode.ble.BleConfig.copy(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
+METHOD public final <> kr.co.nucode.ble.BleConfig kr.co.nucode.ble.BleConfig.copy(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
 METHOD public final <> kr.co.nucode.ble.BleConnectOptions kr.co.nucode.ble.BleConnectOptions.copy(kr.co.nucode.ble.BleReconnectPolicy) throws=
 METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.component1() throws=
 METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.getReason() throws=
@@ -291,7 +301,7 @@ METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleC
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.getFailure() throws=
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component3() throws=
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.getFailure() throws=
-METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.component8() throws=
+METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.component9() throws=
 METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.getLogger() throws=
 METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy kr.co.nucode.ble.BleConnectOptions.component1() throws=
 METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy kr.co.nucode.ble.BleConnectOptions.getReconnectPolicy() throws=
@@ -326,7 +336,7 @@ METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.Write
 METHOD public final <> kr.co.nucode.ble.DeliverySemantics kr.co.nucode.ble.WriteReceipt.getDelivery() throws=
 METHOD public final <> kr.co.nucode.ble.DiagnosticFailure kr.co.nucode.ble.DiagnosticFailure.copy-K4SEpQQ(java.lang.String,java.lang.String,kr.co.nucode.ble.FailurePhase,kr.co.nucode.ble.Retryability,kr.co.nucode.ble.FailureContext,kr.co.nucode.ble.PlatformDetail,kr.co.nucode.ble.WriteProgress) throws=
 METHOD public final <> kr.co.nucode.ble.DiagnosticFailure kr.co.nucode.ble.DiagnosticRecord.getFailure() throws=
-METHOD public final <> kr.co.nucode.ble.DiagnosticOptions kr.co.nucode.ble.BleConfig.component9() throws=
+METHOD public final <> kr.co.nucode.ble.DiagnosticOptions kr.co.nucode.ble.BleConfig.component10() throws=
 METHOD public final <> kr.co.nucode.ble.DiagnosticOptions kr.co.nucode.ble.BleConfig.getDiagnosticOptions() throws=
 METHOD public final <> kr.co.nucode.ble.DiagnosticSensitivity kr.co.nucode.ble.DiagnosticOptions.sensitivityFor(kr.co.nucode.ble.CharacteristicRef) throws=
 METHOD public final <> kr.co.nucode.ble.DiagnosticSeverity kr.co.nucode.ble.DiagnosticRecord.getSeverity() throws=
@@ -384,11 +394,13 @@ METHOD public final <> long kr.co.nucode.ble.BleConfig.component4() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.component5() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.component6() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.component7() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.component8() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getConfigurationTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getDisconnectCleanupTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getDiscoveryTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getLinkTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getOperationTimeoutMillis() throws=
+METHOD public final <> long kr.co.nucode.ble.BleConfig.getRediscoveryTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.component2() throws=
 METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.component3() throws=
 METHOD public final <> long kr.co.nucode.ble.BleReconnectPolicy$ExponentialBackoff.getInitialDelayMillis() throws=
@@ -424,6 +436,8 @@ METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.FailurePhase> 
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.OperationKind> kr.co.nucode.ble.OperationKind.getEntries() throws=
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Retryability> kr.co.nucode.ble.Retryability.getEntries() throws=
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Severity> kr.co.nucode.ble.Severity.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondResult> kr.co.nucode.ble.android.AndroidBondResult.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondState> kr.co.nucode.ble.android.AndroidBondState.getEntries() throws=
 METHOD public static <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.valueOf(java.lang.String) throws=
 METHOD public static <> kr.co.nucode.ble.BleScanMode[] kr.co.nucode.ble.BleScanMode.values() throws=
 METHOD public static <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteMode.valueOf(java.lang.String) throws=
@@ -446,11 +460,16 @@ METHOD public static <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryabil
 METHOD public static <> kr.co.nucode.ble.Retryability[] kr.co.nucode.ble.Retryability.values() throws=
 METHOD public static <> kr.co.nucode.ble.Severity kr.co.nucode.ble.Severity.valueOf(java.lang.String) throws=
 METHOD public static <> kr.co.nucode.ble.Severity[] kr.co.nucode.ble.Severity.values() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult[] kr.co.nucode.ble.android.AndroidBondResult.values() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidBondState[] kr.co.nucode.ble.android.AndroidBondState.values() throws=
 METHOD public static final <> boolean kr.co.nucode.ble.BleUuid.equals-impl0(java.util.UUID,java.util.UUID) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCategory.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCode.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.PeripheralId.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> kr.co.nucode.ble.BleClient kr.co.nucode.ble.android.AndroidBleClientFactory.create(android.content.Context,kr.co.nucode.ble.BleConfig) throws=
+METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
 TYPE public abstract interface kr.co.nucode.ble.AdapterState extends=- implements=
 TYPE public abstract interface kr.co.nucode.ble.BleChunking extends=- implements=
 TYPE public abstract interface kr.co.nucode.ble.BleClient extends=- implements=java.io.Closeable
@@ -463,6 +482,7 @@ TYPE public abstract interface kr.co.nucode.ble.ConnectionState extends=- implem
 TYPE public abstract interface kr.co.nucode.ble.DiagnosticValue extends=- implements=
 TYPE public abstract interface kr.co.nucode.ble.OfficialBleClientEvent extends=- implements=kr.co.nucode.ble.BleClientEvent
 TYPE public abstract interface kr.co.nucode.ble.PlatformDetail extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.android.AndroidBondController extends=- implements=
 TYPE public final kr.co.nucode.ble.AdvertisementData extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.BleConfig extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.BleConnectOptions extends=java.lang.Object implements=
@@ -503,6 +523,8 @@ TYPE public final kr.co.nucode.ble.Severity extends=java.lang.Enum<kr.co.nucode.
 TYPE public final kr.co.nucode.ble.WriteProgress extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.WriteReceipt extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBleClientFactory extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
+TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=
 TYPE public static final kr.co.nucode.ble.AdapterState$PoweredOff extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Resetting extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
@@ -541,24 +563,4 @@ TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extend
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Android extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Ios extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.AlreadyBonded
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Bonded
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.Failed
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.StartRejected
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.TimedOut
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonded
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonding
-FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.None
-METHOD public abstract <> java.lang.Object kr.co.nucode.ble.android.AndroidBondController.createBond-bxWR3DE(java.lang.String,long,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.android.AndroidBondResult>) throws=
-METHOD public abstract <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondController.bondState-fb5K3to(java.lang.String) throws=
-METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondResult> kr.co.nucode.ble.android.AndroidBondResult.getEntries() throws=
-METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondState> kr.co.nucode.ble.android.AndroidBondState.getEntries() throws=
-METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.ble.android.AndroidBondResult.valueOf(java.lang.String) throws=
-METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult[] kr.co.nucode.ble.android.AndroidBondResult.values() throws=
-METHOD public static <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.valueOf(java.lang.String) throws=
-METHOD public static <> kr.co.nucode.ble.android.AndroidBondState[] kr.co.nucode.ble.android.AndroidBondState.values() throws=
-METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
-TYPE public abstract interface kr.co.nucode.ble.android.AndroidBondController extends=- implements=
-TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
-TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=
 TYPE public static final kr.co.nucode.ble.android.AndroidBondController$DefaultImpls extends=java.lang.Object implements=

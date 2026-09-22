@@ -91,4 +91,14 @@ class ModelsValidationTest {
         ManufacturerDataFilter(companyId = 0)
         ManufacturerDataFilter(companyId = 0xFFFF)
     }
+
+    // ── BleConfig.rediscoveryTimeoutMillis — cold-cache 재발견 v2 task 1 ────
+
+    @Test
+    fun `rediscoveryTimeoutMillis 는 linkTimeoutMillis 이하여야 하고 0 은 거부된다`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BleConfig(linkTimeoutMillis = 1_000, rediscoveryTimeoutMillis = 2_000)
+        }
+        assertThrows(IllegalArgumentException::class.java) { BleConfig(rediscoveryTimeoutMillis = 0) }
+    }
 }

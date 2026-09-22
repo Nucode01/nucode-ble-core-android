@@ -164,6 +164,8 @@ internal class GattBridge(
         configurationMillis = 10_000,
     ),
     private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress { _, _, _ -> },
+    private val rediscovery: PeripheralRediscovery? = null,
+    private val linkCacheWarm: ((DeviceId) -> Boolean)? = null,
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -876,8 +878,11 @@ internal class GattBridge(
      * `getRemoteDevice` 에 잘못된 형식의 MAC 을 주면 `IllegalArgumentException` 이 그
      * 자리에서 터진다(플랫폼 문서) — 그대로 흘리면 호출자가 무슨 실패인지 알 수 없으므로
      * `UNKNOWN_DEVICE` typed failure로 변환해 던진다(즉시 알 수 있는 실패).
+     *
+     * cold-cache 재발견: [linkCacheWarm] 이 이 주소를 모른다고 하면 `driver.connect()` 앞에
+     * [rediscovery] 로 주소 필터 스캔 1회를 선행해 BT 재시작으로 비워진 스택 캐시를 채운다.
      */
-    fun connect(deviceId: DeviceId, options: ConnectOptions) {
+    suspend fun connect(deviceId: DeviceId, options: ConnectOptions) {
         // 조용한 반환 금지(review L — KDoc "조용한 실패 경로를 없앤다" 와 코드 일치).
         // BleRuntime.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
         // 도달하면 정확히 M-7 유령 Connecting 이다.
@@ -927,6 +932,64 @@ internal class GattBridge(
         // BleRuntime.advanceConnectSequence 의 ServicesDiscovered 분기가 이 값을 그대로 읽어
         // requestMtu 를 부른다(Session.requestedMtu KDoc, 구 상수 REQUESTED_MTU 대체).
         session.requestedMtu = options.requestedMtu
+
+        // cold-cache 재발견: BT 재시작 뒤 스택이 주소 타입을 잊으면 getRemoteDevice 가 PUBLIC 으로 시도해
+        // random static peripheral 에 닿지 않는다. 이 클라이언트가 마지막 Ready 이후 본 적 없는 주소면
+        // 주소 필터 스캔 1회로 캐시를 채운 뒤 connectGatt 한다. Connecting 진입·generation·link deadline
+        // 이 이미 시작된 뒤라 중복 connect 는 BleRuntime 의 기존 가드가 막고, 앱은 Connecting 을 본다.
+        if (rediscovery != null && linkCacheWarm?.invoke(deviceId) == false) {
+            val outcome = try {
+                rediscovery.rediscover(deviceId, readinessTimeouts.rediscoveryMillis)
+            } catch (e: CancellationException) {
+                // 호출자 취소(review HIGH 1) — beginConnection 이 연 generation 을 여기서 닫지 않으면
+                // gatt 없는 Connecting 이 link deadline 까지 남는다. NotFound 와 같은 정리 후
+                // rethrow 한다(취소는 삼키지 않는다).
+                if (session.connectionCoordinator.accepts(connectionGeneration, ConnectionStage.Connecting)) {
+                    session.suppressReconnect = true
+                    session.terminalLifecycleCause = null
+                    session.prepareDisconnect(DisconnectReason.Requested)
+                    session.connectionCoordinator.completeCleanup(
+                        connectionGeneration,
+                        TerminalCleanupReason.LinkStartRejected,
+                    )
+                    invalidateScheduledOperations(session, operationInvalidated(session))
+                    emit(BleEvent.ConnStateChanged(deviceId, session.state))
+                }
+                throw e
+            }
+            // 스캔 동안 disconnect()/sweep/close() 가 generation 을 끝냈으면 여기서 멈춘다 — 그쪽이 이미 정리했다.
+            if (!session.connectionCoordinator.accepts(connectionGeneration, ConnectionStage.Connecting)) {
+                // review MEDIUM 1 — 재발견 중 disconnect() 는 gatt 가 아직 없어 beginLifecycleCleanup 의
+                // driver.disconnect() 가 no-op 이라 플랫폼 콜백이 오지 않는다. Disconnecting 에 남아
+                // disconnectCleanupMillis 까지 기다리지 않고, 재발견 resume 이 온 이 시점에 직접 끝낸다.
+                val coordinator = session.connectionCoordinator
+                if (coordinator.generation == connectionGeneration && coordinator.stage == ConnectionStage.Disconnecting) {
+                    completeLifecycleCleanup(
+                        session = session,
+                        generation = connectionGeneration,
+                        reason = coordinator.terminalCleanupReason ?: TerminalCleanupReason.UserRequested,
+                        cause = session.terminalLifecycleCause,
+                    )
+                }
+                return
+            }
+            when (outcome) {
+                RediscoveryOutcome.Found -> Unit
+                is RediscoveryOutcome.Unavailable -> emitDiagnostic(Severity.Warning, outcome.failure) // 폴백: 직접 연결
+                RediscoveryOutcome.NotFound -> {
+                    val failure = peripheralNotFound(session)
+                    session.suppressReconnect = true
+                    session.terminalLifecycleCause = failure
+                    session.prepareDisconnect(DisconnectReason.Failed(failure))
+                    session.connectionCoordinator.completeCleanup(
+                        connectionGeneration,
+                        TerminalCleanupReason.LinkStartRejected,
+                    )
+                    invalidateScheduledOperations(session, operationInvalidated(session))
+                    throw BleException(failure)
+                }
+            }
+        }
 
         // D7(M-8+#16) 벨트 — BleRuntime.ensureAdapterReady 의 검사와 이 호출 사이의 레이스
         // (예: 설정 앱에서 권한을 방금 회수)나 검사가 놓친 케이스를 막는다. connect() 는
@@ -1785,6 +1848,14 @@ internal class GattBridge(
         phase = FailurePhase.Validation,
         retryability = Retryability.Never,
         context = FailureContext(),
+    )
+
+    private fun peripheralNotFound(session: Session): BleFailure = failure(
+        category = "connection",
+        code = "PERIPHERAL_NOT_FOUND",
+        phase = FailurePhase.Connect,
+        retryability = Retryability.TransientMayHelp,
+        context = connectionContext(session),
     )
 
     private fun characteristicNotFound(session: Session, charRef: CharRef, kind: OperationKind? = null): BleFailure =

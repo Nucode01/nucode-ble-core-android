@@ -99,30 +99,17 @@ class AdapterStateBaselineTest {
         val onState = withTimeout(30_000) { client.adapterState.first { it is AdapterState.Ready } }
         Log.i(TAG, "STEP bt-on adapterState=$onState")
 
-        var reconnectPath = "none"
+        // Regression oracle for cold-cache rediscovery: a direct connect (no app-level rescan) must
+        // reach Ready after the toggle. Before the fix this timed out with LINK_TIMEOUT.
+        val t0 = System.currentTimeMillis()
         val direct = client.connect(peripheralId)
-        try {
-            awaitReady(direct, 30_000)
-            reconnectPath = "direct"
-        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.i(TAG, "STEP reconnect-direct timeout state=${direct.connectionState.value.summary()}")
-            withTimeout(15_000) { direct.connectionState.first { it is ConnectionState.Disconnected } }
-            val rediscovered = discoverPeripheral()
-            Log.i(TAG, "STEP rescan found=${rediscovered.value}")
-            val viaScan = client.connect(rediscovered)
-            try {
-                awaitReady(viaScan, 30_000)
-                reconnectPath = "scan-then-connect"
-            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                Log.i(TAG, "STEP reconnect-after-scan timeout state=${viaScan.connectionState.value.summary()}")
-            }
-        }
-        Log.i(TAG, "STEP reconnect path=$reconnectPath")
+        awaitReady(direct, 30_000)
+        val elapsed = System.currentTimeMillis() - t0
+        Log.i(TAG, "STEP reconnect-direct Ready in ${elapsed}ms state=${direct.connectionState.value.summary()}")
         runCatching { withTimeout(10_000) { client.session(peripheralId).disconnect() } }
 
         assertTrue("expected PoweredOff after bt-off, got $offState", offState is AdapterState.PoweredOff)
         assertTrue("expected Disconnected(Failed) after bt-off, got ${disconnected.summary()}", disconnected.reason is BleDisconnectReason.Failed)
-        assertTrue("no reconnect path reached Ready after bt-on", reconnectPath != "none")
     }
 
     private fun ConnectionState.summary(): String = when (this) {

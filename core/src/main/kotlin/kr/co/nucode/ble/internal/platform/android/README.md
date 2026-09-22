@@ -14,9 +14,10 @@
 
 ## 이 규칙이 뜻하지 않는 것
 
-- **orchestration의 Android 의존은 남아 있다.** `BleRuntime` 은 `BluetoothManager`·
-  `BroadcastReceiver`·`PackageManager` 를, `GattBridge` 는 `BluetoothGatt*`·`BluetoothProfile` 을,
-  `Session` 은 `BluetoothGatt` 핸들을 직접 쓴다. `GattDriver` 인터페이스 시그니처에도
+- **orchestration의 Android 의존은 남아 있다.** `BleRuntime` 은 어댑터 on/off 브로드캐스트를 받는
+  `BroadcastReceiver`·`IntentFilter` 를(어댑터 조회·권한 판정 입력은 `AndroidCentral` 로 위임했다 — 단
+  Context 없는 테스트 생성자 경로의 `Build.VERSION.SDK_INT` 읽기는 `BleRuntime` 에 남는다),
+  `GattBridge` 는 `BluetoothGatt*`·`BluetoothProfile` 을, `Session` 은 `BluetoothGatt` 핸들을 직접 쓴다. `GattDriver` 인터페이스 시그니처에도
   `BluetoothGatt` 가 있다. 이 패키지 정리는 그 의존을 제거하지 않는다 — 현재 예외로 명시한다.
 - **다른 패키지의 Android 상수 참조를 금지하지 않는다.** `GattBridge` 의 `GATT_SUCCESS`·
   `STATE_CONNECTED` 가 그 예다.

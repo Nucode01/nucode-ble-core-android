@@ -61,6 +61,8 @@ internal data class ConnectionReadinessTimeouts(
     val discoveryMillis: Long,
     val configurationMillis: Long,
     val disconnectCleanupMillis: Long = 5_000,
+    /** cold-cache 재발견 스캔 상한; link deadline 안에서 소비된다. */
+    val rediscoveryMillis: Long = 3_000,
 )
 
 /** 현재 generation을 시작한 주체. 실패 후 기존 reconnect 경계로 돌아갈지 판정할 때 쓴다. */

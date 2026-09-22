@@ -13,7 +13,9 @@
 > **Slice 7 API cleanup:** public 진입점은 `BleClient`/`BleSession`이며 Android 생성 경계는
 > `AndroidBleClientFactory`다. deprecated `BleCore`는 0.2.0에서 제거됐다. migration은
 > [0.2.0 changelog](CHANGELOG.md#020-unreleased), Kotlin-public 선언의 고정 JVM member signature는
-> [public API dump](core/api/ble-core.api)를 본다. 실기기 smoke는 아직 Slice 8 미실행이다.
+> [public API dump](core/api/ble-core.api)를 본다. Slice 8 실기기 검증은 Pixel 5a/Android 14와
+> nRF52840 통합 테스트 firmware 조합에서 부분 통과했으며 결과는
+> [실기기 검증 기록](docs/v1/android-real-device-results.md)을 본다.
 
 Swift 구현은 `02_ios_projects/` 에 별도 프로젝트로 (아직 없음 — 이 구현 다음).
 
@@ -48,7 +50,7 @@ Swift 구현은 `02_ios_projects/` 에 별도 프로젝트로 (아직 없음 —
 
 ```
 스캐폴딩   완료
-코드      플랫폼 배선 완료 — TODO 0. 실기기 검증만 남음
+코드      플랫폼 배선 완료 — TODO 0. Pixel 5a 핵심 실기기 시나리오 부분 통과
           main 10파일 · test 7파일 · 단위 테스트 89개 green (생애주기 매트릭스 감사 완료)
           :sample 검증 앱 — 실기기 전제 검증용 조작 UI + 이벤트 로그 뷰
 배포      kr.co.nucode:ble-core:0.1.0 — publishToMavenLocal 동작 확인
@@ -67,7 +69,7 @@ git       아직 init 안 함
 
 ### 지금 되는 것 / 안 되는 것
 
-**플랫폼 호출이 전부 배선됐지만 실기기 검증 전이다.**
+**플랫폼 호출이 전부 배선됐고 핵심 정상 경로의 실기기 검증이 부분 완료됐다.**
 
 ```
 되는 것    스캔 · 연결 · GATT 탐색 · MTU(실패 폴백 포함) · write 청킹+ack ·
@@ -75,7 +77,8 @@ git       아직 init 안 함
           단위 테스트 42개가 배선(emit 순서 · 가드 · dropped · ack 취소)을 회귀로 고정
           외부 앱 소비 검증 완료 (kr.co.nucode:ble-core:0.1.0, mavenLocal)
 
-안 된 것   실기기 검증 0회 — 설계 §10 대로 터미널 앱 단계의 수동 절차
+안 된 것   복수 OEM/API level, RF loss·GATT status·Bluetooth/권한 장애 주입,
+          indication·late callback 등 전체 device matrix
           매니페스트가 권한을 선언하지 않는다 — 앱이 직접 선언 (파일 주석에 목록)
 ```
 
@@ -122,6 +125,11 @@ AGP 8.13.2 · Kotlin 2.0.21 · Gradle 8.13 · compileSdk 36 · minSdk 24 · JVM 
 - 같은 기기에 대한 중복 connect 억제
 - peripheral 강제 연결 해제 후 자동 재연결·구독 복원
 - 중복 disconnect 호출이 코어의 disconnect 전이 1회로 처리되고 세션을 다시 사용할 수 있는지
+- Android bond 생성·재연결 유지·firmware bond reset·재본딩
+
+Pixel 5a/Android 14와 nRF52840 통합 테스트 firmware 조합에서는 위 시나리오가 통과했다.
+이는 전체 OEM/API-level matrix 완료를 뜻하지 않는다. 상세 결과와 남은 범위는
+[실기기 검증 기록](docs/v1/android-real-device-results.md)을 본다.
 
 하드웨어 테스트는 명시적으로 활성화한 경우에만 실행된다.
 

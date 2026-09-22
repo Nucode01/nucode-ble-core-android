@@ -22,7 +22,7 @@ internal data class DrainedGattOperations(
 /**
  * Session 하나의 callback 기반 GATT operation 상태.
  *
- * 모든 메서드는 coreScope의 단일 스레드에서 호출한다. 외부 DeviceId map이나 별도 lock을
+ * 모든 메서드는 coreScope의 단일 스레드에서 호출한다. 외부 PeripheralId map이나 별도 lock을
  * 만들지 않고 [Session]과 생애주기를 같이 한다.
  */
 internal class GattOperationScheduler {

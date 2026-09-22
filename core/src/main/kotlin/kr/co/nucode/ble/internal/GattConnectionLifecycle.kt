@@ -10,14 +10,16 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.CharProperty
-import kr.co.nucode.ble.CharRef
+import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.CharacteristicProperty
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.DiscoveredCharacteristic
-import kr.co.nucode.ble.DiscoveredService
 import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.GattCharacteristic
+import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
 
 /** operation → lifecycle. */
@@ -47,7 +49,7 @@ internal class GattConnectionLifecycle(
     private val driver: GattDriver,
     private val readinessTimeouts: ConnectionReadinessTimeouts,
     private val rediscovery: PeripheralRediscovery?,
-    private val linkCacheWarm: ((DeviceId) -> Boolean)?,
+    private val linkCacheWarm: ((PeripheralId) -> Boolean)?,
     private val operations: GattOperationHooks,
 ) : GattLifecycleHooks {
 
@@ -66,7 +68,7 @@ internal class GattConnectionLifecycle(
     }
 
     /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
-    internal fun beginRetainedReconnect(deviceId: DeviceId): Long? =
+    internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? =
         registry.get(deviceId)?.let(::beginRetainedReconnectLifecycle)
 
     /**
@@ -83,7 +85,7 @@ internal class GattConnectionLifecycle(
     }
 
     private fun onLifecycleDeadline(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         deadline: ConnectionStageDeadline,
     ) {
         val session = registry.get(deviceId) ?: return
@@ -330,16 +332,16 @@ internal class GattConnectionLifecycle(
             return
         }
 
-        val discoveredMap = mutableMapOf<CharRef, BluetoothGattCharacteristic>()
-        val seen = mutableSetOf<CharRef>()
+        val discoveredMap = mutableMapOf<CharacteristicRef, BluetoothGattCharacteristic>()
+        val seen = mutableSetOf<CharacteristicRef>()
         val services = event.services.map { service ->
             val characteristics = service.characteristics.map { characteristic ->
                 // A characteristic belongs to the enclosing discovery service; never trust a
                 // separately supplied (or defaulted fake) service ordinal here.
                 val scopedCharacteristic = characteristic.copy(serviceInstanceIndex = service.instanceIndex)
-                val charRef = scopedCharacteristic.toCharRef()
+                val charRef = scopedCharacteristic.toCharacteristicRef()
                 // review #11 — 같은 키로 조용히 덮어쓰지 않는다는 표시. 덮어쓰기 자체는
-                // 유지한다(CharRef 시그니처 변경은 plan 사안, 이 task 범위 밖).
+                // 유지한다.
                 if (!seen.add(charRef)) {
                     emitDiagnostic(
                         Severity.Warning,
@@ -347,15 +349,14 @@ internal class GattConnectionLifecycle(
                     )
                 }
                 scopedCharacteristic.platformCharacteristic?.let { discoveredMap[charRef] = it }
-                DiscoveredCharacteristic(
-                    charRef = charRef,
+                GattCharacteristic(
+                    ref = charRef,
                     properties = mapProperties(scopedCharacteristic.propertyMask),
                 )
             }
-            DiscoveredService(
-                serviceUuid = service.serviceUuid,
+            GattService(
+                ref = ServiceRef(BleUuid(service.serviceUuid), service.instanceIndex),
                 characteristics = characteristics,
-                instanceIndex = service.instanceIndex,
             )
         }
 
@@ -407,25 +408,26 @@ internal class GattConnectionLifecycle(
     }
 
     /**
-     * `BluetoothGattCharacteristic.PROPERTY_*` 비트마스크 → `Set[CharProperty]`.
-     * 플랫폼 상수가 모델 계층(`CharProperty`, InternalModels.kt)으로 새지 않게 막는 게 이 함수의 유일한 목적이다.
+     * `BluetoothGattCharacteristic.PROPERTY_*` 비트마스크 → `Set[CharacteristicProperty]`.
+     * 플랫폼 상수가 모델 계층(`CharacteristicProperty`, PublicModels.kt)으로 새지 않게 막는 게 이
+     * 함수의 유일한 목적이다.
      */
-    private fun mapProperties(propertyMask: Int): Set<CharProperty> {
-        val properties = mutableSetOf<CharProperty>()
+    private fun mapProperties(propertyMask: Int): Set<CharacteristicProperty> {
+        val properties = mutableSetOf<CharacteristicProperty>()
         if (propertyMask and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
-            properties += CharProperty.Read
+            properties += CharacteristicProperty.Read
         }
         if (propertyMask and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
-            properties += CharProperty.Write
+            properties += CharacteristicProperty.WriteWithResponse
         }
         if (propertyMask and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
-            properties += CharProperty.WriteNoResponse
+            properties += CharacteristicProperty.WriteWithoutResponse
         }
         if (propertyMask and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
-            properties += CharProperty.Notify
+            properties += CharacteristicProperty.Notify
         }
         if (propertyMask and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
-            properties += CharProperty.Indicate
+            properties += CharacteristicProperty.Indicate
         }
         return properties
     }
@@ -450,7 +452,7 @@ internal class GattConnectionLifecycle(
      * cold-cache 재발견: [linkCacheWarm] 이 이 주소를 모른다고 하면 `driver.connect()` 앞에
      * [rediscovery] 로 주소 필터 스캔 1회를 선행해 BT 재시작으로 비워진 스택 캐시를 채운다.
      */
-    suspend fun connect(deviceId: DeviceId, options: ConnectOptions) {
+    suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) {
         // 조용한 반환 금지(review L — KDoc "조용한 실패 경로를 없앤다" 와 코드 일치).
         // BleRuntime.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
         // 도달하면 정확히 M-7 유령 Connecting 이다.
@@ -621,7 +623,7 @@ internal class GattConnectionLifecycle(
      * 놓치면 핸들이 누수된다). 재연결 후보(suppressReconnect == false)라면 여기서 close 하지
      * 않는다 — Reconnector(task 5)가 같은 gatt 로 `gatt.connect()` 재사용을 시도한다.
      */
-    fun disconnect(deviceId: DeviceId) {
+    fun disconnect(deviceId: PeripheralId) {
         val session = registry.get(deviceId) ?: return
         val started = beginCleanup(
             session = session,
@@ -646,7 +648,7 @@ internal class GattConnectionLifecycle(
      * Discovering 에서 영구 정지한다. 회복 불가로 보고 즉시 Disconnected 로 전이한다
      * (plan §접근 ④).
      */
-    fun discoverServices(deviceId: DeviceId) {
+    fun discoverServices(deviceId: PeripheralId) {
         val session = registry.get(deviceId) ?: return
         val failure = try {
             if (driver.discoverServices(deviceId, session.gatt)) null else GattFailureFactory.startRejected(
@@ -685,7 +687,7 @@ internal class GattConnectionLifecycle(
      * 않으므로, requestMtu 실패도 handleMtuChanged 의 협상 실패와 같은 23/20 폴백 경로로
      * 처리해 Discovering 영구 정지를 막는다(review #4, plan §접근 ④).
      */
-    fun requestMtu(deviceId: DeviceId, mtu: Int) {
+    fun requestMtu(deviceId: PeripheralId, mtu: Int) {
         val session = registry.get(deviceId) ?: return
         val failure = try {
             if (driver.requestMtu(deviceId, session.gatt, mtu)) null else GattFailureFactory.startRejected(

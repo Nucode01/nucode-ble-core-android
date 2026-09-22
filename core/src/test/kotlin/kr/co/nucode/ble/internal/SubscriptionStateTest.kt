@@ -3,10 +3,10 @@ package kr.co.nucode.ble.internal
 import java.util.UUID
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.CharRef
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
@@ -17,7 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SubscriptionStateTest {
-    private fun characteristic(): CharRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+    private fun characteristic(): CharacteristicRef = charRef(UUID.randomUUID(), UUID.randomUUID())
 
     @Test
     fun `active state is limited to desired subscriptions in its current generation`() {
@@ -59,7 +59,7 @@ class SubscriptionStateTest {
         val desired = characteristic()
         state.addDesired(desired)
 
-        assertTrue(runCatching { (state.desiredSnapshot as MutableSet<CharRef>).clear() }.isFailure)
+        assertTrue(runCatching { (state.desiredSnapshot as MutableSet<CharacteristicRef>).clear() }.isFailure)
         state.beginGeneration(1)
         state.markActive(desired, 1)
         state.removeDesired(desired)
@@ -70,7 +70,7 @@ class SubscriptionStateTest {
 
     @Test
     fun `session owns its effective official reconnect policy`() {
-        val session = Session(DeviceId("peripheral"))
+        val session = Session(PeripheralId("peripheral"))
         val policy = BleReconnectPolicy.ExponentialBackoff(3, 10, 100)
 
         assertEquals(BleReconnectPolicy.Disabled, session.effectiveReconnectPolicy)
@@ -81,7 +81,7 @@ class SubscriptionStateTest {
 
     @Test
     fun `recovering projection is owned by session flow and next legacy state replaces it`() {
-        val session = Session(DeviceId("peripheral"))
+        val session = Session(PeripheralId("peripheral"))
         val failure = BleFailure(
             category = FailureCategory("link"),
             code = FailureCode("LINK_LOST"),

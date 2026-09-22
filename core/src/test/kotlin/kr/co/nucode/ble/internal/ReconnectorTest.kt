@@ -10,7 +10,7 @@ import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.ConnState
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
@@ -67,7 +67,7 @@ class ReconnectorTest {
     @Test
     fun `재연결 시도마다 Diagnostic이 emit된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId)
 
         val emitted = mutableListOf<BleEvent>()
@@ -134,7 +134,7 @@ class ReconnectorTest {
     @Test
     fun `retained connect 동기 시작 실패는 active job guard를 풀어 다음 bounded retry로 이어진다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:01")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:01")
         val session = registry.getOrCreate(deviceId)
         val emitted = mutableListOf<BleEvent>()
         lateinit var reconnector: Reconnector
@@ -188,7 +188,7 @@ class ReconnectorTest {
     @Test
     fun `예약 상태를 알리는 동기 이벤트가 같은 재연결을 중복 예약하지 않는다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:04")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:04")
         val session = registry.getOrCreate(deviceId).apply {
             effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
                 maxAttempts = 4,
@@ -223,7 +223,7 @@ class ReconnectorTest {
     @Test
     fun `reconnect start rejection shares the owner failure with terminal state`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:03")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:03")
         val session = registry.getOrCreate(deviceId)
         val emitted = mutableListOf<BleEvent>()
         val reconnector = Reconnector(registry, emitted::add, this).also {
@@ -245,7 +245,7 @@ class ReconnectorTest {
     @Test
     fun `official policy publishes recovering and exhausts its own finite budget`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:02")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:02")
         val session = registry.getOrCreate(deviceId).apply {
             effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
                 maxAttempts = 1,
@@ -280,7 +280,7 @@ class ReconnectorTest {
         assertEquals(1, session.retryCount)
     }
 
-    private fun linkFailure(deviceId: DeviceId, status: Int): BleFailure = FailureMapper.gattStatusFailed(
+    private fun linkFailure(deviceId: PeripheralId, status: Int): BleFailure = FailureMapper.gattStatusFailed(
         statusCode = status,
         phase = FailurePhase.Link,
         operation = AndroidApiOperation.OnConnectionStateChange,

@@ -1,54 +1,16 @@
 package kr.co.nucode.ble
 
-import java.util.UUID
-
 /** nullable ByteArray 내용 비교. 둘 다 null 이면 같고, 하나만 null 이면 다르다. */
 private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {
     if (this == null || other == null) return this == null && other == null
     return this.contentEquals(other)
 }
 
-/**
- * 기기 식별자. 코어 공개 API 전체가 객체 대신 이 값을 주고받는다(설계 §5 규칙 5).
- *
- * Android = MAC 주소, iOS = CBPeripheral.identifier.uuidString.
- * 두 값은 같은 물리 기기라도 다르다 — **플랫폼 간 호환되지 않는다.**
- * 문자열로 직렬화 가능해야 한다 — 이 포맷이 나중 Flutter 브리지의 직렬화 계약이 된다(plan §영향범위).
- */
-@JvmInline
-internal value class DeviceId(val value: String) {
-    override fun toString(): String = value
-}
-
-/**
- * characteristic 참조. instanceIndex 가 없으면 같은 UUID 를 중복 노출하는 기기에서
- * 엉뚱한 characteristic 에 write 할 수 있다(설계 §5).
- */
-internal data class CharRef(
-    val serviceUuid: UUID,
-    val charUuid: UUID,
-    val instanceIndex: Int = 0,
-    /** Same-UUID service ordinal from the most recent discovery snapshot. */
-    val serviceInstanceIndex: Int = 0,
-)
-
 /** write 방식. Auto 는 characteristic 속성을 보고 코어가 고른다. */
 internal enum class WriteType {
     WithResponse,
     WithoutResponse,
     Auto,
-}
-
-/** 청킹 정책. None 인데 페이로드가 청크 한도를 넘으면 조용히 쪼개지 않고 TooLarge 로 실패한다. */
-internal sealed interface Chunking {
-    public data object Auto : Chunking
-    public data object None : Chunking
-    /** Split at this size, provided it does not exceed the negotiated link capability. */
-    public data class Fixed(val maxBytes: Int) : Chunking {
-        init {
-            require(maxBytes > 0) { "maxBytes must be positive" }
-        }
-    }
 }
 
 /**
@@ -62,13 +24,6 @@ internal sealed interface WriteResult {
             require(chunksCompleted > 0) { "chunksCompleted must be positive" }
         }
     }
-
-    /**
-     * Source-compatibility sentinel for callers which only classified legacy successful writes.
-     * New producers return [Completed] so consumers cannot fabricate a chunk count.
-     */
-    @Deprecated("Use Completed(chunksCompleted)")
-    public data object Ok : WriteResult
 
     /**
      * A write that did not complete. [failure.writeProgress] carries the transport progress and
@@ -103,123 +58,6 @@ internal sealed interface ConnState {
 
     public data object Disconnecting : ConnState
 }
-
-/**
- * 제조사 데이터 필터. 비콘류 기기는 이것 없이 특정할 수 없다 — 기존 제품군(BeaconRanger)의
- * 실사용 근거로 v0.1 에 포함(plan §원인·배경).
- * [mask] 는 [data] 와 같은 길이여야 한다(바이트별 AND 매칭) — 다르면 즉시 실패(require).
- * data 없이 companyId 만으로도 필터가 성립한다.
- *
- * ★ iOS 비대칭: CoreBluetooth 는 service UUID 만 API 레벨 필터를 지원한다 — iOS 코어는
- * 이 필터를 광고 콜백에서 소프트웨어로 적용한다(Android 의 namePrefix 후처리와 같은 선례).
- * Android 는 플랫폼 ScanFilter 로 내려 하드웨어 오프로드된다.
- *
- * ★ [data]/[mask] 배열은 생성 후 변형하지 마라 — 방어 복사를 하지 않는다(성능·단순성).
- * 변형해도 크래시는 없지만 의도와 다른 필터로 조용히 스캔되고 equals/hashCode 가 흔들린다.
- */
-internal data class ManufacturerDataFilter(
-    val companyId: Int,
-    val data: ByteArray? = null,
-    val mask: ByteArray? = null,
-) {
-    init {
-        // BLE company identifier 는 16-bit 다(Bluetooth SIG 할당). 범위 밖 값은 광고의
-        // 2바이트 ID 와 절대 매칭되지 않아 "영원히 안 잡히는 필터"가 조용히 성립한다 —
-        // mask 불일치는 즉시 실패시키면서 이것만 무음이면 비대칭이다(review L).
-        require(companyId in 0..0xFFFF) { "companyId 는 16-bit(0..65535)여야 한다: $companyId" }
-        if (mask != null) {
-            requireNotNull(data) { "mask 만 있고 data 가 없다 — mask 는 data 없이 성립하지 않는다" }
-            require(mask.size == data.size) {
-                "mask 길이(${mask.size})와 data 길이(${data.size})가 다르다 — 바이트별 AND 매칭이 불가능하다"
-            }
-        }
-    }
-
-    // ByteArray 를 data class 필드로 두면 equals/hashCode 가 참조 비교가 되므로 내용 비교로 직접 구현한다.
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is ManufacturerDataFilter) return false
-        return companyId == other.companyId &&
-            data.contentEqualsNullable(other.data) &&
-            mask.contentEqualsNullable(other.mask)
-    }
-
-    override fun hashCode(): Int {
-        var result = companyId
-        result = 31 * result + (data?.contentHashCode() ?: 0)
-        result = 31 * result + (mask?.contentHashCode() ?: 0)
-        return result
-    }
-}
-
-/**
- * 서비스 데이터 필터. [mask] 는 [data] 와 같은 길이여야 한다(바이트별 AND 매칭) —
- * 다르면 즉시 실패(require). data 없이 serviceUuid 만으로도 필터가 성립한다.
- *
- * ★ iOS 비대칭: CoreBluetooth 는 service **data** 필터도 API 미지원 — iOS 코어가
- * 광고 콜백에서 소프트웨어로 적용한다([ManufacturerDataFilter] 와 동일 규약).
- * ★ [data]/[mask] 배열은 생성 후 변형하지 마라 — [ManufacturerDataFilter] 와 동일.
- */
-internal data class ServiceDataFilter(
-    val serviceUuid: UUID,
-    val data: ByteArray? = null,
-    val mask: ByteArray? = null,
-) {
-    init {
-        if (mask != null) {
-            requireNotNull(data) { "mask 만 있고 data 가 없다 — mask 는 data 없이 성립하지 않는다" }
-            require(mask.size == data.size) {
-                "mask 길이(${mask.size})와 data 길이(${data.size})가 다르다 — 바이트별 AND 매칭이 불가능하다"
-            }
-        }
-    }
-
-    // ByteArray 를 data class 필드로 두면 equals/hashCode 가 참조 비교가 되므로 내용 비교로 직접 구현한다.
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is ServiceDataFilter) return false
-        return serviceUuid == other.serviceUuid &&
-            data.contentEqualsNullable(other.data) &&
-            mask.contentEqualsNullable(other.mask)
-    }
-
-    override fun hashCode(): Int {
-        var result = serviceUuid.hashCode()
-        result = 31 * result + (data?.contentHashCode() ?: 0)
-        result = 31 * result + (mask?.contentHashCode() ?: 0)
-        return result
-    }
-}
-
-/**
- * 스캔 필터. 최소한만 — service UUID · 이름 접두어 · 제조사 데이터 · 서비스 데이터.
- *
- * OR 매칭 규약: [serviceUuids] · [manufacturerData] · [serviceData] 의 각 항목은 OR —
- * 어느 하나에 걸리면 결과에 포함된다. [namePrefix] 만 AND(후처리)다.
- * iOS 에서는 serviceUuids 만 API 필터이고 나머지는 코어가 소프트웨어 후처리한다 —
- * 결과는 두 플랫폼에서 같고, 하드웨어 오프로드 여부만 다르다.
- * Android 실동작 확인(task 2, Scanner.toPlatformFilters KDoc): `BluetoothLeScanner.startScan`
- * 은 필터 목록을 OR 로 매칭하고 `Builder` 하나 안의 조건은 AND 라 각 항목을 독립된 플랫폼
- * 필터 하나씩으로 매핑한다 — 이 규약과 일치한다.
- */
-internal data class ScanFilter(
-    val serviceUuids: List<UUID> = emptyList(),
-    val namePrefix: String? = null,
-    val manufacturerData: List<ManufacturerDataFilter> = emptyList(),
-    val serviceData: List<ServiceDataFilter> = emptyList(),
-)
-
-/** 스캔 전력/지연 모드. 플랫폼 상수를 그대로 노출하지 않고 최소 3단계로만 추상화한다. */
-internal enum class ScanMode {
-    LowPower,
-    Balanced,
-    LowLatency,
-}
-
-/** 스캔 옵션. 최소한만 — 과설계하지 않는다. */
-internal data class ScanOptions(
-    val scanMode: ScanMode = ScanMode.Balanced,
-)
 
 /**
  * 연결 옵션. 최소한만.
@@ -265,29 +103,6 @@ internal fun ConnectOptions.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis:
     timeoutMillis ?: defaultLinkTimeoutMillis
 
 /**
- * snapshot() 이 기기 하나에 대해 돌려주는 값. 내부 상태 객체를 직접 노출하지 않는다(설계 §5 규칙 5).
- *
- * mtu/chunkSize 는 설계 §6 런타임 flow 다이어그램의 snapshot() 반환값과 대칭이다 —
- * BleEvent.MtuChanged 가 실어 나르는 두 값을 스냅샷도 그대로 갖는다.
- * 연결 전에는 MTU 협상이 일어나지 않으므로 null 로 둔다(23 바이트 기본값을 임의로 채우지 않는다).
- */
-internal data class DeviceSnapshot(
-    val deviceId: DeviceId,
-    val connState: ConnState,
-    val mtu: Int? = null,
-    val chunkSize: Int? = null,
-)
-
-/**
- * snapshot() 반환형 — 콜드 스타트(화면 회전 · 새 화면 · hot reload) 대응 장치(설계 §5).
- * 기기별 상태는 DeviceId 기반 값 타입 목록으로만 노출한다.
- */
-internal data class Snapshot(
-    val adapterState: AdapterState,
-    val devices: List<DeviceSnapshot>,
-)
-
-/**
  * 재연결 정책. 최대 시도 횟수 · 지수 백오프의 밑변 · 상한만 둔다(과설계 금지).
  * 기본값은 스켈레톤 단계의 추정치이고, 설계 §12-5 "재시도 기본값"이 실기기로 확정한다.
  *
@@ -319,34 +134,3 @@ internal data class ReconnectPolicy(
         }
     }
 }
-
-/**
- * GATT characteristic 속성. v0.1 범위에서 의미 있는 것만 둔다 —
- * Broadcast/SignedWrite/ExtendedProps 는 v0.1 이 쓰지 않으므로 넣지 않는다.
- */
-internal enum class CharProperty {
-    Read,
-    Write,
-    WriteNoResponse,
-    Notify,
-    Indicate,
-}
-
-/**
- * ServicesDiscovered 이벤트가 실어 나르는 characteristic 값 타입.
- *
- * properties 없이는 터미널(소비 앱)이 WRITE/NOTIFY 지원 여부를 몰라 목록 UI 를 그릴 수 없고,
- * 결국 터미널이 자기 GATT 접근을 갖게 된다 — 설계 §0 "BLE 코드 0줄" 목표가 깨진다.
- */
-internal data class DiscoveredCharacteristic(
-    val charRef: CharRef,
-    val properties: Set<CharProperty>,
-)
-
-/** ServicesDiscovered 이벤트가 실어 나르는 service 값 타입. */
-internal data class DiscoveredService(
-    val serviceUuid: UUID,
-    val characteristics: List<DiscoveredCharacteristic>,
-    /** Same-UUID service ordinal from this discovery snapshot. */
-    val instanceIndex: Int = 0,
-)

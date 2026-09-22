@@ -25,12 +25,11 @@ class GattAttributeResolutionTest {
             characteristicUuid = characteristicUuid,
             characteristicInstanceIndex = reference.instanceIndex,
         )
-        val legacy = reference.toCharRef()
 
         assertEquals(2, identity.serviceInstanceIndex)
         assertEquals(3, identity.characteristicInstanceIndex)
-        assertEquals(2, legacy.serviceInstanceIndex)
-        assertEquals(3, legacy.instanceIndex)
+        assertEquals(2, reference.service.instanceIndex)
+        assertEquals(3, reference.instanceIndex)
     }
 
     @Test

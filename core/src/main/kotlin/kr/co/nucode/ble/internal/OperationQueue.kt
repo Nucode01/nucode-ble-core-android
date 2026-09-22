@@ -9,10 +9,10 @@ import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.Chunking
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.ConnState
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.WriteProgress
@@ -40,14 +40,14 @@ internal class OperationQueue(
     private val writeChunk: suspend (
         Session,
         BluetoothGattCharacteristic,
-        CharRef,
+        CharacteristicRef,
         ByteArray,
         WriteType,
     ) -> Int,
     private val ackTimeoutMillis: Long,
     private val writeCommand: (suspend (
         Session,
-        CharRef,
+        CharacteristicRef,
         List<ByteArray>,
         WriteType,
         Long,
@@ -67,11 +67,11 @@ internal class OperationQueue(
      * 다시 계산하지는 않는다(설계 §2, Session 이 사실의 소유자).
      */
     suspend fun write(
-        deviceId: DeviceId,
-        charRef: CharRef,
+        deviceId: PeripheralId,
+        charRef: CharacteristicRef,
         bytes: ByteArray,
         writeType: WriteType,
-        chunking: Chunking,
+        chunking: BleChunking,
     ): WriteResult {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
 
@@ -81,14 +81,14 @@ internal class OperationQueue(
             }
             val chunkSize = session.chunkSize ?: DEFAULT_CHUNK_SIZE
             val chunks = when (chunking) {
-                Chunking.None -> {
+                BleChunking.Disabled -> {
                     if (bytes.size > chunkSize) {
                         return@run WriteResult.TooLarge(size = bytes.size, max = chunkSize)
                     }
                     listOf(bytes)
                 }
-                Chunking.Auto -> splitIntoChunks(bytes, chunkSize)
-                is Chunking.Fixed -> {
+                BleChunking.Automatic -> splitIntoChunks(bytes, chunkSize)
+                is BleChunking.Fixed -> {
                     if (chunking.maxBytes > chunkSize) {
                         return@run WriteResult.TooLarge(size = chunking.maxBytes, max = chunkSize)
                     }
@@ -135,7 +135,7 @@ internal class OperationQueue(
                 // 쓰면 낡은 인스턴스에 write 하게 된다.
                 val char = session.resolve(charRef)
                     ?: return@run failedWrite(
-                        GattFailureFactory.writeCharacteristicNotFound(session, writeKind(writeType)),
+                        GattFailureFactory.characteristicNotFound(session, writeKind(writeType)),
                         writeType, chunks, index,
                     )
 

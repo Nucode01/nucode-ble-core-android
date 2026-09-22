@@ -9,7 +9,7 @@ import android.bluetooth.le.ScanSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.AndroidApiOperation
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
@@ -28,7 +28,7 @@ import kr.co.nucode.ble.internal.RediscoveryOutcome
 internal class AndroidPeripheralRediscovery(
     private val scanner: () -> BluetoothLeScanner?,
 ) : PeripheralRediscovery {
-    override suspend fun rediscover(deviceId: DeviceId, timeoutMillis: Long): RediscoveryOutcome {
+    override suspend fun rediscover(deviceId: PeripheralId, timeoutMillis: Long): RediscoveryOutcome {
         val leScanner = scanner() ?: return RediscoveryOutcome.Unavailable(
             FailureMapper.scanStartFailed().copy(code = FailureCode("SCANNER_UNAVAILABLE")),
         )

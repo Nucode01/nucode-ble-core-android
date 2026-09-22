@@ -12,9 +12,9 @@ class ModelsValidationTest {
 
     @Test
     fun `Fixed chunking은 양수만 허용한다`() {
-        assertThrows(IllegalArgumentException::class.java) { Chunking.Fixed(0) }
-        assertThrows(IllegalArgumentException::class.java) { Chunking.Fixed(-1) }
-        Chunking.Fixed(1)
+        assertThrows(IllegalArgumentException::class.java) { BleChunking.Fixed(0) }
+        assertThrows(IllegalArgumentException::class.java) { BleChunking.Fixed(-1) }
+        BleChunking.Fixed(1)
     }
 
     // ── BleConfig ────────────────────────────────────────────────────────────
@@ -85,11 +85,11 @@ class ModelsValidationTest {
 
     @Test
     fun `companyId 는 16비트 범위를 벗어나면 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) { ManufacturerDataFilter(companyId = -1) }
-        assertThrows(IllegalArgumentException::class.java) { ManufacturerDataFilter(companyId = 0x1_0000) }
+        assertThrows(IllegalArgumentException::class.java) { BleManufacturerDataFilter(companyId = -1) }
+        assertThrows(IllegalArgumentException::class.java) { BleManufacturerDataFilter(companyId = 0x1_0000) }
         // 경계 유효값 — 여기가 통과해야 상한이 off-by-one 이 아니다
-        ManufacturerDataFilter(companyId = 0)
-        ManufacturerDataFilter(companyId = 0xFFFF)
+        BleManufacturerDataFilter(companyId = 0)
+        BleManufacturerDataFilter(companyId = 0xFFFF)
     }
 
     // ── BleConfig.rediscoveryTimeoutMillis — cold-cache 재발견 v2 task 1 ────

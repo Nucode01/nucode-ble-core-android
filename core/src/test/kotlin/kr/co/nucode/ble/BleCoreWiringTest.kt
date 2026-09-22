@@ -32,6 +32,7 @@ import kr.co.nucode.ble.internal.GattOperationTarget
 import kr.co.nucode.ble.internal.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.ConnectionStage
+import kr.co.nucode.ble.internal.charRef
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.evaluatePermissionState
 import kr.co.nucode.ble.internal.Session
@@ -93,7 +94,7 @@ class BleCoreWiringTest {
         gattOperationTargetResolver = gattOperationTargetResolver,
     )
 
-    private fun testDeviceId(suffix: String = "FF") = DeviceId("AA:BB:CC:DD:EE:$suffix")
+    private fun testDeviceId(suffix: String = "FF") = PeripheralId("AA:BB:CC:DD:EE:$suffix")
 
     private fun testDiagnostic(i: Int): BleEvent.Diagnostic = BleEvent.Diagnostic(
         severity = Severity.Info,
@@ -366,10 +367,10 @@ class BleCoreWiringTest {
         )
     }
 
-    // ── E. snapshot 경유 상태 확인(internal registry 와 공개 API 의 일관성) ────────────
+    // ── E. registry 경유 상태 확인(internal registry 와 공개 API 의 일관성) ────────────
 
     @Test
-    fun `E 세션 2개를 심으면 snapshot에 devices 2개와 state mtu가 반영된다`() = runTest {
+    fun `E 세션 2개를 심으면 registry에 devices 2개와 state mtu가 반영된다`() = runTest {
         val core = newCore()
         val idA = testDeviceId("A1")
         val idB = testDeviceId("B2")
@@ -382,15 +383,15 @@ class BleCoreWiringTest {
             setStateForTest(ConnState.DiscoveringServices)
         }
 
-        val snapshot = core.snapshot()
+        val devices = core.registry.all()
 
-        assertEquals(2, snapshot.devices.size)
-        val snapA = snapshot.devices.first { it.deviceId == idA }
-        val snapB = snapshot.devices.first { it.deviceId == idB }
-        assertEquals(ConnState.Ready, snapA.connState)
-        assertEquals(247, snapA.mtu)
-        assertEquals(244, snapA.chunkSize)
-        assertEquals(ConnState.DiscoveringServices, snapB.connState)
+        assertEquals(2, devices.size)
+        val sessionA = devices.first { it.deviceId == idA }
+        val sessionB = devices.first { it.deviceId == idB }
+        assertEquals(ConnState.Ready, sessionA.state)
+        assertEquals(247, sessionA.mtu)
+        assertEquals(244, sessionA.chunkSize)
+        assertEquals(ConnState.DiscoveringServices, sessionB.state)
     }
 
     // ── review 지금-고침 그룹 회귀 (plan v3 task 8) ────────────────────────────────
@@ -404,12 +405,12 @@ class BleCoreWiringTest {
     fun `H1 subscribe 실패 시 subscriptions에 기록이 남지 않는다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
 
         val thrown = runCatching { core.subscribe(id, ref) }.exceptionOrNull()
 
-        assertFailureCode("ATTRIBUTE_NOT_FOUND", thrown)
+        assertFailureCode("CHARACTERISTIC_NOT_FOUND", thrown)
         assertTrue(
             "실패했는데 subscriptions 에 남았다(review H-1)",
             core.registry.get(id)!!.subscriptionState.desiredSnapshot.isEmpty(),
@@ -463,12 +464,12 @@ class BleCoreWiringTest {
     fun `Slice1 public read는 내부 start rejection을 그대로 전달하고 scheduler를 비운다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
 
         val failure = runCatching { core.read(id, ref) }.exceptionOrNull()
 
-        assertFailureCode("ATTRIBUTE_NOT_FOUND", failure)
+        assertFailureCode("CHARACTERISTIC_NOT_FOUND", failure)
         assertTrue("동기 start rejection은 generation을 poison하지 않는다", !session.gattOperationScheduler.isPoisoned)
         assertTrue("동기 start rejection 뒤 pending이 남지 않는다", session.gattOperationScheduler.pending == null)
         assertEquals(0, session.gattOperationScheduler.queuedCount)
@@ -522,7 +523,7 @@ class BleCoreWiringTest {
                 fixture.ref,
                 byteArrayOf(1),
                 WriteType.WithResponse,
-                Chunking.None,
+                BleChunking.Disabled,
             )
         }
         runCurrent()
@@ -556,7 +557,7 @@ class BleCoreWiringTest {
                 fixture.ref,
                 byteArrayOf(1),
                 WriteType.WithResponse,
-                Chunking.None,
+                BleChunking.Disabled,
             )
         }
         runCurrent()
@@ -618,7 +619,7 @@ class BleCoreWiringTest {
     // ── D8 unsubscribe best-effort(plan blecore-design-decisions v1 task 3, review L-1) ──
 
     /**
-     * D8-① — resolve 되지 않는 CharRef 로 unsubscribe 하면(수정 전이면 red:
+     * D8-① — resolve 되지 않는 CharacteristicRef 로 unsubscribe 하면(수정 전이면 red:
      * `GattBridge.unsubscribe` 가 `CharacteristicNotFound` 를 throw) throw 없이 정상
      * 반환하고, `subscriptions` 에서는 항상 제거되며, `UNSUBSCRIBE_CHAR_NOT_FOUND`
      * Diagnostic 이 events 로 나온다(탐색이 갈렸으면 CCCD 를 쓸 대상이 없다 — 조용히
@@ -628,7 +629,7 @@ class BleCoreWiringTest {
     fun `D8① resolve 안 되는 ref를 unsubscribe하면 throw 없이 제거되고 Diagnostic이 나온다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.Ready)
             subscriptionState.addDesired(ref)
@@ -647,8 +648,8 @@ class BleCoreWiringTest {
             core.registry.get(id)!!.subscriptionState.desiredSnapshot.isEmpty(),
         )
         val diagnostic = acc.filterIsInstance<BleEvent.Diagnostic>()
-            .firstOrNull { it.code == "ATTRIBUTE_NOT_FOUND" }
-        assertTrue("ATTRIBUTE_NOT_FOUND Diagnostic 이 나와야 한다: $acc", diagnostic != null)
+            .firstOrNull { it.code == "CHARACTERISTIC_NOT_FOUND" }
+        assertTrue("CHARACTERISTIC_NOT_FOUND Diagnostic 이 나와야 한다: $acc", diagnostic != null)
     }
 
     /**
@@ -661,11 +662,11 @@ class BleCoreWiringTest {
     fun `D8② gatt 없는 세션에서 unsubscribe하면 throw 없이 제거된다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.Ready)
             subscriptionState.addDesired(ref)
-            updateDiscovered(mapOf(ref to BluetoothGattCharacteristic(ref.charUuid, 0, 0)))
+            updateDiscovered(mapOf(ref to BluetoothGattCharacteristic(ref.uuid.value, 0, 0)))
             // gatt 는 세팅하지 않는다 — 연결이 죽은 세션(session.gatt == null)을 재현한다.
         }
 
@@ -732,8 +733,8 @@ class BleCoreWiringTest {
     fun `D3① Connected 전이는 post-Ready restore를 시작하지 않는다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref1 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
-        val ref2 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref1 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref2 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.DiscoveringServices)
             subscriptionState.addDesired(ref1)
@@ -790,8 +791,8 @@ class BleCoreWiringTest {
     fun `D3③ stale Connected 이벤트는 desired intent를 보존한다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref1 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
-        val ref2 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref1 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref2 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.Disconnected(DisconnectReason.Initial)) // 재구독 진입 전 이미 재끊김을 재현
             subscriptionState.addDesired(ref1)
@@ -836,7 +837,7 @@ class BleCoreWiringTest {
         val core = newCore()
         val idA = testDeviceId("A1")
         val idB = testDeviceId("B2")
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
 
         val sessionA = core.registry.getOrCreate(idA).apply {
             setStateForTest(ConnState.Ready)
@@ -933,8 +934,8 @@ class BleCoreWiringTest {
     fun `D4③ desired intent는 스윕 후에도 보존돼 다음 연결 복원의 입력이 된다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref1 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
-        val ref2 = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref1 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref2 = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.Ready)
             subscriptionState.addDesired(ref1)
@@ -1129,7 +1130,7 @@ class BleCoreWiringTest {
     fun `PL-B2 Connected 전이는 restore job을 대체하지 않는다`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val ref = CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         val session = core.registry.getOrCreate(id).apply {
             setStateForTest(ConnState.Ready)
             subscriptionState.addDesired(ref)
@@ -1195,7 +1196,7 @@ class BleCoreWiringTest {
             this.reconnectJob = reconnectJob
             this.timeoutJob = timeoutJob
         }
-        val identity = GattCharacteristicIdentity.from(CharRef(UUID.randomUUID(), UUID.randomUUID()))
+        val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
             kr.co.nucode.ble.internal.GattOperation.Read(0, identity),
         )
@@ -1409,7 +1410,7 @@ class BleCoreWiringTest {
         val driver = PublicFakeGattDriver()
         val core = newCore(gattDriver = driver)
         val id = testDeviceId("A1")
-        val ref = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
         val session = core.registry.getOrCreate(id)
         val generation = session.connectionCoordinator.beginConnection(this, 100) {}
         session.connectionCoordinator.transition(
@@ -1439,19 +1440,19 @@ class BleCoreWiringTest {
 
     @Test
     fun `Slice5 permanent restore failure emits exact service instance and Ready observes cleared restore job`() = runTest {
-        val failed = CharRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 2, serviceInstanceIndex = 3)
-        val remaining = CharRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 1, serviceInstanceIndex = 4)
+        val failed = charRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 2, serviceInstanceIndex = 3)
+        val remaining = charRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 1, serviceInstanceIndex = 4)
         val driver = PublicFakeGattDriver()
         val resolver = GattOperationTargetResolver { _, ref ->
             if (ref == failed) {
                 null
             } else {
                 GattOperationTarget(
-                    characteristic = BluetoothGattCharacteristic(ref.charUuid, 0, 0),
+                    characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
                     identity = GattCharacteristicIdentity(
-                        serviceUuid = ref.serviceUuid,
-                        serviceInstanceIndex = ref.serviceInstanceIndex,
-                        characteristicUuid = ref.charUuid,
+                        serviceUuid = ref.service.uuid.value,
+                        serviceInstanceIndex = ref.service.instanceIndex,
+                        characteristicUuid = ref.uuid.value,
                         characteristicInstanceIndex = ref.instanceIndex,
                     ),
                     propertyMask = BluetoothGattCharacteristic.PROPERTY_NOTIFY,
@@ -1501,7 +1502,7 @@ class BleCoreWiringTest {
         assertEquals(setOf(remaining), session.subscriptionState.desiredSnapshot)
         val failureEvent = officialEvents.filterIsInstance<OfficialBleClientEvent.SubscriptionRestoreFailed>().single()
         assertEquals(
-            ServiceRef(BleUuid(failed.serviceUuid), failed.serviceInstanceIndex),
+            failed.service,
             failureEvent.characteristic.service,
         )
         assertEquals(failed.instanceIndex, failureEvent.characteristic.instanceIndex)
@@ -1583,7 +1584,7 @@ class BleCoreWiringTest {
                 fixture.ref,
                 byteArrayOf(1),
                 WriteType.WithResponse,
-                Chunking.None,
+                BleChunking.Disabled,
             )
         }
         runCurrent()
@@ -1615,7 +1616,7 @@ class BleCoreWiringTest {
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
             60_000,
         ) {}
-        val identity = GattCharacteristicIdentity.from(CharRef(UUID.randomUUID(), UUID.randomUUID()))
+        val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
             kr.co.nucode.ble.internal.GattOperation.Read(
                 session.gattOperationScheduler.currentGeneration,
@@ -1657,7 +1658,7 @@ class BleCoreWiringTest {
     }
 
     private data class LifecycleFixture(
-        val deviceId: DeviceId,
+        val deviceId: PeripheralId,
         val session: Session,
         val driver: LifecycleFakeGattDriver,
         val bridge: kr.co.nucode.ble.internal.GattBridge,
@@ -1671,7 +1672,7 @@ class BleCoreWiringTest {
         val driver = PublicFakeGattDriver()
         val targetResolver = GattOperationTargetResolver { _, ref ->
             GattOperationTarget(
-                characteristic = BluetoothGattCharacteristic(ref.charUuid, 0, 0),
+                characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
                 identity = GattCharacteristicIdentity.from(ref),
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or
                     BluetoothGattCharacteristic.PROPERTY_WRITE or
@@ -1715,8 +1716,8 @@ class BleCoreWiringTest {
         return PublicGattFixture(
             core = core,
             deviceId = deviceId,
-            ref = CharRef(UUID.randomUUID(), UUID.randomUUID()),
-            queuedRef = CharRef(UUID.randomUUID(), UUID.randomUUID()),
+            ref = charRef(UUID.randomUUID(), UUID.randomUUID()),
+            queuedRef = charRef(UUID.randomUUID(), UUID.randomUUID()),
             session = session,
             driver = driver,
             events = events,
@@ -1764,9 +1765,9 @@ class BleCoreWiringTest {
 
     private data class PublicGattFixture(
         val core: BleRuntime,
-        val deviceId: DeviceId,
-        val ref: CharRef,
-        val queuedRef: CharRef,
+        val deviceId: PeripheralId,
+        val ref: CharacteristicRef,
+        val queuedRef: CharacteristicRef,
         val session: Session,
         val driver: PublicFakeGattDriver,
         val events: List<BleEvent>,
@@ -1784,53 +1785,53 @@ class BleCoreWiringTest {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect"
             connectFailure?.let { throw it }
             return null
         }
 
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
         }
 
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean {
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
             commands += "discover"
             return discoverStarted
         }
 
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
             return requestMtuStarted
         }
 
         override fun setCharacteristicNotification(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             enabled: Boolean,
         ): Boolean = true
 
         override fun writeDescriptor(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
         ): Boolean = true
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
             writeType: Int,
         ): Boolean = true
 
-        fun emitConnected(deviceId: DeviceId, generation: Long) {
+        fun emitConnected(deviceId: PeripheralId, generation: Long) {
             emitConnection(
                 deviceId = deviceId,
                 generation = generation,
@@ -1840,7 +1841,7 @@ class BleCoreWiringTest {
         }
 
         fun emitConnection(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             generation: Long,
             status: Int,
             newState: Int,
@@ -1856,7 +1857,7 @@ class BleCoreWiringTest {
             )
         }
 
-        fun emitServices(deviceId: DeviceId, generation: Long, status: Int = BluetoothGatt.GATT_SUCCESS) {
+        fun emitServices(deviceId: PeripheralId, generation: Long, status: Int = BluetoothGatt.GATT_SUCCESS) {
             sink(
                 GattDriverEvent.ServicesDiscovered(
                     deviceId = deviceId,
@@ -1868,7 +1869,7 @@ class BleCoreWiringTest {
             )
         }
 
-        fun emitMtu(deviceId: DeviceId, generation: Long, mtu: Int, status: Int) {
+        fun emitMtu(deviceId: PeripheralId, generation: Long, mtu: Int, status: Int) {
             sink(
                 GattDriverEvent.MtuChanged(
                     deviceId = deviceId,
@@ -1889,22 +1890,22 @@ class BleCoreWiringTest {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? = null
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
 
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
         }
 
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean = true
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
 
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
 
         override fun setCharacteristicNotification(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             enabled: Boolean,
@@ -1914,7 +1915,7 @@ class BleCoreWiringTest {
         }
 
         override fun writeDescriptor(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
@@ -1924,7 +1925,7 @@ class BleCoreWiringTest {
         }
 
         override fun readCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
         ): Boolean {
@@ -1933,7 +1934,7 @@ class BleCoreWiringTest {
         }
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
@@ -1943,14 +1944,14 @@ class BleCoreWiringTest {
             return true
         }
 
-        fun emitRead(deviceId: DeviceId, ref: CharRef, value: ByteArray) {
+        fun emitRead(deviceId: PeripheralId, ref: CharacteristicRef, value: ByteArray) {
             sink(
                 GattDriverEvent.CharacteristicRead(
                     deviceId = deviceId,
                     source = CURRENT_SOURCE,
                     characteristic = GattCharacteristicSnapshot(
-                        serviceUuid = ref.serviceUuid,
-                        charUuid = ref.charUuid,
+                        serviceUuid = ref.service.uuid.value,
+                        charUuid = ref.uuid.value,
                         instanceIndex = ref.instanceIndex,
                         propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
                     ),
@@ -1960,7 +1961,7 @@ class BleCoreWiringTest {
             )
         }
 
-        fun emitWrite(deviceId: DeviceId, ref: CharRef) {
+        fun emitWrite(deviceId: PeripheralId, ref: CharacteristicRef) {
             sink(
                 GattDriverEvent.CharacteristicWrite(
                     deviceId = deviceId,
@@ -1971,7 +1972,7 @@ class BleCoreWiringTest {
             )
         }
 
-        fun emitDescriptor(deviceId: DeviceId, ref: CharRef) {
+        fun emitDescriptor(deviceId: PeripheralId, ref: CharacteristicRef) {
             sink(
                 GattDriverEvent.DescriptorWrite(
                     deviceId = deviceId,
@@ -1979,9 +1980,9 @@ class BleCoreWiringTest {
                     status = BluetoothGatt.GATT_SUCCESS,
                     attributeIdentity = GattDescriptorIdentity(
                         characteristic = GattCharacteristicIdentity(
-                            serviceUuid = ref.serviceUuid,
-                            serviceInstanceIndex = ref.serviceInstanceIndex,
-                            characteristicUuid = ref.charUuid,
+                            serviceUuid = ref.service.uuid.value,
+                            serviceInstanceIndex = ref.service.instanceIndex,
+                            characteristicUuid = ref.uuid.value,
                             characteristicInstanceIndex = ref.instanceIndex,
                         ),
                         descriptorUuid = CLIENT_CHARACTERISTIC_CONFIG_UUID,

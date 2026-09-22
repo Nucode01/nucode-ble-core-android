@@ -1,16 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import java.util.UUID
-import kr.co.nucode.ble.CharRef
 import kr.co.nucode.ble.CharacteristicRef
-
-/** Compatibility adapter for the legacy scheduler's exact attribute key. */
-internal fun CharacteristicRef.toCharRef(): CharRef = CharRef(
-    serviceUuid = service.uuid.value,
-    charUuid = uuid.value,
-    instanceIndex = instanceIndex,
-    serviceInstanceIndex = service.instanceIndex,
-)
 
 /** Callback route를 구분하는 GATT operation 종류. 공개 API로 노출하지 않는다. */
 internal enum class GattOperationKind {
@@ -43,12 +34,18 @@ internal data class GattCharacteristicIdentity(
     }
 
     companion object {
-        /** 현재 public [CharRef]에는 service instance가 없으므로 기본 service instance는 0이다. */
-        fun from(charRef: CharRef, serviceInstanceIndex: Int = 0): GattCharacteristicIdentity =
+        /**
+         * `serviceInstanceIndex` 는 기본으로 ref 가 실어 나르는 [CharacteristicRef.service] 의
+         * instance index 를 따른다 — 호출자가 다른 값을 넘기는 건 platform 재해석 경로뿐이다.
+         */
+        fun from(
+            charRef: CharacteristicRef,
+            serviceInstanceIndex: Int = charRef.service.instanceIndex,
+        ): GattCharacteristicIdentity =
             GattCharacteristicIdentity(
-                serviceUuid = charRef.serviceUuid,
+                serviceUuid = charRef.service.uuid.value,
                 serviceInstanceIndex = serviceInstanceIndex,
-                characteristicUuid = charRef.charUuid,
+                characteristicUuid = charRef.uuid.value,
                 characteristicInstanceIndex = charRef.instanceIndex,
             )
     }

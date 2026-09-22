@@ -48,9 +48,8 @@ class PublicApiSurfaceTest {
     fun `legacy entrypoint and models are absent from the public dump`() {
         val dump = java.io.File("api/ble-core.api").readText()
         listOf(
-            "BleCore", "BleEvent", "DeviceId", "CharRef", "ConnState", "ConnectOptions",
-            "ReconnectPolicy", "DisconnectReason", "WriteResult", "WriteType", "Chunking",
-            "Snapshot", "DeviceSnapshot",
+            "BleCore", "BleEvent", "ConnState", "ConnectOptions",
+            "ReconnectPolicy", "DisconnectReason", "WriteResult", "WriteType",
         ).forEach { forbidden ->
             val qualifiedName = "kr.co.nucode.ble.$forbidden"
             assertFalse(
@@ -109,7 +108,7 @@ class PublicApiSurfaceTest {
             java.io.File("src/main/kotlin/kr/co/nucode/ble/$name").readText()
         }.joinToString("\n")
 
-        listOf("android\\.", "BluetoothGatt", "DeviceId", "CharRef", "(?<!Ble)\\bConnectOptions\\b", "(?<!Ble)\\bReconnectPolicy\\b").forEach {
+        listOf("android\\.", "BluetoothGatt", "(?<!Ble)\\bConnectOptions\\b", "(?<!Ble)\\bReconnectPolicy\\b").forEach {
             forbidden -> assertFalse(
                 "forbidden public API identifier: $forbidden",
                 Regex(forbidden).containsMatchIn(sources),
@@ -155,7 +154,7 @@ class PublicApiSurfaceTest {
     fun `diagnostic public contract does not expose Android or throwable types`() {
         val sources = java.io.File("src/main/kotlin/kr/co/nucode/ble/Diagnostics.kt").readText()
 
-        listOf("android\\.", "Bluetooth", "Throwable", "Exception", "DeviceId", "PeripheralId").forEach { forbidden ->
+        listOf("android\\.", "Bluetooth", "Throwable", "Exception", "PeripheralId").forEach { forbidden ->
             assertFalse("forbidden diagnostic API identifier: $forbidden", sources.contains(forbidden))
         }
         assertTrue(BleLogger::class.java.isInterface)
@@ -192,7 +191,7 @@ class PublicApiSurfaceTest {
 
     private fun assertCommonType(type: Type) {
         val name = type.typeName
-        listOf("android.", "BluetoothGatt", "DeviceId", "CharRef", "ConnectOptions", "ReconnectPolicy").forEach { forbidden ->
+        listOf("android.", "BluetoothGatt", "ConnectOptions", "ReconnectPolicy").forEach { forbidden ->
             val allowed = (forbidden == "ConnectOptions" && name.contains("BleConnectOptions")) ||
                 (forbidden == "ReconnectPolicy" && name.contains("BleReconnectPolicy"))
             assertFalse("forbidden common API type: $name", !allowed && name.contains(forbidden))

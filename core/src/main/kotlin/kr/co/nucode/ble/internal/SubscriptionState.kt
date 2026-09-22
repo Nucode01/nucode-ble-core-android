@@ -1,7 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import java.util.Collections
-import kr.co.nucode.ble.CharRef
+import kr.co.nucode.ble.CharacteristicRef
 
 /**
  * Session-owned subscription truth.
@@ -10,27 +10,27 @@ import kr.co.nucode.ble.CharRef
  * current generation. Callers receive snapshots, never the mutable backing collections.
  */
 internal class SubscriptionState {
-    private val desired = linkedSetOf<CharRef>()
-    private val active = linkedSetOf<CharRef>()
+    private val desired = linkedSetOf<CharacteristicRef>()
+    private val active = linkedSetOf<CharacteristicRef>()
 
     var currentGeneration: Long? = null
         private set
 
-    val desiredSnapshot: Set<CharRef>
+    val desiredSnapshot: Set<CharacteristicRef>
         get() = desired.immutableSnapshot()
 
-    val activeSnapshot: Set<CharRef>
+    val activeSnapshot: Set<CharacteristicRef>
         get() = active.immutableSnapshot()
 
-    fun addDesired(characteristic: CharRef): Boolean = desired.add(characteristic)
+    fun addDesired(characteristic: CharacteristicRef): Boolean = desired.add(characteristic)
 
     /** Removing intent must also prevent a late completion from restoring active state. */
-    fun removeDesired(characteristic: CharRef): Boolean {
+    fun removeDesired(characteristic: CharacteristicRef): Boolean {
         active.remove(characteristic)
         return desired.remove(characteristic)
     }
 
-    fun containsDesired(characteristic: CharRef): Boolean = characteristic in desired
+    fun containsDesired(characteristic: CharacteristicRef): Boolean = characteristic in desired
 
     /** A fresh connection has no active CCCD state, even if its desired intent is unchanged. */
     fun beginGeneration(generation: Long) {
@@ -45,7 +45,7 @@ internal class SubscriptionState {
     }
 
     /** Returns false for stale callbacks and for subscriptions no longer desired. */
-    fun markActive(characteristic: CharRef, generation: Long): Boolean {
+    fun markActive(characteristic: CharacteristicRef, generation: Long): Boolean {
         if (generation != currentGeneration || characteristic !in desired) return false
         return active.add(characteristic)
     }

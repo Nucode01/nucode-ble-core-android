@@ -10,7 +10,7 @@ import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.ConnState
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
@@ -78,7 +78,7 @@ internal class Reconnector(
      * GattBridge owns generation admission and deadlines.  The reconnecter calls this immediately
      * before the retained platform handle is started, never after a callback may already arrive.
      */
-    var beginReconnectLifecycle: (DeviceId) -> Long? = { deviceId ->
+    var beginReconnectLifecycle: (PeripheralId) -> Long? = { deviceId ->
         registry.get(deviceId)?.connectionCoordinator?.beginReconnect(
             scope = scope,
             linkTimeoutMillis = policy.attemptTimeoutMillis,
@@ -99,7 +99,7 @@ internal class Reconnector(
      * 않는다. 실제 platform start 직전에 손잡이를 비워야 시작 실패로 방출된 다음
      * Disconnected가 다음 bounded retry를 예약할 수 있다.
      */
-    fun scheduleReconnect(deviceId: DeviceId, cause: BleFailure? = null) {
+    fun scheduleReconnect(deviceId: PeripheralId, cause: BleFailure? = null) {
         val session = registry.get(deviceId) ?: return
         // 배타(plan v3): autoConnect 연결의 재연결 소유권은 플랫폼이다 — 코어가 겹으로
         // 예약하면 give-up Diagnostic 이 거짓이 된다(플랫폼 대기는 계속 살아 있으므로).
@@ -178,7 +178,7 @@ internal class Reconnector(
      * 호출하지 않는다. 재시도 정책과 backoff는 여전히 event 경로의 [scheduleReconnect] 한
      * 곳만 소유하므로, `runTest`에서는 `advanceTimeBy`로 각 attempt를 관찰할 수 있다.
      */
-    private suspend fun reconnect(deviceId: DeviceId, reconnectPolicy: ReconnectPolicy) {
+    private suspend fun reconnect(deviceId: PeripheralId, reconnectPolicy: ReconnectPolicy) {
         val session = registry.get(deviceId) ?: return
         // 실행 시점 재확인(review H-2): 예약(백오프 대기) 중에 사용자가 disconnect() 를
         // 불렀을 수 있다 — 예약 시점 가드(BleRuntime.advanceConnectSequence)만으로는

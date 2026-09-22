@@ -1,20 +1,17 @@
 package kr.co.nucode.ble.internal
 
 import java.security.MessageDigest
-import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.CharRef
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.DiagnosticOptions
 import kr.co.nucode.ble.DiagnosticSensitivity
 import kr.co.nucode.ble.DiagnosticValue
-import kr.co.nucode.ble.ServiceRef
 
 /** Projects a transport payload into the small allowlist accepted by diagnostic records. */
 internal class DiagnosticPolicy {
     fun payloadValues(
         options: DiagnosticOptions,
         direction: PayloadDirection,
-        characteristic: CharRef,
+        characteristic: CharacteristicRef,
         payload: ByteArray,
     ): Map<String, DiagnosticValue> {
         val snapshot = payload.copyOf()
@@ -22,7 +19,7 @@ internal class DiagnosticPolicy {
             "payload_direction" to DiagnosticValue.Text(direction.wireValue),
             "payload_length" to DiagnosticValue.Number(snapshot.size.toLong()),
         )
-        when (options.sensitivityFor(characteristic.toCharacteristicRef())) {
+        when (options.sensitivityFor(characteristic)) {
             DiagnosticSensitivity.Sensitive -> values["payload"] = DiagnosticValue.Redacted
             DiagnosticSensitivity.Safe -> {
                 if (options.rawPayloadsEnabled && options.maxRawPayloadBytes > 0) {
@@ -47,12 +44,6 @@ internal class DiagnosticPolicy {
         val hex = MessageDigest.getInstance("SHA-256").digest(prefix).joinToString("") { "%02x".format(it) }
         return DiagnosticValue.Text(hex)
     }
-
-    private fun CharRef.toCharacteristicRef(): CharacteristicRef = CharacteristicRef(
-        service = ServiceRef(BleUuid(serviceUuid), serviceInstanceIndex),
-        uuid = BleUuid(charUuid),
-        instanceIndex = instanceIndex,
-    )
 
     private companion object {
         const val MAX_DIGEST_INPUT_BYTES = 1_024

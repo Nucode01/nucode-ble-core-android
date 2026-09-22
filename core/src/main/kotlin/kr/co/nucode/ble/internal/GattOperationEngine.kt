@@ -14,11 +14,13 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PlatformDetail
+import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.WriteType
 
@@ -30,7 +32,7 @@ private interface StartTrackedGattOperation {
 /** Read resolves its platform characteristic only when it reaches the FIFO head. */
 private class QueuedRead(
     override val generation: Long,
-    val charRef: CharRef,
+    val charRef: CharacteristicRef,
 ) : GattOperation<ByteArray>, StartTrackedGattOperation {
     private var resolvedIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 
@@ -47,7 +49,7 @@ private class QueuedRead(
 /** A public write command reserves every chunk before its first chunk starts. */
 private class QueuedWriteChunk(
     override val generation: Long,
-    val charRef: CharRef,
+    val charRef: CharacteristicRef,
     val requestedWriteType: WriteType,
     val commandIndex: Int,
     chunk: ByteArray,
@@ -79,7 +81,7 @@ private class QueuedWriteChunk(
 /** Subscribe/unsubscribe direction is command intent, not a fact present in Android callback. */
 private class QueuedCccdWrite(
     override val generation: Long,
-    val charRef: CharRef,
+    val charRef: CharacteristicRef,
     val enabled: Boolean,
     val restore: Boolean = false,
     descriptorIdentity: GattDescriptorIdentity,
@@ -112,7 +114,7 @@ internal class GattOperationEngine(
     private val driver: GattDriver,
     private val ackTimeoutMillis: Long,
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)?,
-    private val operationWriteTypeResolver: ((Session, CharRef, WriteType) -> Int)?,
+    private val operationWriteTypeResolver: ((Session, CharacteristicRef, WriteType) -> Int)?,
     private val operationTargetResolver: GattOperationTargetResolver?,
     private val diagnosticIngress: DiagnosticIngress,
     private val lifecycle: GattLifecycleHooks,
@@ -129,8 +131,8 @@ internal class GattOperationEngine(
     internal fun handleCharacteristicChanged(event: GattDriverEvent.CharacteristicChanged) {
         val session = registry.sessionFor(event) ?: return
         val characteristic = event.characteristic ?: return
-        emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharRef(), event.value)
-        emit(BleEvent.CharValue(event.deviceId, characteristic.toCharRef(), event.value))
+        emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharacteristicRef(), event.value)
+        emit(BleEvent.CharValue(event.deviceId, characteristic.toCharacteristicRef(), event.value))
     }
 
     /** Read callback은 현재 generation의 동일 characteristic read만 완료한다. */
@@ -159,7 +161,7 @@ internal class GattOperationEngine(
         @Suppress("UNCHECKED_CAST")
         val completion = scheduled.completion as CompletableDeferred<ByteArray>
         if (event.status == BluetoothGatt.GATT_SUCCESS) {
-            emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharRef(), event.value, scheduled)
+            emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharacteristicRef(), event.value, scheduled)
             completion.complete(event.value.copyOf())
         } else {
             completion.completeExceptionally(BleException(GattFailureFactory.operationStatusFailure(session, scheduled, event.status)))
@@ -298,7 +300,7 @@ internal class GattOperationEngine(
      * characteristic read를 common scheduler FIFO에 예약하고, platform start 뒤부터
      * [ackTimeoutMillis] 동안 정확히 일치하는 read callback을 기다린다.
      */
-    suspend fun read(deviceId: DeviceId, charRef: CharRef): ByteArray {
+    suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         if (!session.canStartPublicGattOperation()) throw BleException(GattFailureFactory.notConnected(session))
         val scheduler = session.gattOperationScheduler
@@ -324,16 +326,16 @@ internal class GattOperationEngine(
      * (켜는 방향)는 실패가 소비자에게 보여야 한다 — 못 켰는데 조용하면 notify 를 기다리다
      * 하염없다. [unsubscribe](끄는 방향, D8 best-effort)와 비대칭인 이유가 이것이다.
      */
-    suspend fun subscribe(deviceId: DeviceId, charRef: CharRef) {
+    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
         subscribe(deviceId, charRef, restore = false)
     }
 
     /** Internal lifecycle path. It shares the FIFO but its timeout may recover via reconnect. */
-    suspend fun restoreSubscription(deviceId: DeviceId, charRef: CharRef) {
+    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) {
         subscribe(deviceId, charRef, restore = true)
     }
 
-    private suspend fun subscribe(deviceId: DeviceId, charRef: CharRef, restore: Boolean) {
+    private suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef, restore: Boolean) {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
@@ -372,7 +374,7 @@ internal class GattOperationEngine(
      *
      * subscribe/write와 동일한 scheduler FIFO를 사용한다.
      */
-    suspend fun unsubscribe(deviceId: DeviceId, charRef: CharRef) {
+    suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
         val session = registry.get(deviceId) ?: return
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
@@ -427,7 +429,7 @@ internal class GattOperationEngine(
         }
     }
 
-    private fun emitUnsubscribeFailure(session: Session, charRef: CharRef, failure: BleFailure) {
+    private fun emitUnsubscribeFailure(session: Session, charRef: CharacteristicRef, failure: BleFailure) {
         emitDiagnostic(
             Severity.Warning,
             failure.copy(
@@ -447,7 +449,7 @@ internal class GattOperationEngine(
     suspend fun writeChunk(
         session: Session,
         characteristic: BluetoothGattCharacteristic,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
         bytes: ByteArray,
         writeType: WriteType,
     ): Int {
@@ -497,7 +499,7 @@ internal class GattOperationEngine(
      */
     suspend fun writeCommand(
         session: Session,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
         chunks: List<ByteArray>,
         writeType: WriteType,
         timeoutMillis: Long,
@@ -699,7 +701,7 @@ internal class GattOperationEngine(
         }
     }
 
-    private fun testWriteType(session: Session, charRef: CharRef, writeType: WriteType): Int =
+    private fun testWriteType(session: Session, charRef: CharacteristicRef, writeType: WriteType): Int =
         operationWriteTypeResolver?.invoke(session, charRef, writeType) ?: when (writeType) {
             WriteType.WithoutResponse -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             WriteType.WithResponse,
@@ -765,7 +767,7 @@ internal class GattOperationEngine(
         val identity = operation.attributeIdentity as? GattCharacteristicIdentity
             ?: (operation.attributeIdentity as? GattDescriptorIdentity)?.characteristic
             ?: return GattFailureFactory.operationStartFailure(session, operation)
-        val charRef = identity.toCharRef()
+        val charRef = identity.toCharacteristicRef()
         val characteristic = session.resolve(charRef)
             ?: return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(operation.kind))
         val gatt = session.gatt ?: return GattFailureFactory.notConnected(session)
@@ -817,7 +819,7 @@ internal class GattOperationEngine(
         session: Session,
         gatt: BluetoothGatt?,
         characteristic: BluetoothGattCharacteristic,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
         enabled: Boolean,
         descriptor: BluetoothGattDescriptor? = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID),
         propertyMask: Int = characteristic.properties,
@@ -856,9 +858,9 @@ internal class GattOperationEngine(
         }
     }
 
-    private fun resolveOperationTarget(session: Session, charRef: CharRef): GattOperationTarget? {
+    private fun resolveOperationTarget(session: Session, charRef: CharacteristicRef): GattOperationTarget? {
         operationTargetResolver?.let { resolver ->
-            return resolver.resolve(session, charRef)?.takeIf { it.identity.toCharRef() == charRef }
+            return resolver.resolve(session, charRef)?.takeIf { it.identity.toCharacteristicRef() == charRef }
         }
         val characteristic = session.resolve(charRef) ?: return null
         return GattOperationTarget(
@@ -869,27 +871,26 @@ internal class GattOperationEngine(
         )
     }
 
-    private fun GattCharacteristicIdentity.toCharRef(): CharRef = CharRef(
-        serviceUuid = serviceUuid,
-        charUuid = characteristicUuid,
+    private fun GattCharacteristicIdentity.toCharacteristicRef(): CharacteristicRef = CharacteristicRef(
+        service = ServiceRef(BleUuid(serviceUuid), serviceInstanceIndex),
+        uuid = BleUuid(characteristicUuid),
         instanceIndex = characteristicInstanceIndex,
-        serviceInstanceIndex = serviceInstanceIndex,
     )
 
     private fun exactIdentity(
         session: Session,
         characteristic: BluetoothGattCharacteristic,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
     ): GattCharacteristicIdentity {
         val gatt = session.gatt ?: throw BleException(GattFailureFactory.notConnected(session))
-        val matchingServices = gatt.services.filter { it.uuid == charRef.serviceUuid }
-        val service = matchingServices.getOrNull(charRef.serviceInstanceIndex)
+        val matchingServices = gatt.services.filter { it.uuid == charRef.service.uuid.value }
+        val service = matchingServices.getOrNull(charRef.service.instanceIndex)
             ?: throw BleException(GattFailureFactory.characteristicNotFound(session))
-        val matchingCharacteristics = service.characteristics.filter { it.uuid == charRef.charUuid }
+        val matchingCharacteristics = service.characteristics.filter { it.uuid == charRef.uuid.value }
         if (matchingCharacteristics.getOrNull(charRef.instanceIndex) !== characteristic) {
             throw BleException(GattFailureFactory.characteristicNotFound(session))
         }
-        return GattCharacteristicIdentity.from(charRef, charRef.serviceInstanceIndex)
+        return GattCharacteristicIdentity.from(charRef, charRef.service.instanceIndex)
     }
 
     private fun emitDiagnostic(severity: Severity, failure: BleFailure) {
@@ -900,7 +901,7 @@ internal class GattOperationEngine(
     private fun emitPayloadObservation(
         session: Session,
         direction: PayloadDirection,
-        characteristic: CharRef,
+        characteristic: CharacteristicRef,
         payload: ByteArray,
         scheduled: ScheduledGattOperation<*>? = null,
     ) {

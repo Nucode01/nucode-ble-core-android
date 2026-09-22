@@ -23,12 +23,11 @@ import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.CharProperty
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.Chunking
+import kr.co.nucode.ble.CharacteristicProperty
+import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
 import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
@@ -50,7 +49,7 @@ class GattDriverSeamTest {
     @Test
     fun `read command starts once and returns a defensive callback copy`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).setStateForTest(ConnState.Ready)
         val driver = FakeGattDriver()
         val starts = mutableListOf<GattOperationKind>()
@@ -65,7 +64,7 @@ class GattDriverSeamTest {
                 null
             },
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val identity = GattCharacteristicIdentity.from(charRef)
         val callbackValue = byteArrayOf(1, 2, 3)
 
@@ -92,7 +91,7 @@ class GattDriverSeamTest {
     @Test
     fun `read synchronous start rejection fails only that operation without poison`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val bridge = GattBridge(
             registry = registry,
@@ -104,7 +103,7 @@ class GattDriverSeamTest {
         )
 
         val failure = runCatching {
-            bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID()))
+            bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()))
         }.exceptionOrNull()
 
         assertFailureCode("GATT_STATUS_FAILED", failure)
@@ -116,7 +115,7 @@ class GattDriverSeamTest {
     @Test
     fun `started read timeout poisons generation drains queue and closes handle`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
@@ -128,11 +127,11 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 100,
             operationStarter = { _, _ -> null },
         )
-        val firstRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val firstRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val first = async { runCatching { bridge.read(deviceId, firstRef) }.exceptionOrNull() }
         runCurrent()
         val queued = async {
-            runCatching { bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }
+            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
                 .exceptionOrNull()
         }
         runCurrent()
@@ -151,8 +150,8 @@ class GattDriverSeamTest {
         driver.emitRead(
             deviceId,
             GattCharacteristicSnapshot(
-                serviceUuid = firstRef.serviceUuid,
-                charUuid = firstRef.charUuid,
+                serviceUuid = firstRef.service.uuid.value,
+                charUuid = firstRef.uuid.value,
                 instanceIndex = firstRef.instanceIndex,
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
             ),
@@ -169,7 +168,7 @@ class GattDriverSeamTest {
     @Test
     fun `started caller cancellation propagates and poisons generation`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
@@ -180,10 +179,10 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             operationStarter = { _, _ -> null },
         )
-        val first = async { bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }
+        val first = async { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
         runCurrent()
         val queued = async {
-            runCatching { bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }
+            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
                 .exceptionOrNull()
         }
         runCurrent()
@@ -200,7 +199,7 @@ class GattDriverSeamTest {
     @Test
     fun `started write timeout through OperationQueue poisons generation and returns partial-safe failure`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -226,10 +225,10 @@ class GattDriverSeamTest {
         val write = async {
             queue.write(
                 deviceId,
-                CharRef(UUID.randomUUID(), UUID.randomUUID()),
+                charRef(UUID.randomUUID(), UUID.randomUUID()),
                 byteArrayOf(1),
                 WriteType.WithResponse,
-                Chunking.None,
+                BleChunking.Disabled,
             )
         }
         runCurrent()
@@ -255,7 +254,7 @@ class GattDriverSeamTest {
     @Test
     fun `started write caller cancellation through OperationQueue propagates and poisons generation`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -281,10 +280,10 @@ class GattDriverSeamTest {
         val write = async {
             queue.write(
                 deviceId,
-                CharRef(UUID.randomUUID(), UUID.randomUUID()),
+                charRef(UUID.randomUUID(), UUID.randomUUID()),
                 byteArrayOf(1),
                 WriteType.WithResponse,
-                Chunking.None,
+                BleChunking.Disabled,
             )
         }
         runCurrent()
@@ -307,7 +306,7 @@ class GattDriverSeamTest {
     @Test
     fun `started CCCD timeout through subscribe poisons generation`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
@@ -321,7 +320,7 @@ class GattDriverSeamTest {
         )
 
         val subscribe = async {
-            runCatching { bridge.subscribe(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }.exceptionOrNull()
+            runCatching { bridge.subscribe(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }.exceptionOrNull()
         }
         runCurrent()
         assertEquals(GattOperationKind.Subscribe, session.gattOperationScheduler.pending?.operation?.kind)
@@ -343,7 +342,7 @@ class GattDriverSeamTest {
     @Test
     fun `started CCCD caller cancellation through subscribe propagates and poisons generation`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
@@ -357,7 +356,7 @@ class GattDriverSeamTest {
         )
 
         val subscribe = async {
-            bridge.subscribe(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID()))
+            bridge.subscribe(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()))
         }
         runCurrent()
         assertEquals(GattOperationKind.Subscribe, session.gattOperationScheduler.pending?.operation?.kind)
@@ -379,7 +378,7 @@ class GattDriverSeamTest {
     @Test
     fun `disconnect drains scheduler waiters before platform callback`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
@@ -391,12 +390,12 @@ class GattDriverSeamTest {
             operationStarter = { _, _ -> null },
         )
         val pending = async {
-            runCatching { bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }
+            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
                 .exceptionOrNull()
         }
         runCurrent()
         val queued = async {
-            runCatching { bridge.read(deviceId, CharRef(UUID.randomUUID(), UUID.randomUUID())) }
+            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
                 .exceptionOrNull()
         }
         runCurrent()
@@ -411,9 +410,58 @@ class GattDriverSeamTest {
     }
 
     @Test
+    fun `same-UUID service instances keep their own instance index through discovery projection`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        registry.getOrCreate(deviceId)
+        val events = mutableListOf<BleEvent>()
+        val driver = FakeGattDriver()
+        val bridge = GattBridge(registry, events::add, this, driver, ackTimeoutMillis = 5_000)
+        bridge.connect(deviceId, ConnectOptions(autoConnect = true, timeoutMillis = null, requestedMtu = 185))
+        driver.emit(
+            GattDriverEvent.ConnectionStateChanged(deviceId, CURRENT_SOURCE, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED),
+        )
+
+        val serviceUuid = UUID.randomUUID()
+        val charUuid = UUID.randomUUID()
+        fun service(instance: Int) = GattServiceSnapshot(
+            serviceUuid,
+            listOf(
+                GattCharacteristicSnapshot(
+                    serviceUuid = serviceUuid,
+                    charUuid = charUuid,
+                    instanceIndex = 0,
+                    propertyMask = BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                ),
+            ),
+            instanceIndex = instance,
+        )
+        driver.emit(
+            GattDriverEvent.ServicesDiscovered(
+                deviceId,
+                CURRENT_SOURCE,
+                BluetoothGatt.GATT_SUCCESS,
+                services = listOf(service(0), service(1)),
+            ),
+        )
+
+        val discovered = events.filterIsInstance<BleEvent.ServicesDiscovered>().single().services
+        assertEquals(listOf(0, 1), discovered.map { it.ref.instanceIndex })
+        // characteristic ref: service instance index comes from the enclosing service, char instance stays 0
+        assertEquals(
+            listOf(charRef(serviceUuid, charUuid, instanceIndex = 0, serviceInstanceIndex = 0), charRef(serviceUuid, charUuid, instanceIndex = 0, serviceInstanceIndex = 1)),
+            discovered.map { it.characteristics.single().ref },
+        )
+        assertEquals(
+            GattCharacteristicIdentity(serviceUuid, 1, charUuid, 0),
+            GattCharacteristicIdentity.from(discovered[1].characteristics.single().ref),
+        )
+    }
+
+    @Test
     fun `fake driver injects commands and callbacks without BluetoothGatt`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         val events = mutableListOf<BleEvent>()
         val driver = FakeGattDriver()
@@ -459,8 +507,11 @@ class GattDriverSeamTest {
             ),
         )
         val discovered = events.filterIsInstance<BleEvent.ServicesDiscovered>().single()
-        assertEquals(CharRef(serviceUuid, charUuid), discovered.services.single().characteristics.single().charRef)
-        assertEquals(setOf(CharProperty.Notify), discovered.services.single().characteristics.single().properties)
+        assertEquals(charRef(serviceUuid, charUuid), discovered.services.single().characteristics.single().ref)
+        assertEquals(
+            setOf(CharacteristicProperty.Notify),
+            discovered.services.single().characteristics.single().properties,
+        )
 
         driver.emit(GattDriverEvent.MtuChanged(deviceId, CURRENT_SOURCE, 185, BluetoothGatt.GATT_SUCCESS))
         assertEquals(185, session.mtu)
@@ -475,9 +526,9 @@ class GattDriverSeamTest {
                 bytes,
             ),
         )
-        assertEquals(BleEvent.CharValue(deviceId, CharRef(serviceUuid, charUuid), bytes), events.last())
+        assertEquals(BleEvent.CharValue(deviceId, charRef(serviceUuid, charUuid), bytes), events.last())
 
-        val characteristicIdentity = GattCharacteristicIdentity.from(CharRef(serviceUuid, charUuid))
+        val characteristicIdentity = GattCharacteristicIdentity.from(charRef(serviceUuid, charUuid))
         val scheduledWrite = session.gattOperationScheduler.enqueue(
             GattOperation.WriteWithResponse(
                 session.gattOperationScheduler.currentGeneration,
@@ -521,7 +572,7 @@ class GattDriverSeamTest {
     @Test
     fun `stale callback source cannot mutate the current Session`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         session.setStateForTest(ConnState.Connecting)
         val events = mutableListOf<BleEvent>()
@@ -584,7 +635,7 @@ class GattDriverSeamTest {
     @Test
     fun `write와 CCCD는 common FIFO에서 exact target callback으로만 차례로 완료된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val starts = mutableListOf<GattOperationKind>()
@@ -600,13 +651,13 @@ class GattDriverSeamTest {
                 null
             },
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val descriptorIdentity = GattDescriptorIdentity(
             characteristicIdentity,
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
         )
-        val characteristic = BluetoothGattCharacteristic(charRef.charUuid, 0, 0)
+        val characteristic = BluetoothGattCharacteristic(charRef.uuid.value, 0, 0)
 
         val write = async {
             bridge.writeChunk(
@@ -654,7 +705,7 @@ class GattDriverSeamTest {
     @Test
     fun `pending 없는 characteristic callback은 duplicate diagnostic으로 기록된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId)
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
@@ -671,7 +722,7 @@ class GattDriverSeamTest {
     @Test
     fun `pre-start queue time은 write ACK timeout을 소비하지 않는다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -689,12 +740,12 @@ class GattDriverSeamTest {
                 null
             },
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val blocker = async {
             bridge.writeChunk(
                 session,
-                BluetoothGattCharacteristic(charRef.charUuid, 0, 0),
+                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
                 charRef,
                 byteArrayOf(0),
                 WriteType.WithResponse,
@@ -709,7 +760,7 @@ class GattDriverSeamTest {
             writeCommand = bridge::writeCommand,
         )
         val write = async {
-            queue.write(deviceId, charRef, byteArrayOf(1), WriteType.WithResponse, Chunking.None)
+            queue.write(deviceId, charRef, byteArrayOf(1), WriteType.WithResponse, BleChunking.Disabled)
         }
         runCurrent()
 
@@ -737,7 +788,7 @@ class GattDriverSeamTest {
     @Test
     fun `pre-start public write 취소는 예약한 모든 청크를 제거한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 2
@@ -755,12 +806,12 @@ class GattDriverSeamTest {
                 null
             },
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val identity = GattCharacteristicIdentity.from(charRef)
         val blocker = async {
             bridge.writeChunk(
                 session,
-                BluetoothGattCharacteristic(charRef.charUuid, 0, 0),
+                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
                 charRef,
                 byteArrayOf(0),
                 WriteType.WithResponse,
@@ -775,7 +826,7 @@ class GattDriverSeamTest {
             writeCommand = bridge::writeCommand,
         )
         val queuedWrite = async {
-            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, Chunking.Auto)
+            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, BleChunking.Automatic)
         }
         runCurrent()
         assertEquals(2, session.gattOperationScheduler.queuedCount)
@@ -792,7 +843,7 @@ class GattDriverSeamTest {
     @Test
     fun `Task4 drain이 pre-start completion을 취소하면 started 대기 caller도 종결된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
@@ -803,12 +854,12 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             operationStarter = { _, _ -> null },
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val identity = GattCharacteristicIdentity.from(charRef)
         val blocker = async {
             bridge.writeChunk(
                 session,
-                BluetoothGattCharacteristic(charRef.charUuid, 0, 0),
+                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
                 charRef,
                 byteArrayOf(0),
                 WriteType.WithResponse,
@@ -836,7 +887,7 @@ class GattDriverSeamTest {
     @Test
     fun `multi-chunk public write 전체가 뒤에 enqueue된 CCCD보다 먼저 시작된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 2
@@ -861,7 +912,7 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val descriptorIdentity = GattDescriptorIdentity(
             characteristicIdentity,
@@ -869,7 +920,7 @@ class GattDriverSeamTest {
         )
 
         val write = async {
-            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, Chunking.Auto)
+            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, BleChunking.Automatic)
         }
         runCurrent()
         val subscribe = async { bridge.subscribe(deviceId, charRef) }
@@ -902,13 +953,13 @@ class GattDriverSeamTest {
     @Test
     fun `동시에 들어온 multi-chunk write 두 개는 command 단위 FIFO로 실행된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 2
         }
-        val firstRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
-        val secondRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val firstRef = charRef(UUID.randomUUID(), UUID.randomUUID())
+        val secondRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val firstIdentity = GattCharacteristicIdentity.from(firstRef)
         val secondIdentity = GattCharacteristicIdentity.from(secondRef)
         val driver = FakeGattDriver()
@@ -933,11 +984,11 @@ class GattDriverSeamTest {
         )
 
         val first = async {
-            queue.write(deviceId, firstRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, Chunking.Auto)
+            queue.write(deviceId, firstRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, BleChunking.Automatic)
         }
         runCurrent()
         val second = async {
-            queue.write(deviceId, secondRef, byteArrayOf(5, 6, 7, 8), WriteType.WithResponse, Chunking.Auto)
+            queue.write(deviceId, secondRef, byteArrayOf(5, 6, 7, 8), WriteType.WithResponse, BleChunking.Automatic)
         }
         runCurrent()
 
@@ -962,7 +1013,7 @@ class GattDriverSeamTest {
     @Test
     fun `multi-chunk write 실패 뒤 남은 청크는 시작하지 않고 다음 command로 진행한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 2
@@ -987,14 +1038,14 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val descriptorIdentity = GattDescriptorIdentity(
             characteristicIdentity,
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
         )
         val write = async {
-            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, Chunking.Auto)
+            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, BleChunking.Automatic)
         }
         runCurrent()
         val subscribe = async { bridge.subscribe(deviceId, charRef) }
@@ -1022,7 +1073,7 @@ class GattDriverSeamTest {
     @Test
     fun `WriteType Auto는 queue 대기 뒤 실제 start에서 다시 판정한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -1049,7 +1100,7 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val descriptorIdentity = GattDescriptorIdentity(
             characteristicIdentity,
@@ -1058,7 +1109,7 @@ class GattDriverSeamTest {
         val blocker = async { bridge.subscribe(deviceId, charRef) }
         runCurrent()
         val write = async {
-            queue.write(deviceId, charRef, byteArrayOf(1), WriteType.Auto, Chunking.None)
+            queue.write(deviceId, charRef, byteArrayOf(1), WriteType.Auto, BleChunking.Disabled)
         }
         runCurrent()
 
@@ -1124,7 +1175,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `Android callback router forwards callbacks through the supplied core scope`() = runTest {
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val router = AndroidGattCallbackRouter(scope = this)
         var delivered = false
         router.setEventSink { delivered = true }
@@ -1146,7 +1197,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `Android callback event conversion snapshots bytes and exact attribute identity`() {
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val source = CURRENT_SOURCE
         val identity = characteristicIdentity()
         val characteristic = GattCharacteristicSnapshot(
@@ -1206,7 +1257,7 @@ class GattDriverSeamTest {
 
     private fun readFixture(scope: CoroutineScope): ReadFixture {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         val driver = FakeGattDriver()
         GattBridge(registry, {}, scope, driver, ackTimeoutMillis = 5_000)
@@ -1233,7 +1284,7 @@ class GattDriverSeamTest {
     )
 
     private data class ReadFixture(
-        val deviceId: DeviceId,
+        val deviceId: PeripheralId,
         val session: Session,
         val driver: FakeGattDriver,
         val scheduled: ScheduledGattOperation<ByteArray>,
@@ -1248,51 +1299,51 @@ class GattDriverSeamTest {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect:$autoConnect"
             return null
         }
 
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
         }
 
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean {
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
             commands += "discover"
             return true
         }
 
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
             return true
         }
 
         override fun setCharacteristicNotification(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             enabled: Boolean,
         ): Boolean = true
 
         override fun writeDescriptor(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
         ): Boolean = true
 
         override fun readCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
         ): Boolean = true
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
@@ -1304,7 +1355,7 @@ class GattDriverSeamTest {
         }
 
         fun emitRead(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             characteristic: GattCharacteristicSnapshot,
             value: ByteArray,
             status: Int = BluetoothGatt.GATT_SUCCESS,
@@ -1327,7 +1378,7 @@ class GattDriverSeamTest {
         ) {
             emit(
                 GattDriverEvent.CharacteristicWrite(
-                    deviceId = DeviceId("AA:BB:CC:DD:EE:FF"),
+                    deviceId = PeripheralId("AA:BB:CC:DD:EE:FF"),
                     source = CURRENT_SOURCE,
                     status = status,
                     attributeIdentity = attributeIdentity,
@@ -1341,7 +1392,7 @@ class GattDriverSeamTest {
         ) {
             emit(
                 GattDriverEvent.DescriptorWrite(
-                    deviceId = DeviceId("AA:BB:CC:DD:EE:FF"),
+                    deviceId = PeripheralId("AA:BB:CC:DD:EE:FF"),
                     source = CURRENT_SOURCE,
                     status = status,
                     attributeIdentity = attributeIdentity,

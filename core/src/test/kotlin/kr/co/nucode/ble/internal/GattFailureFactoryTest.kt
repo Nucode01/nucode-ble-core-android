@@ -3,7 +3,7 @@ package kr.co.nucode.ble.internal
 import java.util.UUID
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
@@ -19,13 +19,13 @@ import org.junit.Test
  * 재생산하는지 고정한다.
  *
  * plan gatt-bridge-split v1 task 3 — `OperationQueue`의 write 전용 helper 4개
- * (`writeCharacteristicNotFound`/`writeTimeout`/`writeInvalidated`/`writeStatusFailed`) 흡수와
+ * (`characteristicNotFound`/`writeTimeout`/`writeInvalidated`/`writeStatusFailed`) 흡수와
  * plan C advisory(표 8필드: `context.operationKind`/`context.operationId`/`platformDetail`/
  * `context.sessionId`)를 여기서 함께 고정한다.
  */
 class GattFailureFactoryTest {
 
-    private fun newSession(): Session = Session(DeviceId("AA:BB:CC:DD:EE:FF"))
+    private fun newSession(): Session = Session(PeripheralId("AA:BB:CC:DD:EE:FF"))
 
     private fun characteristicIdentity(): GattCharacteristicIdentity = GattCharacteristicIdentity(
         serviceUuid = UUID.randomUUID(),
@@ -73,7 +73,7 @@ class GattFailureFactoryTest {
                 to GattFailureFactory.unknownDevice(),
             Shape("peripheralNotFound", "PERIPHERAL_NOT_FOUND", "connection", FailurePhase.Connect, Retryability.TransientMayHelp)
                 to GattFailureFactory.peripheralNotFound(session),
-            Shape("characteristicNotFound", "ATTRIBUTE_NOT_FOUND", "validation", FailurePhase.Operation, Retryability.Never)
+            Shape("characteristicNotFound", "CHARACTERISTIC_NOT_FOUND", "attribute", FailurePhase.Operation, Retryability.Never)
                 to GattFailureFactory.characteristicNotFound(session),
             Shape(
                 "operationInvalidated(operation)", "OPERATION_INVALIDATED", "operation", FailurePhase.Operation,
@@ -203,11 +203,6 @@ class GattFailureFactoryTest {
                 to GattFailureFactory.startRejected(session, FailurePhase.Operation, AndroidApiOperation.WriteDescriptor, kind = OperationKind.Subscribe),
             // OperationQueue write helpers 흡수(plan gatt-bridge-split task 3) — kind는 항상 WriteWithResponse.
             Shape(
-                "writeCharacteristicNotFound", "CHARACTERISTIC_NOT_FOUND", "validation", FailurePhase.Operation,
-                Retryability.Never, operationKind = Check.Expect(OperationKind.WriteWithResponse),
-            )
-                to GattFailureFactory.writeCharacteristicNotFound(session, OperationKind.WriteWithResponse),
-            Shape(
                 "writeTimeout", "OPERATION_TIMEOUT", "operation", FailurePhase.Operation, Retryability.NewConnectionMayHelp,
                 operationKind = Check.Expect(OperationKind.WriteWithResponse),
             )
@@ -224,7 +219,7 @@ class GattFailureFactoryTest {
                 to GattFailureFactory.writeStatusFailed(session, status = 133, kind = OperationKind.WriteWithResponse),
         )
 
-        assertEquals("표 행 수 — 행이 조용히 빠지면 여기서 잡힌다", 33, expectations.size)
+        assertEquals("표 행 수 — 행이 조용히 빠지면 여기서 잡힌다", 32, expectations.size)
         expectations.forEach { (expected, actual) ->
             assertEquals("${expected.name} code", expected.code, actual.code.value)
             assertEquals("${expected.name} category", expected.category, actual.category.value)

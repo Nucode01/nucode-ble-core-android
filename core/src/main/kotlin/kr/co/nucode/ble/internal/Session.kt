@@ -11,35 +11,27 @@ import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleDisconnectReason
-import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.CharProperty
-import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ConnState
-import kr.co.nucode.ble.DeviceId
-import kr.co.nucode.ble.DeviceSnapshot
-import kr.co.nucode.ble.DiscoveredService
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ServiceRef
 
 /**
  * 기기 하나의 상태 전부. 설계 §3 규칙 2 — 기기별 상태는 객체 하나에 모은다.
- * DeviceId 를 키로 하는 맵은 [SessionRegistry.sessions] 하나뿐이고, 그 값이 이 클래스다.
+ * PeripheralId 를 키로 하는 맵은 [SessionRegistry.sessions] 하나뿐이고, 그 값이 이 클래스다.
  * 병렬 맵을 만들지 않는다(설계 §1 원인②) — connState · gatt 핸들 · 구독 · retry ·
  * timeout · MTU/chunkSize · GATT scheduler를 전부 이 안으로 모아 동기화 누락을
  * 원천 차단한다. iOS 구현이 무너진 원인(설계 §1 원인②)이 정확히
  * `connectionContinuations` · `connectionTimeoutTasks` 같은 동기화 프리미티브를
- * DeviceId 별 병렬 맵으로 따로 빼둔 것이었다 — "상태가 아니라 동기화 프리미티브라
+ * PeripheralId 별 병렬 맵으로 따로 빼둔 것이었다 — "상태가 아니라 동기화 프리미티브라
  * 규칙 2 대상이 아니다"는 예외를 두지 않는다. 그 예외가 바로 8개를 만든 합리화다.
  *
  * coreScope의 단일 스레드가 필드 접근을 직렬화하고, callback 대기 사이의 operation 순서는
- * [gattOperationScheduler] FIFO가 보장한다. 별도 lock이나 DeviceId별 병렬 map을 두지 않는다.
+ * [gattOperationScheduler] FIFO가 보장한다. 별도 lock이나 PeripheralId별 병렬 map을 두지 않는다.
  */
-internal class Session(val deviceId: DeviceId) {
+internal class Session(val deviceId: PeripheralId) {
 
     /** Public failure correlation token. It intentionally has no relation to the peripheral ID. */
     val failureSessionId: String = UUID.randomUUID().toString()
@@ -84,7 +76,7 @@ internal class Session(val deviceId: DeviceId) {
 
     /**
      * Slice 2 connection lifecycle의 단일 소유자. connection generation, readiness stage,
-     * stage deadline, terminal cleanup reason을 별도 DeviceId map으로 흩뜨리지 않고 Session과
+     * stage deadline, terminal cleanup reason을 별도 PeripheralId map으로 흩뜨리지 않고 Session과
      * 함께 폐기한다. 기존 GattBridge/BleRuntime routing은 후속 수직 이관 task가 이 API로 옮긴다.
      */
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
@@ -150,7 +142,7 @@ internal class Session(val deviceId: DeviceId) {
     var autoConnect: Boolean = false
 
     /**
-     * 예약된 Reconnector 백오프 job. 기기당 하나(규칙 2 — Job 을 DeviceId 맵으로 밖에 두면
+     * 예약된 Reconnector 백오프 job. 기기당 하나(규칙 2 — Job 을 PeripheralId 맵으로 밖에 두면
      * §1 원인② 의 connectionTimeoutTasks 재현이다). 이 손잡이가 있어야 연결 시작·해제·스윕이
      * 예약을 **취소**할 수 있다 — 실행 시점 가드만으로는 이미 큐에 든 시도를 못 막는다.
      */
@@ -178,19 +170,19 @@ internal class Session(val deviceId: DeviceId) {
      */
     var requestedMtu: Int = 247
 
-    /** 협상된 MTU. 협상 전에는 null(InternalModels.kt DeviceSnapshot 과 같은 규약 — 23 을 임의로 채우지 않는다). */
+    /** 협상된 MTU. 협상 전에는 null — 23 을 임의로 채우지 않는다. */
     var mtu: Int? = null
 
     /** MTU 로부터 계산한 청크 크기. */
     var chunkSize: Int? = null
 
     /**
-     * 서비스 재탐색 결과로 얻은 CharRef -> BluetoothGattCharacteristic 대응표.
+     * 서비스 재탐색 결과로 얻은 CharacteristicRef -> BluetoothGattCharacteristic 대응표.
      * 재탐색마다 `BluetoothGattCharacteristic` 인스턴스가 갈리므로, 공개 API 의 값 타입인
-     * [CharRef] 를 그때그때 이 표에서 다시 찾는다(설계 §0 "char 재매칭 — 1회 해결").
+     * [CharacteristicRef] 를 그때그때 이 표에서 다시 찾는다(설계 §0 "char 재매칭 — 1회 해결").
      *
-     * 이 맵은 DeviceId 가 아니라 CharRef 를 키로 하는, 기기 하나의 내부 상태다.
-     * 규칙 2 가 금지하는 건 DeviceId 키 맵이 두 개째 생기는 것이지, Session 안의
+     * 이 맵은 PeripheralId 가 아니라 CharacteristicRef 를 키로 하는, 기기 하나의 내부 상태다.
+     * 규칙 2 가 금지하는 건 PeripheralId 키 맵이 두 개째 생기는 것이지, Session 안의
      * 다른 키를 쓰는 맵이 아니다.
      *
      * 스켈레톤 단계에서는 저장·조회 자료구조만 만든다. 실제 GATT 탐색 호출은
@@ -198,8 +190,8 @@ internal class Session(val deviceId: DeviceId) {
      * [resolve] 는 못 찾으면 조용히 null 을 돌려준다(정상 동작).
      */
     private data class DiscoveredTopology(
-        val services: List<DiscoveredService>,
-        val targets: Map<CharRef, BluetoothGattCharacteristic>,
+        val services: List<GattService>,
+        val targets: Map<CharacteristicRef, BluetoothGattCharacteristic>,
     )
 
     /**
@@ -212,54 +204,29 @@ internal class Session(val deviceId: DeviceId) {
     private val _services = MutableStateFlow<List<GattService>>(emptyList())
     internal val services: StateFlow<List<GattService>> = _services.asStateFlow()
 
-    internal val discoveredServices: List<DiscoveredService>
-        get() = discoveredTopology.services
-
-    /** 재탐색 결과로 대응표를 통째로 갈아끼운다. GattBridge(plan task 7)가 채운다. */
+    /**
+     * 재탐색 결과로 대응표를 통째로 갈아끼운다. `GattConnectionLifecycle` 이 공개
+     * [GattService]/[GattCharacteristic] 로 조립해 넘기므로 여기서는 재매핑 없이 저장·발행한다.
+     */
     fun replaceDiscoveredTopology(
-        services: List<DiscoveredService>,
-        targets: Map<CharRef, BluetoothGattCharacteristic>,
+        services: List<GattService>,
+        targets: Map<CharacteristicRef, BluetoothGattCharacteristic>,
     ) {
         discoveredTopology = DiscoveredTopology(services.toList(), targets.toMap())
-        _services.value = services.map { service ->
-            GattService(
-                ref = ServiceRef(BleUuid(service.serviceUuid), service.instanceIndex),
-                characteristics = service.characteristics.map { characteristic ->
-                    GattCharacteristic(
-                        ref = CharacteristicRef(
-                            service = ServiceRef(BleUuid(service.serviceUuid), service.instanceIndex),
-                            uuid = BleUuid(characteristic.charRef.charUuid),
-                            instanceIndex = characteristic.charRef.instanceIndex,
-                        ),
-                        properties = characteristic.properties.mapTo(mutableSetOf()) { it.toPublicProperty() },
-                    )
-                },
-            )
-        }
+        _services.value = services
     }
 
     /** Legacy test/setup seam; production discovery always replaces topology and targets together. */
-    fun updateDiscovered(characteristics: Map<CharRef, BluetoothGattCharacteristic>) {
+    fun updateDiscovered(characteristics: Map<CharacteristicRef, BluetoothGattCharacteristic>) {
         replaceDiscoveredTopology(discoveredTopology.services, characteristics)
     }
 
-    /** CharRef 를 현재 탐색 결과에서 되찾는다. 못 찾으면 null. */
-    fun resolve(charRef: CharRef): BluetoothGattCharacteristic? = discoveredTopology.targets[charRef]
+    /** CharacteristicRef 를 현재 탐색 결과에서 되찾는다. 못 찾으면 null. */
+    fun resolve(charRef: CharacteristicRef): BluetoothGattCharacteristic? = discoveredTopology.targets[charRef]
 
     /** Public GATT operation admission is owned solely by the coordinator readiness stage. */
     fun canStartPublicGattOperation(): Boolean =
         connectionCoordinator.stage == ConnectionStage.Ready
-
-    /**
-     * BleRuntime.snapshot()(plan task 3)이 쓰는 값 변환.
-     * Session 자체는 절대 밖으로 안 나간다(설계 §3 규칙 5, `internal` 이라 컴파일러가 막는다).
-     */
-    fun toSnapshot(): DeviceSnapshot = DeviceSnapshot(
-        deviceId = deviceId,
-        connState = state,
-        mtu = mtu,
-        chunkSize = chunkSize,
-    )
 }
 
 private fun ConnState.toPublicConnectionState(): ConnectionState = when (this) {
@@ -285,12 +252,4 @@ private fun DisconnectReason.toPublicDisconnectReason(): BleDisconnectReason = w
     DisconnectReason.Requested -> BleDisconnectReason.Requested
     DisconnectReason.ClientClosed -> BleDisconnectReason.ClientClosed
     is DisconnectReason.Failed -> BleDisconnectReason.Failed(failure)
-}
-
-private fun CharProperty.toPublicProperty(): CharacteristicProperty = when (this) {
-    CharProperty.Read -> CharacteristicProperty.Read
-    CharProperty.Write -> CharacteristicProperty.WriteWithResponse
-    CharProperty.WriteNoResponse -> CharacteristicProperty.WriteWithoutResponse
-    CharProperty.Notify -> CharacteristicProperty.Notify
-    CharProperty.Indicate -> CharacteristicProperty.Indicate
 }

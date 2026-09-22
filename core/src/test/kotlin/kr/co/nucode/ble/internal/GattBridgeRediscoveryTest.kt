@@ -13,7 +13,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
@@ -40,54 +40,54 @@ class GattBridgeRediscoveryTest {
 
     /** [GattBridge]가 요구하는 최소 driver — connect 호출을 [connectCalls]에 기록만 한다. */
     private class RecordingGattDriver(private val log: MutableList<String>? = null) : GattDriver {
-        val connectCalls = mutableListOf<Pair<DeviceId, Long>>()
-        val disconnectCalls = mutableListOf<DeviceId>()
+        val connectCalls = mutableListOf<Pair<PeripheralId, Long>>()
+        val disconnectCalls = mutableListOf<PeripheralId>()
         private var sink: (GattDriverEvent) -> Unit = {}
 
         override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? = null
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean, connectionGeneration: Long): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): BluetoothGatt? {
             connectCalls += deviceId to connectionGeneration
-            log?.add("connect:$deviceId")
+            log?.add("connect:${deviceId.value}")
             return null
         }
 
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             disconnectCalls += deviceId
         }
 
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) = Unit
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
 
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean = true
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
 
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
 
         override fun setCharacteristicNotification(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             enabled: Boolean,
         ): Boolean = true
 
         override fun writeDescriptor(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
         ): Boolean = true
 
         override fun readCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
         ): Boolean = true
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
@@ -101,11 +101,11 @@ class GattBridgeRediscoveryTest {
         private val deferred: CompletableDeferred<RediscoveryOutcome>? = null,
         private val log: MutableList<String>? = null,
     ) : PeripheralRediscovery {
-        val calls = mutableListOf<Pair<DeviceId, Long>>()
+        val calls = mutableListOf<Pair<PeripheralId, Long>>()
 
-        override suspend fun rediscover(deviceId: DeviceId, timeoutMillis: Long): RediscoveryOutcome {
+        override suspend fun rediscover(deviceId: PeripheralId, timeoutMillis: Long): RediscoveryOutcome {
             calls += deviceId to timeoutMillis
-            log?.add("rediscover:$deviceId")
+            log?.add("rediscover:${deviceId.value}")
             return deferred?.await() ?: requireNotNull(outcome) {
                 "outcome 과 deferred 둘 다 없다"
             }
@@ -126,7 +126,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `cold 주소는 driver connect 전에 rediscovery 를 1회 부르고 그 timeout 은 설정값과 같다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:01")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:01")
         registry.getOrCreate(deviceId)
         val log = mutableListOf<String>()
         val driver = RecordingGattDriver(log)
@@ -150,13 +150,13 @@ class GattBridgeRediscoveryTest {
         assertEquals(rediscoveryTimeouts.rediscoveryMillis, rediscovery.calls.single().second)
         assertEquals(1, driver.connectCalls.size)
         // 순서 — rediscovery 반환 뒤에만 driver.connect 가 온다.
-        assertEquals(listOf("rediscover:$deviceId", "connect:$deviceId"), log)
+        assertEquals(listOf("rediscover:${deviceId.value}", "connect:${deviceId.value}"), log)
     }
 
     @Test
     fun `warm 주소는 rediscovery 를 부르지 않고 driver connect 만 1회 부른다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:02")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:02")
         registry.getOrCreate(deviceId)
         val warm = setOf(deviceId)
         val driver = RecordingGattDriver()
@@ -182,7 +182,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `rediscovery 가 null 이면 기존 경로대로 driver connect 만 1회 부른다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:03")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:03")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
         val bridge = GattBridge(
@@ -205,7 +205,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `NotFound 는 fail-fast 로 PERIPHERAL_NOT_FOUND 를 던지고 driver connect 를 부르지 않는다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:04")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:04")
         val session = registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
         val rediscovery = FakeRediscovery(outcome = RediscoveryOutcome.NotFound)
@@ -238,7 +238,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `Unavailable 은 직접 연결로 폴백하고 Diagnostic 을 1개 emit 한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:05")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:05")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
         val unavailableFailure = BleFailure(
@@ -272,7 +272,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `재발견 대기 중 disconnect 가 generation 을 끝내면 driver connect 는 불리지 않고 예외도 없다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:06")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:06")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
         val deferred = CompletableDeferred<RediscoveryOutcome>()
@@ -314,7 +314,7 @@ class GattBridgeRediscoveryTest {
     @Test
     fun `호출자 취소는 재발견 대기 중 열린 generation 을 정리하고 Disconnected 를 1회 emit 한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:07")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:07")
         val session = registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
         val deferred = CompletableDeferred<RediscoveryOutcome>()

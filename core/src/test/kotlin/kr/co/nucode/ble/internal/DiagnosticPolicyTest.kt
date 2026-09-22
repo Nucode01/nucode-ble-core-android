@@ -1,12 +1,8 @@
 package kr.co.nucode.ble.internal
 
 import java.util.UUID
-import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.DiagnosticOptions
 import kr.co.nucode.ble.DiagnosticValue
-import kr.co.nucode.ble.ServiceRef
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,8 +11,8 @@ import org.junit.Test
 
 class DiagnosticPolicyTest {
     private val policy = DiagnosticPolicy()
-    private val ref = CharRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 1, serviceInstanceIndex = 2)
-    private val exact = CharacteristicRef(ServiceRef(BleUuid(ref.serviceUuid), 2), BleUuid(ref.charUuid), 1)
+    private val ref = charRef(UUID.randomUUID(), UUID.randomUUID(), instanceIndex = 1, serviceInstanceIndex = 2)
+    private val exact = ref
 
     @Test
     fun `raw payload requires opt in and exact Safe characteristic`() {

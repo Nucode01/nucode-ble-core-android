@@ -33,12 +33,11 @@ class BleClientFacadeTest {
             service = ServiceRef(BleUuid(UUID.randomUUID())),
             uuid = BleUuid(UUID.randomUUID()),
         )
-        val legacyRef = CharRef(characteristic.service.uuid.value, characteristic.uuid.value)
-        val identity = GattCharacteristicIdentity.from(legacyRef)
+        val identity = GattCharacteristicIdentity.from(characteristic)
         val driver = RecordingWriteDriver(identity)
         val resolver = GattOperationTargetResolver { _, _ ->
             GattOperationTarget(
-                characteristic = BluetoothGattCharacteristic(legacyRef.charUuid, 0, 0),
+                characteristic = BluetoothGattCharacteristic(characteristic.uuid.value, 0, 0),
                 identity = identity,
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_WRITE or
                     BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
@@ -46,7 +45,7 @@ class BleClientFacadeTest {
         }
         val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver)
         val view = DefaultBleClient(core).session(peripheralId)
-        core.registry.get(DeviceId(peripheralId.value))!!.apply {
+        core.registry.get(PeripheralId(peripheralId.value))!!.apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
         }
@@ -160,7 +159,7 @@ class BleClientFacadeTest {
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:07")
         client.session(id)
-        val backing = requireNotNull(core.registry.get(DeviceId(id.value)))
+        val backing = requireNotNull(core.registry.get(PeripheralId(id.value)))
         val edges = mutableListOf<BleClientEvent>()
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
             client.events.collect { edges += it }
@@ -188,7 +187,7 @@ class BleClientFacadeTest {
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:06")
         val view = client.session(id)
-        core.registry.get(DeviceId(id.value))!!.setStateForTest(ConnState.Ready)
+        core.registry.get(PeripheralId(id.value))!!.setStateForTest(ConnState.Ready)
         val states = mutableListOf<ConnectionState>()
         val collector = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
             view.connectionState.collect { state ->
@@ -253,16 +252,16 @@ class BleClientFacadeTest {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? = null
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) = Unit
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) = Unit
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean = true
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-        override fun setCharacteristicNotification(deviceId: DeviceId, gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic, enabled: Boolean): Boolean = true
-        override fun writeDescriptor(deviceId: DeviceId, gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor, value: ByteArray): Boolean = true
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
+        override fun setCharacteristicNotification(deviceId: PeripheralId, gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic, enabled: Boolean): Boolean = true
+        override fun writeDescriptor(deviceId: PeripheralId, gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor, value: ByteArray): Boolean = true
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,

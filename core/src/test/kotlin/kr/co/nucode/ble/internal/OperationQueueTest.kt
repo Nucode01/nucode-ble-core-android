@@ -9,11 +9,11 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleException
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.Chunking
+import kr.co.nucode.ble.BleChunking
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.DeliverySemantics
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
 import org.junit.Assert.assertEquals
@@ -86,13 +86,13 @@ class OperationQueueTest {
         assertEquals(20, chunkSizeForMtu(23))
     }
 
-    // ── Chunking.None ────────────────────────────────────────
+    // ── BleChunking.Disabled ────────────────────────────────────────
 
     @Test
-    fun `Chunking None이고 페이로드가 chunkSize 이하면 쪼개지 않고 그대로 1청크`() = runTest {
+    fun `BleChunking Disabled이고 페이로드가 chunkSize 이하면 쪼개지 않고 그대로 1청크`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -106,16 +106,16 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(244),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
 
         assertEquals(WriteResult.Completed(1), result)
     }
 
     @Test
-    fun `Chunking None인데 chunkSize를 넘으면 조용히 쪼개지 않고 TooLarge`() = runTest {
+    fun `BleChunking Disabled인데 chunkSize를 넘으면 조용히 쪼개지 않고 TooLarge`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -127,10 +127,10 @@ class OperationQueueTest {
 
         val result = queue.write(
             deviceId = deviceId,
-            charRef = CharRef(UUID.randomUUID(), UUID.randomUUID()),
+            charRef = charRef(UUID.randomUUID(), UUID.randomUUID()),
             bytes = ByteArray(900),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
 
         assertTrue(result is WriteResult.TooLarge)
@@ -140,10 +140,10 @@ class OperationQueueTest {
     }
 
     @Test
-    fun `Chunking Auto면 chunkSize를 넘어도 쪼개져서 성공한다`() = runTest {
+    fun `BleChunking Automatic면 chunkSize를 넘어도 쪼개져서 성공한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -157,7 +157,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(900),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertEquals(WriteResult.Completed(4), result)
@@ -165,10 +165,10 @@ class OperationQueueTest {
     }
 
     @Test
-    fun `Chunking Fixed는 협상 capability 이내의 지정 크기로 정확히 나눈다`() = runTest {
+    fun `BleChunking Fixed는 협상 capability 이내의 지정 크기로 정확히 나눈다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FE")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FE")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -180,17 +180,17 @@ class OperationQueueTest {
             GATT_SUCCESS
         }, ackTimeoutMillis = 5_000)
 
-        val result = queue.write(deviceId, charRef, ByteArray(40), WriteType.WithResponse, Chunking.Fixed(10))
+        val result = queue.write(deviceId, charRef, ByteArray(40), WriteType.WithResponse, BleChunking.Fixed(10))
 
         assertEquals(WriteResult.Completed(4), result)
         assertEquals(listOf(10, 10, 10, 10), seen.map(ByteArray::size))
     }
 
     @Test
-    fun `Chunking Fixed가 협상 capability를 넘으면 platform write 전에 TooLarge다`() = runTest {
+    fun `BleChunking Fixed가 협상 capability를 넘으면 platform write 전에 TooLarge다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FD")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FD")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 20
@@ -202,23 +202,23 @@ class OperationQueueTest {
             GATT_SUCCESS
         }, ackTimeoutMillis = 5_000)
 
-        val result = queue.write(deviceId, charRef, ByteArray(40), WriteType.WithResponse, Chunking.Fixed(21))
+        val result = queue.write(deviceId, charRef, ByteArray(40), WriteType.WithResponse, BleChunking.Fixed(21))
 
         assertEquals(WriteResult.TooLarge(21, 20), result)
         assertEquals(0, calls)
     }
 
     @Test
-    fun `모르는 DeviceId면 UnknownDevice를 던진다`() = runTest {
+    fun `모르는 PeripheralId면 UnknownDevice를 던진다`() = runTest {
         val registry = SessionRegistry()
         val queue = OperationQueue(registry, emit = { }, writeChunk = { _, _, _, _, _ -> GATT_SUCCESS }, ackTimeoutMillis = 5_000)
 
         val failure = runCatching { queue.write(
-            deviceId = DeviceId("00:00:00:00:00:00"),
-            charRef = CharRef(UUID.randomUUID(), UUID.randomUUID()),
+            deviceId = PeripheralId("00:00:00:00:00:00"),
+            charRef = charRef(UUID.randomUUID(), UUID.randomUUID()),
             bytes = ByteArray(1),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         ) }.exceptionOrNull() as BleException
         assertEquals("UNKNOWN_DEVICE", failure.failure.code.value)
     }
@@ -226,17 +226,17 @@ class OperationQueueTest {
     @Test
     fun `연결 상태가 Connected가 아니면 NotConnected를 던진다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId) // state 기본값은 Disconnected
 
         val queue = OperationQueue(registry, emit = { }, writeChunk = { _, _, _, _, _ -> GATT_SUCCESS }, ackTimeoutMillis = 5_000)
 
         val failure = runCatching { queue.write(
             deviceId = deviceId,
-            charRef = CharRef(UUID.randomUUID(), UUID.randomUUID()),
+            charRef = charRef(UUID.randomUUID(), UUID.randomUUID()),
             bytes = ByteArray(1),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         ) }.exceptionOrNull() as BleException
         assertEquals("NOT_CONNECTED", failure.failure.code.value)
     }
@@ -244,8 +244,8 @@ class OperationQueueTest {
     @Test
     fun `MTU 협상 전이어도 Connected면 기본 chunkSize 20으로 write가 동작한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             // chunkSize 는 협상 전이라 기본 null
@@ -260,7 +260,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(20),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
         assertEquals(WriteResult.Completed(1), ok)
 
@@ -270,7 +270,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(21),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
         assertTrue(tooLarge is WriteResult.TooLarge)
         tooLarge as WriteResult.TooLarge
@@ -282,8 +282,8 @@ class OperationQueueTest {
     @Test
     fun `writeChunk 람다가 매번 0을 반환하면 Ok, 청크 수만큼 호출되고 각 청크 크기가 맞다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -301,7 +301,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(900),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertEquals(WriteResult.Completed(4), result)
@@ -315,8 +315,8 @@ class OperationQueueTest {
     @Test
     fun `MTU 65에서 600바이트 쓰기는 62바이트 단위 10청크로 완료된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = chunkSizeForMtu(65)
@@ -333,7 +333,7 @@ class OperationQueueTest {
             charRef,
             ByteArray(600) { it.toByte() },
             WriteType.WithResponse,
-            Chunking.Auto,
+            BleChunking.Automatic,
         )
 
         assertEquals(WriteResult.Completed(10), result)
@@ -344,8 +344,8 @@ class OperationQueueTest {
     @Test
     fun `600바이트 쓰기 중 3번째 청크에서 연결이 끊기면 부분 진행률을 남기고 재전송하지 않는다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = chunkSizeForMtu(65)
@@ -363,7 +363,7 @@ class OperationQueueTest {
             charRef,
             ByteArray(600) { it.toByte() },
             WriteType.WithResponse,
-            Chunking.Auto,
+            BleChunking.Automatic,
         ) as WriteResult.Failed
         val progress = requireNotNull(result.failure.writeProgress)
 
@@ -383,8 +383,8 @@ class OperationQueueTest {
     @Test
     fun `3번째 청크에서 133을 반환하면 typed progress가 2번째 index를 보존한다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -402,7 +402,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(900), // 244 chunkSize -> 4청크
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertTrue(result is WriteResult.Failed)
@@ -416,8 +416,8 @@ class OperationQueueTest {
     @Test
     fun `첫 청크에서 133을 반환하면 typed progress의 completed chunk는 없다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -431,7 +431,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(900),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertTrue(result is WriteResult.Failed)
@@ -443,8 +443,8 @@ class OperationQueueTest {
     @Test
     fun `writeChunk 람다가 5초 안에 응답하지 않으면 타임아웃으로 Failed`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -460,7 +460,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(20),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
 
         assertTrue(result is WriteResult.Failed)
@@ -478,8 +478,8 @@ class OperationQueueTest {
     @Test
     fun `주입된 ackTimeoutMillis 1000으로 응답 없으면 1초 만에 타임아웃되고 5초가 아니다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -493,7 +493,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(20),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
 
         assertTrue(result is WriteResult.Failed)
@@ -505,8 +505,8 @@ class OperationQueueTest {
     @Test
     fun `writeChunk 람다가 CancellationException을 던지면 Failed로 보고하고 호출자는 살아있다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 244
@@ -524,7 +524,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(20),
             writeType = WriteType.WithResponse,
-            chunking = Chunking.None,
+            chunking = BleChunking.Disabled,
         )
 
         assertTrue(result is WriteResult.Failed)
@@ -540,8 +540,8 @@ class OperationQueueTest {
     @Test
     fun `write 도중 updateDiscovered로 characteristic이 갈리면 다음 청크는 새 인스턴스로 나간다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val charA = fakeCharacteristic(charRef)
         val charB = fakeCharacteristic(charRef)
 
@@ -566,7 +566,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = ByteArray(900), // chunkSize 244 -> 4청크
             writeType = WriteType.WithResponse,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertEquals(WriteResult.Completed(4), result)
@@ -580,8 +580,8 @@ class OperationQueueTest {
     @Test
     fun `production writeCommand seam에는 public write의 모든 청크가 한 번에 전달된다`() = runTest {
         val registry = SessionRegistry()
-        val deviceId = DeviceId("AA:BB:CC:DD:EE:FF")
-        val charRef = CharRef(UUID.randomUUID(), UUID.randomUUID())
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnState.Ready)
             chunkSize = 2
@@ -610,7 +610,7 @@ class OperationQueueTest {
             charRef = charRef,
             bytes = byteArrayOf(1, 2, 3, 4, 5),
             writeType = WriteType.Auto,
-            chunking = Chunking.Auto,
+            chunking = BleChunking.Automatic,
         )
 
         assertEquals(WriteResult.Completed(3), result)
@@ -630,7 +630,7 @@ class OperationQueueTest {
          * 부르지 않고 참조 동일성(`===`, [Session.discovered] 맵의 값)으로만 쓴다.
          * 생성자 자체(필드 대입만 하는 코드)는 스텁 jar 에서도 예외 없이 통과한다.
          */
-        private fun fakeCharacteristic(charRef: CharRef): BluetoothGattCharacteristic =
-            BluetoothGattCharacteristic(charRef.charUuid, 0, 0)
+        private fun fakeCharacteristic(charRef: CharacteristicRef): BluetoothGattCharacteristic =
+            BluetoothGattCharacteristic(charRef.uuid.value, 0, 0)
     }
 }

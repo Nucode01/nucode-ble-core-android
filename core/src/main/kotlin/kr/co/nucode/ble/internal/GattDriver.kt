@@ -4,7 +4,7 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import java.util.UUID
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 
 /**
  * Android GATT command/callback boundary.
@@ -17,48 +17,48 @@ import kr.co.nucode.ble.DeviceId
 internal interface GattDriver {
     fun setEventSink(sink: (GattDriverEvent) -> Unit)
 
-    fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt?
+    fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt?
 
     /**
      * Coordinator-aware 연결 시작. 기존/production driver는 같은 Android 호출을 유지하고,
      * fake driver는 callback에 귀속할 generation을 캡처할 수 있다.
      */
     fun connect(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         autoConnect: Boolean,
         connectionGeneration: Long,
     ): BluetoothGatt? = connect(deviceId, autoConnect)
 
-    fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?)
+    fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?)
 
-    fun close(deviceId: DeviceId, gatt: BluetoothGatt?)
+    fun close(deviceId: PeripheralId, gatt: BluetoothGatt?)
 
-    fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean
+    fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean
 
-    fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean
+    fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean
 
     fun setCharacteristicNotification(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         gatt: BluetoothGatt?,
         characteristic: BluetoothGattCharacteristic,
         enabled: Boolean,
     ): Boolean
 
     fun writeDescriptor(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         gatt: BluetoothGatt?,
         descriptor: BluetoothGattDescriptor,
         value: ByteArray,
     ): Boolean
 
     fun readCharacteristic(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         gatt: BluetoothGatt?,
         characteristic: BluetoothGattCharacteristic,
     ): Boolean = false
 
     fun writeCharacteristic(
-        deviceId: DeviceId,
+        deviceId: PeripheralId,
         gatt: BluetoothGatt?,
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
@@ -98,11 +98,11 @@ internal fun GattCharacteristicSnapshot.toIdentity(): GattCharacteristicIdentity
 
 /** Android callback facts forwarded by [GattDriver]; no lifecycle policy lives here. */
 internal sealed interface GattDriverEvent {
-    val deviceId: DeviceId
+    val deviceId: PeripheralId
     val source: GattCallbackSource
 
     data class ConnectionStateChanged(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val status: Int,
         val newState: Int,
@@ -111,7 +111,7 @@ internal sealed interface GattDriverEvent {
     ) : GattDriverEvent
 
     data class ServicesDiscovered(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val status: Int,
         val services: List<GattServiceSnapshot>,
@@ -120,7 +120,7 @@ internal sealed interface GattDriverEvent {
     ) : GattDriverEvent
 
     data class MtuChanged(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val mtu: Int,
         val status: Int,
@@ -129,14 +129,14 @@ internal sealed interface GattDriverEvent {
     ) : GattDriverEvent
 
     data class CharacteristicChanged(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val characteristic: GattCharacteristicSnapshot?,
         val value: ByteArray,
     ) : GattDriverEvent
 
     data class CharacteristicRead(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val characteristic: GattCharacteristicSnapshot?,
         val value: ByteArray,
@@ -144,14 +144,14 @@ internal sealed interface GattDriverEvent {
     ) : GattDriverEvent
 
     data class CharacteristicWrite(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val status: Int,
         val attributeIdentity: GattCharacteristicIdentity? = null,
     ) : GattDriverEvent
 
     data class DescriptorWrite(
-        override val deviceId: DeviceId,
+        override val deviceId: PeripheralId,
         override val source: GattCallbackSource,
         val status: Int,
         val attributeIdentity: GattDescriptorIdentity? = null,

@@ -1,7 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 
 /** Result of one bounded, address-filtered rediscovery scan. */
 internal sealed interface RediscoveryOutcome {
@@ -19,5 +19,5 @@ internal sealed interface RediscoveryOutcome {
  * `getRemoteDevice(address)` connects as PUBLIC, which never reaches a random-static peripheral.
  */
 internal fun interface PeripheralRediscovery {
-    suspend fun rediscover(deviceId: DeviceId, timeoutMillis: Long): RediscoveryOutcome
+    suspend fun rediscover(deviceId: PeripheralId, timeoutMillis: Long): RediscoveryOutcome
 }

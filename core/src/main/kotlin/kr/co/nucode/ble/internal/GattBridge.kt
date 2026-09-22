@@ -7,9 +7,11 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.CharRef
+import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteType
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 
@@ -27,7 +29,7 @@ internal data class GattOperationTarget(
 
 /** Test-only resolution seam. Production leaves this null and retains exact BluetoothGatt lookup. */
 internal fun interface GattOperationTargetResolver {
-    fun resolve(session: Session, charRef: CharRef): GattOperationTarget?
+    fun resolve(session: Session, charRef: CharacteristicRef): GattOperationTarget?
 }
 
 /**
@@ -40,14 +42,14 @@ internal fun SessionRegistry.sessionFor(event: GattDriverEvent): Session? {
 }
 
 /**
- * `GattCharacteristicSnapshot` → `CharRef` 변환. `handleServicesDiscovered`(lifecycle)와
- * `handleCharacteristicChanged`/`handleCharacteristicRead`(operation) 양쪽에서 쓰는 공유 유틸이다.
+ * `GattCharacteristicSnapshot` → 공개 `CharacteristicRef` 생성자. `handleServicesDiscovered`
+ * (lifecycle)와 `handleCharacteristicChanged`/`handleCharacteristicRead`(operation) 양쪽에서
+ * 쓰는 공유 유틸이다.
  */
-internal fun GattCharacteristicSnapshot.toCharRef(): CharRef = CharRef(
-    serviceUuid = serviceUuid,
-    charUuid = charUuid,
+internal fun GattCharacteristicSnapshot.toCharacteristicRef(): CharacteristicRef = CharacteristicRef(
+    service = ServiceRef(BleUuid(serviceUuid), serviceInstanceIndex),
+    uuid = BleUuid(charUuid),
     instanceIndex = instanceIndex,
-    serviceInstanceIndex = serviceInstanceIndex,
 )
 
 /**
@@ -78,7 +80,7 @@ internal class GattBridge(
     private val driver: GattDriver,
     private val ackTimeoutMillis: Long,
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)? = null,
-    private val operationWriteTypeResolver: ((Session, CharRef, WriteType) -> Int)? = null,
+    private val operationWriteTypeResolver: ((Session, CharacteristicRef, WriteType) -> Int)? = null,
     private val operationTargetResolver: GattOperationTargetResolver? = null,
     private val readinessTimeouts: ConnectionReadinessTimeouts = ConnectionReadinessTimeouts(
         linkMillis = 15_000,
@@ -87,7 +89,7 @@ internal class GattBridge(
     ),
     private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress { _, _, _ -> },
     private val rediscovery: PeripheralRediscovery? = null,
-    private val linkCacheWarm: ((DeviceId) -> Boolean)? = null,
+    private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -158,41 +160,41 @@ internal class GattBridge(
     // ── lifecycle 위임 ────────────────────────────────────────────────────────
 
     /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
-    internal fun beginRetainedReconnect(deviceId: DeviceId): Long? = lifecycle.beginRetainedReconnect(deviceId)
+    internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? = lifecycle.beginRetainedReconnect(deviceId)
 
-    suspend fun connect(deviceId: DeviceId, options: ConnectOptions) = lifecycle.connect(deviceId, options)
+    suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) = lifecycle.connect(deviceId, options)
 
-    fun disconnect(deviceId: DeviceId) = lifecycle.disconnect(deviceId)
+    fun disconnect(deviceId: PeripheralId) = lifecycle.disconnect(deviceId)
 
-    fun discoverServices(deviceId: DeviceId) = lifecycle.discoverServices(deviceId)
+    fun discoverServices(deviceId: PeripheralId) = lifecycle.discoverServices(deviceId)
 
-    fun requestMtu(deviceId: DeviceId, mtu: Int) = lifecycle.requestMtu(deviceId, mtu)
+    fun requestMtu(deviceId: PeripheralId, mtu: Int) = lifecycle.requestMtu(deviceId, mtu)
 
     /** Close the current platform handle while keeping ownership in the existing [Session]. */
     fun close(session: Session) = lifecycle.close(session)
 
     // ── operation 위임 ────────────────────────────────────────────────────────
 
-    suspend fun read(deviceId: DeviceId, charRef: CharRef): ByteArray = operations.read(deviceId, charRef)
+    suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray = operations.read(deviceId, charRef)
 
-    suspend fun subscribe(deviceId: DeviceId, charRef: CharRef) = operations.subscribe(deviceId, charRef)
+    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.subscribe(deviceId, charRef)
 
     /** Internal lifecycle path. It shares the FIFO but its timeout may recover via reconnect. */
-    suspend fun restoreSubscription(deviceId: DeviceId, charRef: CharRef) = operations.restoreSubscription(deviceId, charRef)
+    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.restoreSubscription(deviceId, charRef)
 
-    suspend fun unsubscribe(deviceId: DeviceId, charRef: CharRef) = operations.unsubscribe(deviceId, charRef)
+    suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.unsubscribe(deviceId, charRef)
 
     suspend fun writeChunk(
         session: Session,
         characteristic: BluetoothGattCharacteristic,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
         bytes: ByteArray,
         writeType: WriteType,
     ): Int = operations.writeChunk(session, characteristic, charRef, bytes, writeType)
 
     suspend fun writeCommand(
         session: Session,
-        charRef: CharRef,
+        charRef: CharacteristicRef,
         chunks: List<ByteArray>,
         writeType: WriteType,
         timeoutMillis: Long,

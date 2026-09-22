@@ -8,7 +8,7 @@ import android.bluetooth.BluetoothGattService
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.GattCallbackSource
 import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.GattDescriptorIdentity
@@ -17,7 +17,7 @@ import kr.co.nucode.ble.internal.GattServiceSnapshot
 import kr.co.nucode.ble.internal.toIdentity
 
 internal fun characteristicChangedEvent(
-    deviceId: DeviceId,
+    deviceId: PeripheralId,
     source: GattCallbackSource,
     characteristic: GattCharacteristicSnapshot?,
     value: ByteArray,
@@ -29,7 +29,7 @@ internal fun characteristicChangedEvent(
 )
 
 internal fun characteristicReadEvent(
-    deviceId: DeviceId,
+    deviceId: PeripheralId,
     source: GattCallbackSource,
     characteristic: GattCharacteristicSnapshot?,
     value: ByteArray,
@@ -43,7 +43,7 @@ internal fun characteristicReadEvent(
 )
 
 internal fun characteristicWriteEvent(
-    deviceId: DeviceId,
+    deviceId: PeripheralId,
     source: GattCallbackSource,
     status: Int,
     characteristic: GattCharacteristicSnapshot?,
@@ -55,7 +55,7 @@ internal fun characteristicWriteEvent(
 )
 
 internal fun descriptorWriteEvent(
-    deviceId: DeviceId,
+    deviceId: PeripheralId,
     source: GattCallbackSource,
     status: Int,
     characteristic: GattCharacteristicSnapshot?,
@@ -178,7 +178,7 @@ internal class AndroidGattCallbackRouter(
         }
     }
 
-    private fun deviceIdOf(gatt: BluetoothGatt): DeviceId = DeviceId(gatt.device.address)
+    private fun deviceIdOf(gatt: BluetoothGatt): PeripheralId = PeripheralId(gatt.device.address)
 
     private fun sourceOf(gatt: BluetoothGatt): GattCallbackSource =
         GattCallbackSource { currentGatt -> currentGatt === gatt }

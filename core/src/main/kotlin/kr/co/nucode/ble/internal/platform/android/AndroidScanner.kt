@@ -14,9 +14,8 @@ import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
 import kr.co.nucode.ble.BleServiceDataFilter
-import kr.co.nucode.ble.DeviceId
-import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.internal.ScanObservation
 
 /** Android implementation of scan lifetime. Policy/predicate state stays in internal.Scanner. */
@@ -39,7 +38,6 @@ internal class AndroidScanner(private val scanner: () -> BluetoothLeScanner?) {
                 onObservation(
                     ScanObservation(
                         peripheralId = PeripheralId(result.device.address),
-                        legacyDeviceId = DeviceId(result.device.address),
                         rssi = result.rssi,
                         advertisement = AndroidAdvertisementMapper.map(facts),
                         legacyRaw = result.scanRecord?.bytes?.copyOf() ?: ByteArray(0),

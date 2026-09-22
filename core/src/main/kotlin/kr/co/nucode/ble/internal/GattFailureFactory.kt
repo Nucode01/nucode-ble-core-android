@@ -76,8 +76,8 @@ internal object GattFailureFactory {
     )
 
     fun characteristicNotFound(session: Session, kind: OperationKind? = null): BleFailure = failure(
-        category = "validation",
-        code = "ATTRIBUTE_NOT_FOUND",
+        category = "attribute",
+        code = "CHARACTERISTIC_NOT_FOUND",
         phase = FailurePhase.Operation,
         retryability = Retryability.Never,
         context = operationContext(session, kind),
@@ -242,7 +242,7 @@ internal object GattFailureFactory {
         context = connectionContext(session),
     )
 
-    /** service discovery 응답에 같은 `CharRef` 키가 두 번 나올 때(경고, 비치명). */
+    /** service discovery 응답에 같은 `CharacteristicRef` 키가 두 번 나올 때(경고, 비치명). */
     fun duplicateCharacteristicReference(session: Session): BleFailure = failure(
         category = "connection",
         code = "DUPLICATE_CHARACTERISTIC_REFERENCE",
@@ -292,20 +292,6 @@ internal object GattFailureFactory {
         phase = phase,
         operation = operation,
         context = if (kind == null) connectionContext(session) else operationContext(session, kind = kind),
-    )
-
-    /**
-     * write 청크 하나가 resolve할 characteristic을 못 찾을 때(`OperationQueue.write`).
-     * code는 의도적으로 [characteristicNotFound]의 `ATTRIBUTE_NOT_FOUND`와 통일하지 않는다 —
-     * write 경로는 오래전부터 `CHARACTERISTIC_NOT_FOUND`를 썼고, 두 code를 합치는 건 이
-     * 흡수(plan gatt-bridge-split task 3)의 범위 밖이다(plan E 사안).
-     */
-    fun writeCharacteristicNotFound(session: Session, kind: OperationKind): BleFailure = failure(
-        category = "validation",
-        code = "CHARACTERISTIC_NOT_FOUND",
-        phase = FailurePhase.Operation,
-        retryability = Retryability.Never,
-        context = operationContext(session, kind = kind),
     )
 
     /** write 청크 하나가 [ackTimeoutMillis] 안에 ack를 못 받을 때(`OperationQueue.write`). */

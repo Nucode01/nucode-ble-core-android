@@ -3,9 +3,10 @@ package kr.co.nucode.ble.internal
 import java.util.UUID
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineScope
-import kr.co.nucode.ble.ManufacturerDataFilter
-import kr.co.nucode.ble.ScanFilter
-import kr.co.nucode.ble.ServiceDataFilter
+import kr.co.nucode.ble.BleManufacturerDataFilter
+import kr.co.nucode.ble.BleScanFilter
+import kr.co.nucode.ble.BleServiceDataFilter
+import kr.co.nucode.ble.BleUuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,7 +39,7 @@ class ScannerMappingTest {
 
     @Test
     fun `전부 빈 ScanFilter면 빈 리스트`() {
-        val result = scanner.toPlatformFilters(ScanFilter())
+        val result = scanner.toPlatformFilters(BleScanFilter())
 
         assertTrue(result.isEmpty())
     }
@@ -47,23 +48,23 @@ class ScannerMappingTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun `ManufacturerDataFilter가 mask만 있고 data 없으면 IAE`() {
-        ManufacturerDataFilter(companyId = 1, data = null, mask = byteArrayOf(0x01))
+        BleManufacturerDataFilter(companyId = 1, data = null, mask = byteArrayOf(0x01))
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun `ManufacturerDataFilter가 mask와 data 길이가 다르면 IAE`() {
-        ManufacturerDataFilter(companyId = 1, data = byteArrayOf(0x01, 0x02), mask = byteArrayOf(0x01))
+        BleManufacturerDataFilter(companyId = 1, data = byteArrayOf(0x01, 0x02), mask = byteArrayOf(0x01))
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun `ServiceDataFilter가 mask만 있고 data 없으면 IAE`() {
-        ServiceDataFilter(serviceUuid = UUID.randomUUID(), data = null, mask = byteArrayOf(0x01))
+        BleServiceDataFilter(serviceUuid = BleUuid(UUID.randomUUID()), data = null, mask = byteArrayOf(0x01))
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun `ServiceDataFilter가 mask와 data 길이가 다르면 IAE`() {
-        ServiceDataFilter(
-            serviceUuid = UUID.randomUUID(),
+        BleServiceDataFilter(
+            serviceUuid = BleUuid(UUID.randomUUID()),
             data = byteArrayOf(0x01, 0x02),
             mask = byteArrayOf(0x01),
         )
@@ -73,12 +74,12 @@ class ScannerMappingTest {
 
     @Test
     fun `ManufacturerDataFilter는 내용이 같은 참조 다른 ByteArray끼리 equals가 true`() {
-        val a = ManufacturerDataFilter(
+        val a = BleManufacturerDataFilter(
             companyId = 1,
             data = byteArrayOf(1, 2, 3),
             mask = byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()),
         )
-        val b = ManufacturerDataFilter(
+        val b = BleManufacturerDataFilter(
             companyId = 1,
             data = byteArrayOf(1, 2, 3),
             mask = byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()),
@@ -90,9 +91,9 @@ class ScannerMappingTest {
 
     @Test
     fun `ServiceDataFilter는 내용이 같은 참조 다른 ByteArray끼리 equals가 true`() {
-        val uuid = UUID.randomUUID()
-        val a = ServiceDataFilter(serviceUuid = uuid, data = byteArrayOf(9, 8, 7))
-        val b = ServiceDataFilter(serviceUuid = uuid, data = byteArrayOf(9, 8, 7))
+        val uuid = BleUuid(UUID.randomUUID())
+        val a = BleServiceDataFilter(serviceUuid = uuid, data = byteArrayOf(9, 8, 7))
+        val b = BleServiceDataFilter(serviceUuid = uuid, data = byteArrayOf(9, 8, 7))
 
         assertTrue(a.data !== b.data)
         assertEquals(a, b)

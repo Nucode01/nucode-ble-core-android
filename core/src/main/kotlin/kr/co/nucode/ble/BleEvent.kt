@@ -6,7 +6,7 @@ package kr.co.nucode.ble
  */
 internal sealed interface BleEvent {
     public data class ScanResult(
-        val deviceId: DeviceId,
+        val deviceId: PeripheralId,
         val name: String?,
         val rssi: Int,
         val advData: ByteArray,
@@ -31,19 +31,19 @@ internal sealed interface BleEvent {
     }
 
     public data class ConnStateChanged(
-        val deviceId: DeviceId,
+        val deviceId: PeripheralId,
         val state: ConnState,
     ) : BleEvent
 
     public data class ServicesDiscovered(
-        val deviceId: DeviceId,
-        val services: List<DiscoveredService>,
+        val deviceId: PeripheralId,
+        val services: List<GattService>,
     ) : BleEvent
 
     /** notify/indicate 로 수신한 값. */
     public data class CharValue(
-        val deviceId: DeviceId,
-        val charRef: CharRef,
+        val deviceId: PeripheralId,
+        val charRef: CharacteristicRef,
         val bytes: ByteArray,
     ) : BleEvent {
         // ByteArray 참조 비교 회피 — ScanResult 와 동일한 이유.
@@ -64,7 +64,7 @@ internal sealed interface BleEvent {
     }
 
     public data class MtuChanged(
-        val deviceId: DeviceId,
+        val deviceId: PeripheralId,
         val mtu: Int,
         val chunkSize: Int,
     ) : BleEvent

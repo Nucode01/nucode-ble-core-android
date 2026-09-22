@@ -7,20 +7,13 @@ import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdvertisementData
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleManufacturerDataFilter
 import kr.co.nucode.ble.BleScanFilter
-import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
-import kr.co.nucode.ble.BleServiceDataFilter
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.ScanFilter
-import kr.co.nucode.ble.ScanMode
-import kr.co.nucode.ble.ScanOptions
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
@@ -65,9 +58,9 @@ internal class Scanner(
         return null
     }
 
-    /** Internal compatibility projection retained only for the runtime ingress. */
-    fun startScan(filter: ScanFilter, options: ScanOptions) {
-        val request = ScanRequest(filter.toCommonFilter(), options.toCommonOptions())
+    /** Runtime ingress: a rejected start surfaces as a Diagnostic instead of a return value. */
+    fun startScan(filter: BleScanFilter, options: BleScanOptions) {
+        val request = ScanRequest(filter, options)
         startScan(request)?.let { emit(BleEvent.Diagnostic(Severity.Error, it)) }
     }
 
@@ -97,8 +90,8 @@ internal class Scanner(
     }
 
     /** Compatibility seam for the pre-Slice-4 mapping test. */
-    internal fun toPlatformFilters(filter: ScanFilter): List<AndroidScanFilter> =
-        androidScanner.toPlatformFilters(filter.toCommonFilter())
+    internal fun toPlatformFilters(filter: BleScanFilter): List<AndroidScanFilter> =
+        androidScanner.toPlatformFilters(filter)
 
     private fun handle(observation: ScanObservation) {
         val request = activeRequest ?: return
@@ -107,7 +100,7 @@ internal class Scanner(
         // official ingress and exactly one deprecated raw compatibility event.
         emitObservation(observation)
         emit(BleEvent.ScanResult(
-            deviceId = observation.legacyDeviceId,
+            deviceId = observation.peripheralId,
             name = observation.advertisement.localName,
             rssi = observation.rssi,
             advData = observation.legacyRaw,
@@ -135,7 +128,6 @@ internal class Scanner(
 /** Structured common fields plus a copied deprecated raw packet from one Android callback. */
 internal class ScanObservation(
     val peripheralId: PeripheralId,
-    val legacyDeviceId: DeviceId,
     val rssi: Int,
     val advertisement: AdvertisementData,
     legacyRaw: ByteArray,
@@ -154,17 +146,3 @@ private fun ByteArray?.matches(expected: ByteArray?, mask: ByteArray?): Boolean 
     }
 }
 
-private fun ScanFilter.toCommonFilter(): BleScanFilter = BleScanFilter(
-    serviceUuids = serviceUuids.map { kr.co.nucode.ble.BleUuid(it) },
-    namePrefix = namePrefix,
-    manufacturerData = manufacturerData.map { BleManufacturerDataFilter(it.companyId, it.data, it.mask) },
-    serviceData = serviceData.map { BleServiceDataFilter(kr.co.nucode.ble.BleUuid(it.serviceUuid), it.data, it.mask) },
-)
-
-private fun ScanOptions.toCommonOptions(): BleScanOptions = BleScanOptions(
-    mode = when (scanMode) {
-        ScanMode.LowPower -> BleScanMode.LowPower
-        ScanMode.Balanced -> BleScanMode.Balanced
-        ScanMode.LowLatency -> BleScanMode.LowLatency
-    },
-)

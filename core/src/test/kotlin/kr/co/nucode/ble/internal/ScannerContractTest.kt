@@ -7,7 +7,6 @@ import kr.co.nucode.ble.BleManufacturerDataFilter
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleServiceDataFilter
 import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.FailureCategory
@@ -74,7 +73,6 @@ class ScannerContractTest {
         val raw = byteArrayOf(1)
         val observation = ScanObservation(
             peripheralId = PeripheralId("opaque"),
-            legacyDeviceId = DeviceId("legacy"),
             rssi = -50,
             advertisement = AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null),
             legacyRaw = raw,
@@ -140,7 +138,7 @@ class ScannerContractTest {
             )
         }
 
-        scanner.startScan(kr.co.nucode.ble.ScanFilter(), kr.co.nucode.ble.ScanOptions())
+        scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions())
 
         val failure = (events.single() as kr.co.nucode.ble.BleEvent.Diagnostic).failure
         assertNull(failure.context.sessionId)

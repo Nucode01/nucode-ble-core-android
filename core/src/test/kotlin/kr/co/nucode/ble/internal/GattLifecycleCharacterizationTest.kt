@@ -24,8 +24,7 @@ import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ConnState
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.ReconnectPolicy
 import org.junit.Assert.assertEquals
@@ -195,7 +194,7 @@ class GattLifecycleCharacterizationTest {
         )
 
         val thrown = runCatching {
-            bridge.read(DEVICE_ID, CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()))
+            bridge.read(DEVICE_ID, charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()))
         }.exceptionOrNull()
 
         assertEquals("PERMISSION_DENIED", (thrown as? BleException)?.failure?.code?.value)
@@ -486,7 +485,7 @@ class GattLifecycleCharacterizationTest {
         val read = async {
             runCatching { bridge.read(
                 DEVICE_ID,
-                kr.co.nucode.ble.CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
+                charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
             ) }.exceptionOrNull()
         }
         runCurrent()
@@ -536,7 +535,7 @@ class GattLifecycleCharacterizationTest {
         val cancelledRead = async {
             bridge.read(
                 DEVICE_ID,
-                kr.co.nucode.ble.CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
+                charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
             )
         }
         runCurrent()
@@ -584,7 +583,7 @@ class GattLifecycleCharacterizationTest {
 
         val serviceUuid = java.util.UUID.randomUUID()
         val charUuid = java.util.UUID.randomUUID()
-        val charRef = kr.co.nucode.ble.CharRef(serviceUuid, charUuid)
+        val charRef = charRef(serviceUuid, charUuid)
         driver.emit(
             GattDriverEvent.ServicesDiscovered(
                 deviceId = DEVICE_ID,
@@ -855,7 +854,7 @@ class GattLifecycleCharacterizationTest {
             this.timeoutJob = timeoutJob
         }
         val identity = GattCharacteristicIdentity.from(
-            kr.co.nucode.ble.CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
+            charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
         )
         val scheduledPending = session.gattOperationScheduler.enqueue(
             GattOperation.Read(session.gattOperationScheduler.currentGeneration, identity),
@@ -895,7 +894,7 @@ class GattLifecycleCharacterizationTest {
             chunkSize = 182
         }
         val identity = GattCharacteristicIdentity.from(
-            kr.co.nucode.ble.CharRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
+            charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
         )
         val scheduledWrite = session.gattOperationScheduler.enqueue(
             GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
@@ -969,13 +968,13 @@ class GattLifecycleCharacterizationTest {
             this.sink = sink
         }
 
-        override fun connect(deviceId: DeviceId, autoConnect: Boolean): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect:$autoConnect"
             return null
         }
 
         override fun connect(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             autoConnect: Boolean,
             connectionGeneration: Long,
         ): BluetoothGatt? {
@@ -983,42 +982,42 @@ class GattLifecycleCharacterizationTest {
             return connect(deviceId, autoConnect)
         }
 
-        override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
             disconnectFailure?.let { throw it }
         }
 
-        override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt?): Boolean {
+        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
             commands += "discover"
             discoverFailure?.let { throw it }
             return true
         }
 
-        override fun requestMtu(deviceId: DeviceId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
             return true
         }
 
         override fun setCharacteristicNotification(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             enabled: Boolean,
         ): Boolean = true
 
         override fun writeDescriptor(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
         ): Boolean = true
 
         override fun writeCharacteristic(
-            deviceId: DeviceId,
+            deviceId: PeripheralId,
             gatt: BluetoothGatt?,
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
@@ -1036,7 +1035,7 @@ class GattLifecycleCharacterizationTest {
     }
 
     private companion object {
-        val DEVICE_ID = DeviceId("AA:BB:CC:DD:EE:FF")
+        val DEVICE_ID = PeripheralId("AA:BB:CC:DD:EE:FF")
         val CURRENT_SOURCE = GattCallbackSource { true }
         val STALE_SOURCE = GattCallbackSource { false }
     }

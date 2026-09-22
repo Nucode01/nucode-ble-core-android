@@ -5,7 +5,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -290,8 +290,8 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `Session은 자기 connection coordinator를 독립 소유한다`() {
-        val first = Session(DeviceId("first"))
-        val second = Session(DeviceId("second"))
+        val first = Session(PeripheralId("first"))
+        val second = Session(PeripheralId("second"))
 
         assertFalse(first.connectionCoordinator === second.connectionCoordinator)
         assertEquals(

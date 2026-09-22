@@ -274,10 +274,10 @@ internal class BleRuntime private constructor(
         // scheduling can change the Session values it describes.
         val official = when (e) {
             is BleEvent.ConnStateChanged -> registry.get(e.deviceId)?.let { session ->
-                OfficialBleClientEvent.Connection(PeripheralId(e.deviceId.value), session.connectionState.value)
+                OfficialBleClientEvent.Connection(e.deviceId, session.connectionState.value)
             }
             is BleEvent.ServicesDiscovered -> registry.get(e.deviceId)?.let { session ->
-                OfficialBleClientEvent.Services(PeripheralId(e.deviceId.value), session.services.value)
+                OfficialBleClientEvent.Services(e.deviceId, session.services.value)
             }
             is BleEvent.Diagnostic -> OfficialBleClientEvent.Diagnostic(e.severity, e.failure)
             else -> null
@@ -289,7 +289,7 @@ internal class BleRuntime private constructor(
 
     private fun emitScanObservation(observation: ScanObservation) {
         if (closed) return
-        warmAddresses += observation.legacyDeviceId
+        warmAddresses += observation.peripheralId
         _scanObservations.tryEmit(observation)
         if (!_officialEvents.tryEmit(
                 OfficialBleClientEvent.Scan(ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)),
@@ -309,7 +309,7 @@ internal class BleRuntime private constructor(
     /**
      * 이 클라이언트가 마지막 adapter Ready 이후 광고나 링크로 본 주소. 없으면 connect 앞에 재발견 스캔.
      */
-    private val warmAddresses = mutableSetOf<DeviceId>()
+    private val warmAddresses = mutableSetOf<PeripheralId>()
 
     private val scanner = Scanner(
         emit = ::emit,
@@ -469,16 +469,11 @@ internal class BleRuntime private constructor(
         }
     }
 
-    private fun emitRestoreFailure(deviceId: DeviceId, ref: CharRef, failure: BleFailure) {
-        val characteristic = CharacteristicRef(
-            service = ServiceRef(BleUuid(ref.serviceUuid), ref.serviceInstanceIndex),
-            uuid = BleUuid(ref.charUuid),
-            instanceIndex = ref.instanceIndex,
-        )
+    private fun emitRestoreFailure(deviceId: PeripheralId, ref: CharacteristicRef, failure: BleFailure) {
         if (!_officialEvents.tryEmit(
                 OfficialBleClientEvent.SubscriptionRestoreFailed(
-                    peripheralId = PeripheralId(deviceId.value),
-                    characteristic = characteristic,
+                    peripheralId = deviceId,
+                    characteristic = ref,
                     failure = failure,
                 ),
             )) dropped.incrementAndGet()
@@ -650,8 +645,8 @@ internal class BleRuntime private constructor(
     /** Converts remaining internal migration errors at the public command boundary only. */
     private suspend fun <T> transportCommand(
         phase: FailurePhase,
-        deviceId: DeviceId? = null,
-        charRef: CharRef? = null,
+        deviceId: PeripheralId? = null,
+        charRef: CharacteristicRef? = null,
         block: suspend () -> T,
     ): T = try {
         block()
@@ -668,8 +663,8 @@ internal class BleRuntime private constructor(
     private fun transportFailure(
         code: String,
         phase: FailurePhase,
-        deviceId: DeviceId? = null,
-        charRef: CharRef? = null,
+        deviceId: PeripheralId? = null,
+        charRef: CharacteristicRef? = null,
         retryability: Retryability = Retryability.Unknown,
     ): BleFailure = BleFailure(
         category = FailureCategory(
@@ -692,14 +687,14 @@ internal class BleRuntime private constructor(
     private fun failureFromInternalException(
         error: Exception,
         phase: FailurePhase,
-        deviceId: DeviceId? = null,
-        charRef: CharRef? = null,
+        deviceId: PeripheralId? = null,
+        charRef: CharacteristicRef? = null,
     ): BleFailure = when (error) {
         is BleException -> error.failure
         else -> transportFailure("INTERNAL_TRANSPORT_ERROR", phase, deviceId, charRef)
     }
 
-    private fun unknownDevice(deviceId: DeviceId): BleException = BleException(
+    private fun unknownDevice(deviceId: PeripheralId): BleException = BleException(
         transportFailure(
             code = "UNKNOWN_DEVICE",
             phase = FailurePhase.Validation,
@@ -708,7 +703,7 @@ internal class BleRuntime private constructor(
         ),
     )
 
-    private fun notReady(deviceId: DeviceId): BleException = BleException(
+    private fun notReady(deviceId: PeripheralId): BleException = BleException(
         transportFailure(
             code = "NOT_READY",
             phase = FailurePhase.Operation,
@@ -756,7 +751,7 @@ internal class BleRuntime private constructor(
     internal fun isClosed(): Boolean = closed
 
     /** Synchronous views join the same serialized registry owner as commands. */
-    internal fun sessionForView(deviceId: DeviceId): Session {
+    internal fun sessionForView(deviceId: PeripheralId): Session {
         checkOpen()
         return onRuntimeBlocking {
             checkOpen()
@@ -768,7 +763,7 @@ internal class BleRuntime private constructor(
         if (onRuntimeThread.get() == true) block()
         else runBlocking(coreDispatcherOnly) { block() }
 
-    public suspend fun startScan(filter: ScanFilter = ScanFilter(), options: ScanOptions = ScanOptions()): Unit =
+    public suspend fun startScan(filter: BleScanFilter = BleScanFilter(), options: BleScanOptions = BleScanOptions()): Unit =
         transportCommand(FailurePhase.Scan) {
         onCore {
             ensureAdapterReady(AndroidApiOperation.StartScan)
@@ -783,7 +778,7 @@ internal class BleRuntime private constructor(
         }
     }
 
-    public suspend fun connect(deviceId: DeviceId, options: ConnectOptions = ConnectOptions()): Unit =
+    public suspend fun connect(deviceId: PeripheralId, options: ConnectOptions = ConnectOptions()): Unit =
         transportCommand(FailurePhase.Connect, deviceId) {
         onCore {
             val existing = registry.get(deviceId)
@@ -793,7 +788,7 @@ internal class BleRuntime private constructor(
                         emitConnectConflict(
                             deviceId = deviceId,
                             code = "CONNECT_DURING_DISCONNECT",
-                            message = "disconnect cleanup 중에는 새 connect를 시작할 수 없다: $deviceId",
+                            message = "disconnect cleanup 중에는 새 connect를 시작할 수 없다: ${deviceId.value}",
                         )
                     }
 
@@ -806,7 +801,7 @@ internal class BleRuntime private constructor(
                         emitConnectConflict(
                             deviceId = deviceId,
                             code = "CONNECTION_OPTIONS_CONFLICT",
-                            message = "진행 중인 연결의 effective options와 요청이 다르다: $deviceId",
+                            message = "진행 중인 연결의 effective options와 요청이 다르다: ${deviceId.value}",
                         )
                     }
 
@@ -843,7 +838,7 @@ internal class BleRuntime private constructor(
      * active reconnect ownership is a later runtime feature, not a value to
      * silently discard here.
      */
-    internal suspend fun connectOfficial(deviceId: DeviceId, options: BleConnectOptions) {
+    internal suspend fun connectOfficial(deviceId: PeripheralId, options: BleConnectOptions) {
         when (options.reconnectPolicy) {
             BleReconnectPolicy.Disabled -> {
                 onCore {
@@ -866,7 +861,7 @@ internal class BleRuntime private constructor(
      * 적용됐다고 오해한다. Slice 3의 typed failure model 전까지는 기존 즉시 실패 관례에 맞춰
      * deterministic IllegalStateException과 Diagnostic을 함께 남긴다.
      */
-    private fun emitConnectConflict(deviceId: DeviceId, code: String, message: String): Nothing {
+    private fun emitConnectConflict(deviceId: PeripheralId, code: String, message: String): Nothing {
         val failure = transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never)
         emit(
             diagnostic(
@@ -892,7 +887,7 @@ internal class BleRuntime private constructor(
             requested.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis)
     }
 
-    public suspend fun disconnect(deviceId: DeviceId): Unit = transportCommand(FailurePhase.Close, deviceId) {
+    public suspend fun disconnect(deviceId: PeripheralId): Unit = transportCommand(FailurePhase.Close, deviceId) {
         if (closed) return@transportCommand
         withContext(coreDispatcherOnly) {
             if (closed) return@withContext
@@ -913,7 +908,7 @@ internal class BleRuntime private constructor(
      * 현재 연결 generation에서 characteristic 값을 한 번 읽는다. 응답 bytes는 notification
      * event로 방출하지 않고 이 호출 결과로만 반환한다.
      */
-    public suspend fun read(deviceId: DeviceId, charRef: CharRef): ByteArray =
+    public suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray =
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
             onCore {
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -924,14 +919,14 @@ internal class BleRuntime private constructor(
 
     /**
      * write 만 [WriteResult] 를 반환한다 — 부분 전달을 타입으로 강제해야 하므로(설계 §5).
-     * 즉시 실패(모르는 DeviceId · 미연결)는 [OperationQueue.write] 가 이미 throw 한다.
+     * 즉시 실패(모르는 PeripheralId · 미연결)는 [OperationQueue.write] 가 이미 throw 한다.
      */
     public suspend fun write(
-        deviceId: DeviceId,
-        charRef: CharRef,
+        deviceId: PeripheralId,
+        charRef: CharacteristicRef,
         bytes: ByteArray,
         writeType: WriteType = WriteType.Auto,
-        chunking: Chunking = Chunking.Auto,
+        chunking: BleChunking = BleChunking.Automatic,
     ): WriteResult = transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -940,7 +935,7 @@ internal class BleRuntime private constructor(
     }
     }
 
-    public suspend fun subscribe(deviceId: DeviceId, charRef: CharRef): Unit =
+    public suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit =
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -962,26 +957,13 @@ internal class BleRuntime private constructor(
      * 안 보이면 notify 를 하염없이 기다리게 되지만, 끄는 방향은 로컬에서 이미 지웠으므로
      * 잃을 게 없다(규칙 1 — throw 로 소비자에게 재시도 상태 기계를 강제하지 않는다).
      */
-    public suspend fun unsubscribe(deviceId: DeviceId, charRef: CharRef): Unit =
+    public suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit =
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
             gattBridge.unsubscribe(deviceId, charRef)
             session.subscriptionState.removeDesired(charRef)
         }
-    }
-
-    /**
-     * 콜드 스타트 장치(설계 §5) — 새로 구독한 소비자가 다음 이벤트를 기다리지 않고
-     * 현재 상태를 즉시 안다. [kr.co.nucode.ble.internal.Session] 은 절대 반환하지 않는다
-     * (규칙 5, `internal` 이라 컴파일러가 강제한다) — `toSnapshot()` 값 타입으로만 나간다.
-     * 단일 스레드 확정의 따름정리로 `suspend`다(plan §미해결·전제).
-     */
-    public suspend fun snapshot(): Snapshot = onCore {
-        Snapshot(
-            adapterState = _adapterState.value,
-            devices = registry.all().map { it.toSnapshot() },
-        )
     }
 
     /** Internal projection seam: no facade keeps a parallel snapshot or session map. */
@@ -1000,16 +982,10 @@ internal class BleRuntime private constructor(
             isScanning = scanner.isScanning,
             sessions = registry.all().map { session ->
                 SessionSnapshot(
-                    peripheralId = PeripheralId(session.deviceId.value),
+                    peripheralId = session.deviceId,
                     connectionState = session.connectionState.value,
                     services = session.services.value,
-                    subscriptions = session.subscriptionState.desiredSnapshot.mapTo(linkedSetOf()) { ref ->
-                        CharacteristicRef(
-                            service = ServiceRef(BleUuid(ref.serviceUuid), ref.serviceInstanceIndex),
-                            uuid = BleUuid(ref.charUuid),
-                            instanceIndex = ref.instanceIndex,
-                        )
-                    },
+                    subscriptions = session.subscriptionState.desiredSnapshot,
                 )
             },
             )
@@ -1046,16 +1022,10 @@ internal class BleRuntime private constructor(
                 isScanning = false,
                 sessions = sessions.map { session ->
                     SessionSnapshot(
-                        peripheralId = PeripheralId(session.deviceId.value),
+                        peripheralId = session.deviceId,
                         connectionState = session.connectionState.value,
                         services = session.services.value,
-                        subscriptions = session.subscriptionState.desiredSnapshot.mapTo(linkedSetOf()) { ref ->
-                            CharacteristicRef(
-                                service = ServiceRef(BleUuid(ref.serviceUuid), ref.serviceInstanceIndex),
-                                uuid = BleUuid(ref.charUuid),
-                                instanceIndex = ref.instanceIndex,
-                            )
-                        },
+                        subscriptions = session.subscriptionState.desiredSnapshot,
                     )
                 },
             )

@@ -1,8 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import java.util.UUID
-import kr.co.nucode.ble.CharRef
-import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.PeripheralId
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -172,15 +171,15 @@ class GattOperationSchedulerTest {
 
     @Test
     fun `scheduler는 Session과 함께 소유되고 Session마다 분리된다`() {
-        val first = Session(DeviceId("A"))
-        val second = Session(DeviceId("B"))
+        val first = Session(PeripheralId("A"))
+        val second = Session(PeripheralId("B"))
 
         assertNotSame(first.gattOperationScheduler, second.gattOperationScheduler)
     }
 
     private fun characteristicIdentity(): GattCharacteristicIdentity =
         GattCharacteristicIdentity.from(
-            charRef = CharRef(
+            charRef = charRef(
                 serviceUuid = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb"),
                 charUuid = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb"),
                 instanceIndex = 2,

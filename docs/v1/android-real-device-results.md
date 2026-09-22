@@ -290,3 +290,20 @@ JVM: `:core:testDebugUnitTest` 296 green.
 | 권한 revoke | pass | pass | `AdapterStatePermissionBaselineTest` 수동 경로 |
 
 JVM: `:core:testDebugUnitTest` 296 green. 동일 UUID 다중 instance는 실기기(NUS 단일 instance)로 검증 불가 — JVM 3건만.
+
+### 본딩 하네스 정상 경로·반복 실행 — plan G 완료 후, 보드 리플래시(chiperase) 뒤 (2026-09-22, HEAD `bcd5e29`)
+
+보드에 남아 있던 stale 본딩을 리플래시로 지운 뒤(`storage` 파티션 소거, identity 주소 `F0:2F:24:A8:0F:9E` 유지 확인)
+자가 복구 하네스를 두 번 연속 실행했다.
+
+| 실행 | 결과 | 시간 |
+|---|---|---|
+| `bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware` 1회차 | pass | 24.0 s |
+| 같은 테스트 2회차(연속, 수동 정리 없음) | **pass** | 25.1 s |
+| `AdapterStateBaselineTest` | pass — 직접 재연결 Ready 852 ms, 시퀀스 `Ready > PoweredOff > Ready` | 5.7 s |
+| `longWritesAndReconnectRestore…` | pass | 8.6 s |
+| `duplicateDisconnect…` | pass | 3.6 s |
+
+2회차 pass가 하네스 멱등성의 증거다: 1회차의 cleanup(`IT:BOND_RESET` ACCEPTED 확인 → 폰 키 제거)이 다음 실행이
+요구하는 "양쪽 본딩 없음" 상태를 남겼다. 이전 하네스는 폰 키를 먼저 지워 보드 잔존을 만들었고, 그 상태는
+`BOARD_BOND_RESIDUE` fail-fast(32 s)로 진단됐다(앞 절). 프로세스 강제 종료 시 cleanup 미보장은 여전하다.

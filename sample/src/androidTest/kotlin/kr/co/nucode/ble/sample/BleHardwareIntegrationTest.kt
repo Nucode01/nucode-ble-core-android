@@ -250,12 +250,67 @@ class BleHardwareIntegrationTest {
         Unit
     }
 
+    /**
+     * Verifies that bonding survives reconnects and that a firmware-driven `IT:BOND_RESET`
+     * actually clears the peripheral's own bond store.
+     *
+     * This test is written to be run-to-run idempotent: before touching any local state it
+     * probes the peripheral with `IT:BOND_RESET` so a bond left over from a previous
+     * (possibly killed) run is detected and cleared automatically. The one state it cannot
+     * self-heal is the phone bond being gone while the firmware still holds one: with no
+     * shared key the link can never re-encrypt, so `IT:BOND_RESET` is denied forever. That
+     * case is diagnosed when the first bond attempt fails (a fresh board bonds fine) and fails
+     * with a `BOARD_BOND_RESIDUE:` message telling the operator to clear the
+     * board's bond store out-of-band (Zephyr shell `bt clear all`, or reflash) before
+     * re-running. This start-of-test probe exists precisely because a killed test process
+     * cannot guarantee its `finally` cleanup ever ran.
+     */
+    private fun boardBondResidueMessage(peripheralId: PeripheralId, resetMessage: String, bondOutcome: Any?): String =
+        "BOARD_BOND_RESIDUE: peripheral $peripheralId denied IT:BOND_RESET as insecure ($resetMessage) while the " +
+            "phone held no bond, and bonding then failed ($bondOutcome). The board keeps a stale bond from a previous " +
+            "run that cannot be cleared over an unencrypted link — clear it out-of-band (Zephyr shell `bt clear all`) " +
+            "or reflash the board before running this harness again."
+
     @Test(timeout = 180_000)
     fun bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware() = runBlocking {
         awaitAdapterReady()
         val peripheralId = discoverPeripheral()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val testBondController = AndroidBondTestController(context)
+
+        var suspectedBoardResidue = false
+        val (initialResetStatus, initialResetMessage) = openSubscribedSession(peripheralId).useSession { probe ->
+            probe.session.writeCommand(probe.nus.rx, "IT:BOND_RESET")
+            val message = probe.messages.awaitMessage { it.startsWith("IT|RESULT|test=BOND_RESET|status=") }
+            val status = message.parseFields().required("status")
+            if (status == "ACCEPTED") {
+                withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                    probe.session.connectionState.first { it is ConnectionState.Disconnected }
+                }
+            }
+            status to message
+        }
+        when (initialResetStatus) {
+            "ACCEPTED" -> Unit
+            "DENIED_SECURITY" -> {
+                // 비파괴 조회 — 여기서 폰 키를 지우면 "폰 없음/보드 있음"이라는 복구 불가 상태를 하네스가 만든다.
+                if (!testBondController.hasBond(peripheralId)) {
+                    // 펌웨어가 "본딩 없음" 상태에서도 DENIED_SECURITY 를 돌려주는지는 확인되지 않았다.
+                    // 그래서 여기서 단정하지 않고, 아래 첫 본딩 시도가 실패할 때만 보드 잔존으로 진단한다
+                    // (보드에 stale 본딩이 있으면 폰이 BONDING 에 진입하지 못한다 — 관측된 증상).
+                    suspectedBoardResidue = true
+                } else {
+                    error(
+                        "firmware denied IT:BOND_RESET as insecure ($initialResetMessage) while the " +
+                            "phone still holds a bond for $peripheralId; bond keys on the phone and board " +
+                            "are out of sync. The phone bond is kept so the next run can retry over the " +
+                            "encrypted link once the board is inspected.",
+                    )
+                }
+            }
+            else -> error("unexpected IT:BOND_RESET status before scenario start: $initialResetMessage")
+        }
+
         val removal = testBondController.removeBond(peripheralId)
         assertTrue(
             "local bond cleanup failed explicitly: $removal",
@@ -263,13 +318,17 @@ class BleHardwareIntegrationTest {
         )
 
         var scenarioFailure: Throwable? = null
+        var firmwareBondMayRemain = false
         try {
             val bondController = AndroidBleClientFactory.createBondController(context)
-            val bondResult = createBondWithSystemApproval(bondController, peripheralId)
+            val bondResult = runCatching { createBondWithSystemApproval(bondController, peripheralId) }
+                .getOrElse { if (suspectedBoardResidue) error(boardBondResidueMessage(peripheralId, initialResetMessage, it)) else throw it }
             assertTrue(
-                "bond creation failed: $bondResult",
+                if (suspectedBoardResidue) boardBondResidueMessage(peripheralId, initialResetMessage, bondResult)
+                else "bond creation failed: $bondResult",
                 bondResult == AndroidBondResult.Bonded || bondResult == AndroidBondResult.AlreadyBonded,
             )
+            firmwareBondMayRemain = true
 
             openSubscribedSession(peripheralId).useSession { first ->
                 val firstBond = readBondStatus(first.session, first.nus.rx, first.messages)
@@ -290,6 +349,7 @@ class BleHardwareIntegrationTest {
                     second.session.connectionState.first { it is ConnectionState.Disconnected }
                 }
             }
+            firmwareBondMayRemain = false // 펌웨어가 ACCEPTED 로 자기 본딩을 지웠다
 
             val postResetRemoval = testBondController.removeBond(peripheralId)
             assertTrue(
@@ -302,6 +362,7 @@ class BleHardwareIntegrationTest {
                 "bond recreation after firmware reset failed: $rebound",
                 rebound == AndroidBondResult.Bonded || rebound == AndroidBondResult.AlreadyBonded,
             )
+            firmwareBondMayRemain = true
 
             openSubscribedSession(peripheralId).useSession { third ->
                 val resetStatus = readBondStatus(third.session, third.nus.rx, third.messages)
@@ -313,13 +374,49 @@ class BleHardwareIntegrationTest {
             scenarioFailure = failure
             throw failure
         } finally {
-            val cleanupFailure = runCatching {
-                val finalRemoval = testBondController.removeBond(peripheralId)
-                check(
-                    finalRemoval == BondRemovalResult.Removed ||
-                        finalRemoval == BondRemovalResult.AlreadyAbsent,
-                ) { "local bond cleanup after scenario failed explicitly: $finalRemoval" }
-            }.exceptionOrNull()
+            val cleanupFailures = mutableListOf<Throwable>()
+            var boardClearedInCleanup = false
+            if (firmwareBondMayRemain) {
+                runCatching {
+                    openSubscribedSession(peripheralId).useSession { cleanup ->
+                        cleanup.session.writeCommand(cleanup.nus.rx, "IT:BOND_RESET")
+                        val message = cleanup.messages.awaitMessage {
+                            it.startsWith("IT|RESULT|test=BOND_RESET|status=")
+                        }
+                        val status = message.parseFields().required("status")
+                        if (status == "ACCEPTED") {
+                            withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                                cleanup.session.connectionState.first { it is ConnectionState.Disconnected }
+                            }
+                            boardClearedInCleanup = true
+                        } else {
+                            error("cleanup IT:BOND_RESET was not accepted: $message")
+                        }
+                    }
+                }.exceptionOrNull()?.let(cleanupFailures::add)
+            }
+            // 폰 키는 보드 쪽이 비었다고 확인될 때만 지운다. 불확실하면 보존해야 다음 실행이
+            // 암호화 링크로 보드를 지울 수 있다 — 여기서 지우면 수동 복구(BOARD_BOND_RESIDUE)가 필요해진다.
+            val boardKnownClear = !firmwareBondMayRemain || boardClearedInCleanup
+            if (boardKnownClear) {
+                runCatching {
+                    val finalRemoval = testBondController.removeBond(peripheralId)
+                    check(
+                        finalRemoval == BondRemovalResult.Removed ||
+                            finalRemoval == BondRemovalResult.AlreadyAbsent,
+                    ) { "local bond cleanup after scenario failed explicitly: $finalRemoval" }
+                }.exceptionOrNull()?.let(cleanupFailures::add)
+            } else {
+                cleanupFailures += IllegalStateException(
+                    "phone bond for $peripheralId kept on purpose: the board's bond could not be confirmed " +
+                        "cleared, so removing the phone key would leave the board with a stale bond " +
+                        "(BOARD_BOND_RESIDUE on the next run). Re-run once the peripheral is reachable.",
+                )
+            }
+
+            val cleanupFailure = cleanupFailures.firstOrNull()?.also { primary ->
+                cleanupFailures.drop(1).forEach(primary::addSuppressed)
+            }
             if (cleanupFailure != null) {
                 if (scenarioFailure != null) {
                     scenarioFailure.addSuppressed(cleanupFailure)

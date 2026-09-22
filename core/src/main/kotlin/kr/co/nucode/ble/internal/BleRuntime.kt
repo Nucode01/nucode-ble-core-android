@@ -96,6 +96,14 @@ internal class BleRuntime private constructor(
     private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
     private val gattOperationTargetResolver: GattOperationTargetResolver?,
     private val rediscoveryOverride: PeripheralRediscovery?,
+    /**
+     * plan G task 1(G1) 어댑터 상태 probe seam — 있으면 [computeAdapterState] 가 실제
+     * 어댑터/권한 판정을 완전히 건너뛰고 이 람다 값을 그대로 쓴다. 프로덕션 생성자는
+     * 이 파라미터를 절대 전달하지 않는다(항상 null) — 전달하면 권한 판정(D7)을 우회해
+     * 실제 기기에서 미허용 상태를 Ready 로 오판할 수 있다. 테스트 생성자만
+     * `adapterState` 이름으로 받아 여기로 넘긴다.
+     */
+    private val adapterStateProbe: (() -> AdapterState)? = null,
 ) {
 
     private val closeGate = AtomicBoolean(false)
@@ -145,6 +153,7 @@ internal class BleRuntime private constructor(
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
         rediscovery: PeripheralRediscovery? = null,
+        adapterState: (() -> AdapterState)? = null,
     ) : this(
         central = null,
         config = config,
@@ -154,6 +163,7 @@ internal class BleRuntime private constructor(
         gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
         gattOperationTargetResolver = gattOperationTargetResolver,
         rediscoveryOverride = rediscovery,
+        adapterStateProbe = adapterState,
     )
 
     // ── 배선 ① coreScope — 규칙 6: 구독이 아니라 이 스코프가 동작을 구동한다 ──────────
@@ -498,6 +508,7 @@ internal class BleRuntime private constructor(
      * 판정 로직은 [AndroidPermissionState.evaluate] 로 수렴한다.
      */
     private fun computeAdapterState(): AdapterState {
+        adapterStateProbe?.let { return it() }
         val adapterInstance = adapter() ?: return AdapterState.Unsupported
         val unauthorized = if (central != null) {
             central.permissionState()
@@ -525,8 +536,22 @@ internal class BleRuntime private constructor(
     private val adapterStateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
-            coreScope.launch { updateAdapterState(computeAdapterState()) }
+            coreScope.launch { refreshAdapterState() }
         }
+    }
+
+    /**
+     * [adapterStateReceiver] 본문 추출(plan G task 1) — 리시버는 등록이 안 되는 테스트
+     * 생성자 경로에서 검증할 수 없어(브로드캐스트 자체가 없다), 이 함수를 직접 호출해
+     * [adapterStateProbe] 플립 → [updateAdapterState] 전이(스윕 1회 규칙 포함)를 검증한다.
+     * 프로덕션에서는 항상 [coreScope] 위(코어 단일 스레드)에서만 불린다 — 이 함수 자체는
+     * 스레드 확정을 강제하지 않는다. `sweepSessions`(위 KDoc, plan task 6 지시)와 같은
+     * internal 테스트 seam 규약: 테스트는 이 함수를 코어 디스패처 밖(테스트 스레드)에서
+     * 직접 부른다 — [BleCoreWiringTest] 가 `core.sweepSessions(...)`를 같은 방식으로
+     * 직접 부르는 것과 동일 전례.
+     */
+    internal fun refreshAdapterState() {
+        updateAdapterState(computeAdapterState())
     }
 
     /**

@@ -27,6 +27,7 @@ import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectOptions
+import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
@@ -163,6 +164,49 @@ class GattDriverSeamTest {
             events.filterIsInstance<BleEvent.Diagnostic>()
                 .any { it.code == "GATT_OPERATION_DUPLICATE_CALLBACK" },
         )
+    }
+
+    @Test
+    fun `poison tail keeps its cause when disconnect re-enters DISCONNECTED synchronously`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val driver = FakeGattDriver()
+        val events = mutableListOf<BleEvent>()
+        val bridge = GattBridge(
+            registry = registry,
+            emit = events::add,
+            scope = this,
+            driver = driver,
+            ackTimeoutMillis = 100,
+            operationStarter = { _, _ -> null },
+        )
+        driver.onDisconnect = { id ->
+            driver.emit(
+                GattDriverEvent.ConnectionStateChanged(
+                    id,
+                    CURRENT_SOURCE,
+                    BluetoothGatt.GATT_SUCCESS,
+                    BluetoothProfile.STATE_DISCONNECTED,
+                ),
+            )
+        }
+
+        val read = async { runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }.exceptionOrNull() }
+        runCurrent()
+
+        advanceTimeBy(100)
+        runCurrent()
+
+        assertFailureCode("OPERATION_TIMEOUT", read.await())
+        assertEquals("OPERATION_TIMEOUT", session.terminalLifecycleCause?.code?.value)
+        val connStateChanges = events.filterIsInstance<BleEvent.ConnStateChanged>()
+        assertEquals(1, connStateChanges.size)
+        val disconnected = connStateChanges.single().state as ConnState.Disconnected
+        val failedReason = disconnected.reason as DisconnectReason.Failed
+        assertEquals("OPERATION_TIMEOUT", failedReason.failure.code.value)
+        assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
+        assertEquals(listOf("disconnect", "close"), driver.commands)
     }
 
     @Test
@@ -1293,6 +1337,7 @@ class GattDriverSeamTest {
 
     private class FakeGattDriver : GattDriver {
         val commands = mutableListOf<String>()
+        var onDisconnect: ((PeripheralId) -> Unit)? = null
         private var sink: (GattDriverEvent) -> Unit = {}
 
         override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
@@ -1306,6 +1351,7 @@ class GattDriverSeamTest {
 
         override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
+            onDisconnect?.invoke(deviceId)
         }
 
         override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {

@@ -24,6 +24,11 @@ internal class AndroidBondTestController(context: Context) {
     private val applicationContext = context.applicationContext
     private val adapter = applicationContext.getSystemService(BluetoothManager::class.java).adapter
 
+    /** 비파괴 조회 — 폰이 이 peripheral 의 본딩 키를 갖고 있는지만 본다. */
+    @Suppress("MissingPermission")
+    fun hasBond(peripheralId: PeripheralId): Boolean =
+        adapter.getRemoteDevice(peripheralId.value).bondState != BluetoothDevice.BOND_NONE
+
     @Suppress("MissingPermission", "DiscouragedPrivateApi")
     suspend fun removeBond(
         peripheralId: PeripheralId,

@@ -16,6 +16,9 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 - legacy `ConnectOptions`, `ReconnectPolicy`, `WriteResult`, `Chunking`, snapshot 모델은 public
   API에서 제거됐다. replacement는 각각 `BleConnectOptions`, `BleReconnectPolicy`,
   `WriteReceipt`, `BleChunking`, `ClientSnapshot`/`SessionSnapshot`이다.
+- `SessionSnapshot`은 legacy `DeviceSnapshot`의 `mtu`/`chunkSize`를 노출하지 않는다 — 의도적 제외다.
+  코어가 청킹하고 `WriteReceipt`가 전송 결과(bytes/chunks)를 돌려주므로 앱이 MTU를 알 필요가 없다.
+  전송 한도가 필요해지면 Android MTU 노출이 아니라 플랫폼 공통 "쓰기 가능 크기" 계약으로 별도 설계한다.
 - `BleConfig`는 data-class semantics를 유지하지만 legacy `reconnectPolicy` constructor/copy
   parameter는 제거됐다. 재연결 정책은 연결별 `BleConnectOptions`로 전달한다.
 - Android `autoConnect`, requested MTU, raw advertisement bytes는 공통 API에서 제거됐다.

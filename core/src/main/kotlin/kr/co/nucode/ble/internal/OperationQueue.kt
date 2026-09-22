@@ -7,20 +7,14 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharRef
 import kr.co.nucode.ble.Chunking
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.DeliverySemantics
-import kr.co.nucode.ble.FailureCategory
-import kr.co.nucode.ble.FailureCode
-import kr.co.nucode.ble.FailureContext
-import kr.co.nucode.ble.FailureMapper
-import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
-import kr.co.nucode.ble.AndroidApiOperation
-import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.WriteProgress
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
@@ -79,10 +73,12 @@ internal class OperationQueue(
         writeType: WriteType,
         chunking: Chunking,
     ): WriteResult {
-        val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
+        val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
 
         return run {
-            if (!session.canStartPublicGattOperation()) throw notConnected(deviceId)
+            if (!session.canStartPublicGattOperation()) {
+                throw BleException(GattFailureFactory.notConnected(session))
+            }
             val chunkSize = session.chunkSize ?: DEFAULT_CHUNK_SIZE
             val chunks = when (chunking) {
                 Chunking.None -> {
@@ -109,20 +105,20 @@ internal class OperationQueue(
                 val statuses = try {
                     execute(session, charRef, chunks, writeType, ackTimeoutMillis)
                 } catch (e: GattWriteCommandFailure) {
-                    return@run failedWrite(e.failure, deviceId, charRef, writeType, chunks, e.chunkIndex)
+                    return@run failedWrite(e.failure, writeType, chunks, e.chunkIndex)
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     return@run failedWrite(
-                        operationInvalidated(deviceId, charRef, writeType),
-                        deviceId, charRef, writeType, chunks, 0,
+                        GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
+                        writeType, chunks, 0,
                     )
                 }
 
                 for ((index, status) in statuses.withIndex()) {
                     if (status != GATT_SUCCESS) {
                         return@run failedWrite(
-                            gattStatusFailure(status, deviceId, charRef, writeType),
-                            deviceId, charRef, writeType, chunks, index,
+                            GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
+                            writeType, chunks, index,
                         )
                     }
                 }
@@ -139,8 +135,8 @@ internal class OperationQueue(
                 // 쓰면 낡은 인스턴스에 write 하게 된다.
                 val char = session.resolve(charRef)
                     ?: return@run failedWrite(
-                        characteristicNotFound(deviceId, charRef, writeType),
-                        deviceId, charRef, writeType, chunks, index,
+                        GattFailureFactory.writeCharacteristicNotFound(session, writeKind(writeType)),
+                        writeType, chunks, index,
                     )
 
                 val status = try {
@@ -157,8 +153,8 @@ internal class OperationQueue(
                     // GattBridge가 scheduler의 queued/pending 항목을 회수한 뒤 이 예외를
                     // 다시 던진다. generation poison은 후속 lifecycle task의 책임이다.
                     return@run failedWrite(
-                        operationTimeout(deviceId, charRef, writeType),
-                        deviceId, charRef, writeType, chunks, index,
+                        GattFailureFactory.writeTimeout(session, writeKind(writeType)),
+                        writeType, chunks, index,
                     )
                 } catch (e: CancellationException) {
                     // lifecycle 정리가 scheduler completion을 취소한 경우 await()가
@@ -168,8 +164,8 @@ internal class OperationQueue(
                     // 재던져 정상적인 취소 전파를 지키고, 후자만 Failed 로 보고한다.
                     currentCoroutineContext().ensureActive()
                     return@run failedWrite(
-                        operationInvalidated(deviceId, charRef, writeType),
-                        deviceId, charRef, writeType, chunks, index,
+                        GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
+                        writeType, chunks, index,
                     )
                 }
 
@@ -178,8 +174,8 @@ internal class OperationQueue(
                     // 설계 §5: 부분 전달을 로그로 흘리면 기기가 불완전한 명령을 받은 상태를
                     // 아무도 모르게 된다 — 이 값이 이 파일의 존재 이유다.
                     return@run failedWrite(
-                        gattStatusFailure(status, deviceId, charRef, writeType),
-                        deviceId, charRef, writeType, chunks, index,
+                        GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
+                        writeType, chunks, index,
                     )
                 }
             }
@@ -194,80 +190,20 @@ internal class GattWriteCommandFailure(
     val failure: BleFailure,
 ) : Exception(failure.message ?: failure.code.value)
 
-private fun unknownDevice(deviceId: DeviceId): kr.co.nucode.ble.BleException =
-    kr.co.nucode.ble.BleException(
-        BleFailure(
-            category = FailureCategory("validation"),
-            code = FailureCode("UNKNOWN_DEVICE"),
-            phase = FailurePhase.Validation,
-            retryability = Retryability.Never,
-            context = FailureContext(),
-        ),
-    )
-
-private fun notConnected(deviceId: DeviceId): kr.co.nucode.ble.BleException =
-    kr.co.nucode.ble.BleException(
-        BleFailure(
-            category = FailureCategory("connection"),
-            code = FailureCode("NOT_CONNECTED"),
-            phase = FailurePhase.Operation,
-            retryability = Retryability.NewConnectionMayHelp,
-            context = FailureContext(),
-        ),
-    )
-
-private fun characteristicNotFound(deviceId: DeviceId, charRef: CharRef, writeType: WriteType): BleFailure =
-    BleFailure(
-        category = FailureCategory("validation"),
-        code = FailureCode("CHARACTERISTIC_NOT_FOUND"),
-        phase = FailurePhase.Operation,
-        retryability = Retryability.Never,
-        context = writeContext(deviceId, charRef, writeType),
-    )
-
-private fun operationTimeout(deviceId: DeviceId, charRef: CharRef, writeType: WriteType): BleFailure =
-    BleFailure(
-        category = FailureCategory("operation"),
-        code = FailureCode("OPERATION_TIMEOUT"),
-        phase = FailurePhase.Operation,
-        retryability = Retryability.NewConnectionMayHelp,
-        context = writeContext(deviceId, charRef, writeType),
-    )
-
-private fun operationInvalidated(deviceId: DeviceId, charRef: CharRef, writeType: WriteType): BleFailure =
-    BleFailure(
-        category = FailureCategory("operation"),
-        code = FailureCode("OPERATION_INVALIDATED"),
-        phase = FailurePhase.Operation,
-        retryability = Retryability.NewConnectionMayHelp,
-        context = writeContext(deviceId, charRef, writeType),
-    )
-
-private fun gattStatusFailure(status: Int, deviceId: DeviceId, charRef: CharRef, writeType: WriteType): BleFailure =
-    FailureMapper.gattStatusFailed(
-        statusCode = status,
-        phase = FailurePhase.Operation,
-        operation = AndroidApiOperation.OnCharacteristicWrite,
-        context = writeContext(deviceId, charRef, writeType),
-    )
-
-private fun writeContext(
-    @Suppress("UNUSED_PARAMETER") deviceId: DeviceId,
-    @Suppress("UNUSED_PARAMETER") charRef: CharRef,
-    writeType: WriteType,
-): FailureContext =
-    FailureContext(
-        operationKind = if (writeType == WriteType.WithoutResponse) {
-            OperationKind.WriteWithoutResponse
-        } else {
-            OperationKind.WriteWithResponse
-        },
-    )
+/**
+ * write 청크 하나의 [WriteType]으로부터 [OperationKind]를 고른다 — `characteristicNotFound`/
+ * `operationTimeout`/`operationInvalidated`/`gattStatusFailure`가 각자 만들던
+ * `writeContext(...)`를 대체한다(구 helper는 [GattFailureFactory]로 흡수됐다).
+ */
+private fun writeKind(writeType: WriteType): OperationKind =
+    if (writeType == WriteType.WithoutResponse) {
+        OperationKind.WriteWithoutResponse
+    } else {
+        OperationKind.WriteWithResponse
+    }
 
 private fun failedWrite(
     base: BleFailure,
-    deviceId: DeviceId,
-    charRef: CharRef,
     writeType: WriteType,
     chunks: List<ByteArray>,
     failedChunkIndex: Int,
@@ -278,7 +214,7 @@ private fun failedWrite(
     return WriteResult.Failed(
         base.copy(
             context = base.context.copy(
-                operationKind = writeContext(deviceId, charRef, writeType).operationKind,
+                operationKind = writeKind(writeType),
             ),
             writeProgress = WriteProgress(
                 totalBytes = chunks.sumOf(ByteArray::size),

@@ -17,7 +17,8 @@ import kr.co.nucode.ble.Retryability
  * 상태를 갖지 않는다(`object`) — 팩토리 메서드는 `Session`(+ operation 객체)을 받아
  * `BleFailure`만 반환한다.
  *
- * 이동 출처: `GattBridge.kt`(HEAD d19cf99) 1821~1999행 private helper + 인라인 11곳.
+ * 이동 출처: `GattBridge.kt`(HEAD d19cf99) 1821~1999행 private helper + 인라인 11곳,
+ * 그리고 `OperationQueue.kt`(HEAD 87b0c03)의 write 경로 helper 6개(`write*` 메서드).
  * `operationContext`의 `charRef` 파라미터는 원본에서도 `@Suppress("UNUSED_PARAMETER")`였다
  * (미사용) — 이 팩토리는 받지 않는다. 출력은 동일하다.
  */
@@ -102,15 +103,15 @@ internal object GattFailureFactory {
         GattOperationKind.RequestMtu -> if (callback) AndroidApiOperation.OnMtuChanged else AndroidApiOperation.RequestMtu
     }
 
-    fun operationInvalidated(session: Session, operation: GattOperation<*>? = null): BleFailure = failure(
+    fun operationInvalidated(session: Session, operation: GattOperation<*>? = null): BleFailure =
+        invalidated(session, operation?.kind?.let(::operationKind))
+
+    private fun invalidated(session: Session, kind: OperationKind?): BleFailure = failure(
         category = "operation",
         code = "OPERATION_INVALIDATED",
         phase = FailurePhase.Operation,
         retryability = Retryability.NewConnectionMayHelp,
-        context = operationContext(
-            session,
-            operation?.kind?.let(::operationKind),
-        ),
+        context = operationContext(session, kind),
     )
 
     fun operationInvalidated(
@@ -118,15 +119,15 @@ internal object GattFailureFactory {
         scheduled: ScheduledGattOperation<*>,
     ): BleFailure = operationInvalidated(session, scheduled.operation).let { failureFor(session, scheduled, it) }
 
-    fun timeoutFailure(session: Session, operation: GattOperation<*>): BleFailure = failure(
+    fun timeoutFailure(session: Session, operation: GattOperation<*>): BleFailure =
+        timedOut(session, operationKind(operation.kind))
+
+    private fun timedOut(session: Session, kind: OperationKind?): BleFailure = failure(
         category = "operation",
         code = "OPERATION_TIMEOUT",
         phase = FailurePhase.Operation,
         retryability = Retryability.NewConnectionMayHelp,
-        context = operationContext(
-            session,
-            operationKind(operation.kind),
-        ),
+        context = operationContext(session, kind),
     )
 
     fun timeoutFailure(session: Session, scheduled: ScheduledGattOperation<*>): BleFailure =
@@ -291,6 +292,34 @@ internal object GattFailureFactory {
         phase = phase,
         operation = operation,
         context = if (kind == null) connectionContext(session) else operationContext(session, kind = kind),
+    )
+
+    /**
+     * write 청크 하나가 resolve할 characteristic을 못 찾을 때(`OperationQueue.write`).
+     * code는 의도적으로 [characteristicNotFound]의 `ATTRIBUTE_NOT_FOUND`와 통일하지 않는다 —
+     * write 경로는 오래전부터 `CHARACTERISTIC_NOT_FOUND`를 썼고, 두 code를 합치는 건 이
+     * 흡수(plan gatt-bridge-split task 3)의 범위 밖이다(plan E 사안).
+     */
+    fun writeCharacteristicNotFound(session: Session, kind: OperationKind): BleFailure = failure(
+        category = "validation",
+        code = "CHARACTERISTIC_NOT_FOUND",
+        phase = FailurePhase.Operation,
+        retryability = Retryability.Never,
+        context = operationContext(session, kind = kind),
+    )
+
+    /** write 청크 하나가 [ackTimeoutMillis] 안에 ack를 못 받을 때(`OperationQueue.write`). */
+    fun writeTimeout(session: Session, kind: OperationKind): BleFailure = timedOut(session, kind)
+
+    /** write 청크 대기 중 연결이 끊겨 취소될 때(`OperationQueue.write`). */
+    fun writeInvalidated(session: Session, kind: OperationKind): BleFailure = invalidated(session, kind)
+
+    /** write 청크의 GATT status가 성공이 아닐 때(`OperationQueue.write`). */
+    fun writeStatusFailed(session: Session, status: Int, kind: OperationKind): BleFailure = FailureMapper.gattStatusFailed(
+        statusCode = status,
+        phase = FailurePhase.Operation,
+        operation = AndroidApiOperation.OnCharacteristicWrite,
+        context = operationContext(session, kind = kind),
     )
 
     /** notify/indicate payload 관찰 — 진단 전용, `DiagnosticPolicy` report 여부는 호출부가 결정한다. */

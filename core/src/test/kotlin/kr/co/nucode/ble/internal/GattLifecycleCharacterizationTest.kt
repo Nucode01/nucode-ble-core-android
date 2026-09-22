@@ -98,6 +98,33 @@ class GattLifecycleCharacterizationTest {
     }
 
     @Test
+    fun `disconnect start failure completes cleanup immediately with one diagnostic`() = runTest {
+        val registry = SessionRegistry()
+        val session = registry.getOrCreate(DEVICE_ID)
+        val driver = FakeGattDriver(this).apply { disconnectFailure = IllegalStateException("gatt gone") }
+        val events = mutableListOf<BleEvent>()
+        val bridge = GattBridge(
+            registry = registry,
+            emit = { events += it },
+            scope = this,
+            driver = driver,
+            ackTimeoutMillis = 5_000,
+            readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000, 20),
+        )
+        session.connectionCoordinator.beginConnection(this, 15_000) {}
+
+        bridge.disconnect(DEVICE_ID)
+
+        // 시작 실패 → 즉시 completeLifecycleCleanup: deadline 없이 close까지 동기로 끝난다.
+        assertEquals(listOf("disconnect", "close"), driver.commands)
+        assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
+        assertEquals(
+            listOf("DISCONNECT_START_FAILED"),
+            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value },
+        )
+    }
+
+    @Test
     fun `discovery permission exception enters bounded terminal cleanup`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID)
@@ -935,6 +962,7 @@ class GattLifecycleCharacterizationTest {
         val commands = mutableListOf<String>()
         var connectionGeneration: Long? = null
         var discoverFailure: SecurityException? = null
+        var disconnectFailure: Exception? = null
         private var sink: (GattDriverEvent) -> Unit = {}
 
         override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
@@ -957,6 +985,7 @@ class GattLifecycleCharacterizationTest {
 
         override fun disconnect(deviceId: DeviceId, gatt: BluetoothGatt?) {
             commands += "disconnect"
+            disconnectFailure?.let { throw it }
         }
 
         override fun close(deviceId: DeviceId, gatt: BluetoothGatt?) {

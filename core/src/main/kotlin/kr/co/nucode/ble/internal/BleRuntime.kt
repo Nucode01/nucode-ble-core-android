@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
+import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
 
 /**

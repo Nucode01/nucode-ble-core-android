@@ -38,6 +38,7 @@ import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 
 /** Task 3 operation whose ACK clock starts only after the platform start call returns. */
 private interface StartTrackedGattOperation {
@@ -821,7 +822,7 @@ internal class GattBridge(
 
     /**
      * `BluetoothGattCharacteristic.PROPERTY_*` 비트마스크 → `Set[CharProperty]`.
-     * 플랫폼 상수가 공개 API(Models.kt)로 새지 않게 막는 게 이 함수의 유일한 목적이다.
+     * 플랫폼 상수가 모델 계층(`CharProperty`, InternalModels.kt)으로 새지 않게 막는 게 이 함수의 유일한 목적이다.
      */
     private fun mapProperties(propertyMask: Int): Set<CharProperty> {
         val properties = mutableSetOf<CharProperty>()

@@ -31,6 +31,12 @@ import kr.co.nucode.ble.ConnectOptions
 import kr.co.nucode.ble.DeviceId
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
+import kr.co.nucode.ble.internal.platform.android.characteristicChangedEvent
+import kr.co.nucode.ble.internal.platform.android.characteristicReadEvent
+import kr.co.nucode.ble.internal.platform.android.characteristicWriteEvent
+import kr.co.nucode.ble.internal.platform.android.descriptorWriteEvent
+import kr.co.nucode.ble.internal.platform.android.identityIndexOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -1183,7 +1189,7 @@ class GattDriverSeamTest {
     @Test
     fun `Android callback overload contract emits legacy values only before API 33`() {
         val source = java.io.File(
-            "src/main/kotlin/kr/co/nucode/ble/internal/AndroidGattCallbackRouter.kt",
+            "src/main/kotlin/kr/co/nucode/ble/internal/platform/android/AndroidGattCallbackRouter.kt",
         ).readText()
 
         assertEquals(2, Regex("override fun onCharacteristicChanged\\(").findAll(source).count())

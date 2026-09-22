@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.platform.android
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
@@ -20,6 +20,8 @@ import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.GattDriver
+import kr.co.nucode.ble.internal.GattDriverEvent
 
 /** Production [GattDriver]. Android callback conversion is delegated to [AndroidGattCallbackRouter]. */
 @SuppressLint("MissingPermission")

@@ -1,7 +1,6 @@
 package kr.co.nucode.ble
 
 import java.util.UUID
-import kotlin.coroutines.CoroutineContext
 
 /** nullable ByteArray 내용 비교. 둘 다 null 이면 같고, 하나만 null 이면 다르다. */
 private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {
@@ -80,28 +79,6 @@ internal sealed interface WriteResult {
     ) : WriteResult
 
     public data class TooLarge(val size: Int, val max: Int) : WriteResult
-}
-
-/**
- * 어댑터 상태. Unauthorized(canRequest) 로 요청 가능/영구 거부를 구분한다 —
- * 안 하면 제품이 "권한 허용" 버튼을 띄우고 눌러도 아무 일이 없다(설계 §5).
- */
-public sealed interface AdapterState {
-    public data object Unsupported : AdapterState
-
-    public data class Unauthorized(
-        /**
-         * D7(M-8+#16) — 의미 확정. `false` = 필요 권한이 매니페스트에 선언되지 않음
-         * (요청해도 소용없음 — 앱 빌드 결함). `true` = 선언은 됐고 런타임 허용만 안 됨
-         * (요청할 가치 있음). 영구 거부(다시 묻지 않음) 구분은 `Activity` 가 있어야 판단
-         * 가능해 코어 범위 밖이다 — 앱이 `shouldShowRequestPermissionRationale` 로 판단한다.
-         */
-        val canRequest: Boolean,
-    ) : AdapterState
-
-    public data object PoweredOff : AdapterState
-    public data object Resetting : AdapterState
-    public data object Ready : AdapterState
 }
 
 /**
@@ -339,60 +316,6 @@ internal data class ReconnectPolicy(
         }
         require(attemptTimeoutMillis > 0) {
             "attemptTimeoutMillis 는 0보다 커야 한다: $attemptTimeoutMillis"
-        }
-    }
-}
-
-/**
- * 코어 배선 설정. dispatcher / eventBufferCapacity / operationTimeoutMillis와 lifecycle
- * 단계별 timeout의 주입 지점이다. 연결별 재연결 정책은 [BleConnectOptions]가 소유한다.
- *
- * dispatcher 가 null 이면 BleRuntime 가 자기 기본 디스패처(단일 스레드 확정)를 만든다.
- * 주입은 테스트에서 runTest 디스패처를 넣기 위한 것이다.
- *
- * ★ 주입 시 주의(D10/review L-2):
- * - **Job 을 포함한 컨텍스트를 넣지 마라** — 명령의 withContext 가 호출자 Job 을 그
- *   Job 으로 덮어 소비자의 withTimeout·취소가 전파되지 않게 된다(review #7 의 부활 경로).
- *   디스패처(+필요시 이름)만 넣어라.
- * - Dispatchers.Main 을 넣고 메인 스레드에서 close() 를 부르면 close() 내부의
- *   runBlocking 이 데드락한다. 코어 디스패처 위에서 close() 호출 금지와 같은 뿌리다.
- *
- * @param operationTimeoutMillis write ack 와 CCCD ack 공용 대기 상한(plan 결정③). 느린 기기·
- * 혼잡 환경이면 늘려라.
- * @param linkTimeoutMillis connect 시작부터 link callback까지의 상한.
- * @param discoveryTimeoutMillis service discovery callback 대기 상한.
- * @param configurationTimeoutMillis MTU 등 필수 연결 설정 callback 대기 상한.
- * @param disconnectCleanupTimeoutMillis disconnect callback이 누락됐을 때 local cleanup을
- * 강제하는 상한.
- */
-public data class BleConfig public constructor(
-    public val dispatcher: CoroutineContext? = null,
-    public val eventBufferCapacity: Int = 64,
-    public val operationTimeoutMillis: Long = 5_000,
-    public val linkTimeoutMillis: Long = 15_000,
-    public val discoveryTimeoutMillis: Long = 10_000,
-    public val configurationTimeoutMillis: Long = 10_000,
-    public val disconnectCleanupTimeoutMillis: Long = 5_000,
-    /** Optional non-authoritative diagnostics sink. Null keeps diagnostics delivery disabled. */
-    public val logger: BleLogger? = null,
-    /** Privacy-first diagnostic capture policy; raw payload capture is disabled by default. */
-    public val diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
-) {
-    init {
-        require(operationTimeoutMillis > 0) {
-            "operationTimeoutMillis 는 0보다 커야 한다: $operationTimeoutMillis"
-        }
-        require(linkTimeoutMillis > 0) {
-            "linkTimeoutMillis 는 0보다 커야 한다: $linkTimeoutMillis"
-        }
-        require(discoveryTimeoutMillis > 0) {
-            "discoveryTimeoutMillis 는 0보다 커야 한다: $discoveryTimeoutMillis"
-        }
-        require(configurationTimeoutMillis > 0) {
-            "configurationTimeoutMillis 는 0보다 커야 한다: $configurationTimeoutMillis"
-        }
-        require(disconnectCleanupTimeoutMillis > 0) {
-            "disconnectCleanupTimeoutMillis 는 0보다 커야 한다: $disconnectCleanupTimeoutMillis"
         }
     }
 }

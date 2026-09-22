@@ -178,7 +178,7 @@ internal class Session(val deviceId: DeviceId) {
      */
     var requestedMtu: Int = 247
 
-    /** 협상된 MTU. 협상 전에는 null(Models.kt DeviceSnapshot 과 같은 규약 — 23 을 임의로 채우지 않는다). */
+    /** 협상된 MTU. 협상 전에는 null(InternalModels.kt DeviceSnapshot 과 같은 규약 — 23 을 임의로 채우지 않는다). */
     var mtu: Int? = null
 
     /** MTU 로부터 계산한 청크 크기. */

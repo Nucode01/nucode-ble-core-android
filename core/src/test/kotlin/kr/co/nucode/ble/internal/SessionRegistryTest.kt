@@ -88,7 +88,7 @@ class SessionRegistryTest {
 
     @Test
     fun `mtu 미협상이면 toSnapshot의 mtu는 null`() {
-        // 23 바이트 기본값을 임의로 채우지 않는다(Models.kt DeviceSnapshot 규약)
+        // 23 바이트 기본값을 임의로 채우지 않는다(InternalModels.kt DeviceSnapshot 규약)
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DeviceId("AA:BB:CC:DD:EE:FF"))
 

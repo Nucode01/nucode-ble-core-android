@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.platform.android
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -9,6 +9,12 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.DeviceId
+import kr.co.nucode.ble.internal.GattCallbackSource
+import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.GattServiceSnapshot
+import kr.co.nucode.ble.internal.toIdentity
 
 internal fun characteristicChangedEvent(
     deviceId: DeviceId,

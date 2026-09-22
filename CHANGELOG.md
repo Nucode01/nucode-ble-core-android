@@ -24,6 +24,15 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 - Android `autoConnect`, requested MTU, raw advertisement bytes는 공통 API에서 제거됐다.
   iOS와 동등한 의미가 아니므로 필요 시 별도 Android 전용 계약으로 설계한다.
 
+### Fixed
+
+- `BleClient.close()`는 이제 코어 디스패처 위에 정리를 예약하고 즉시 반환한다(이전에는
+  정리가 끝날 때까지 블록했다). `snapshot()`은 `close()` 뒤에도 여전히 정리 완료를 기다린
+  뒤 동결된 스냅샷을 돌려준다. `session()`/`connect()`도 더는 호출자의 디스패처를 블록하지
+  않는다 — `Dispatchers.Main`이나 `runTest` 디스패처 위에서 부르면 나던 데드락이 없어졌다.
+  `close()`가 반환하는 시점에 `BluetoothGatt.close()`가 아직 안 끝났을 수 있다 — 그 직후
+  프로세스가 바로 종료되면 남은 GATT 핸들 회수는 플랫폼이 프로세스 죽음 시점에 담당한다.
+
 ### Verification boundary
 
 - checked-in Kotlin-public surface with JVM member signatures:

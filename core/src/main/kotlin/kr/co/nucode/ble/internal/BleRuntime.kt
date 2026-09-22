@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
@@ -113,6 +112,16 @@ internal class BleRuntime private constructor(
     private var closedOfficialSnapshot: ClientSnapshot? = null
 
     /**
+     * 지연 정리(`runCloseCleanup`) 도중 잡힌 예외(plan `runtime-no-runblocking/v2` review MEDIUM).
+     * `null` = 정리가 예외 없이 끝났다. 정리는 코어 스레드에서만 도는데, 그 스레드의 uncaught
+     * handler 로 예외를 올리면 Android 프로세스가 죽는다 — 그래서 여기 기록하고 삼킨다.
+     * 테스트 전용 관측 지점이라 `internal`이다.
+     */
+    @Volatile
+    internal var closeFailure: Throwable? = null
+        private set
+
+    /**
      * 어댑터 획득 provider — 프로덕션 경로는 [central]에 매 호출 시 다시 위임해 BT off → on
      * 전환 사이에 갱신되지 않는 낡은 참조를 쓰지 않는다(GattBridge/Scanner 의 같은 계약,
      * plan §접근 ①). [scanner]·[gattDriver]·[computeAdapterState] 가 초기화 블록에서 이
@@ -181,8 +190,9 @@ internal class BleRuntime private constructor(
 
     /**
      * [coreScope] 구성에 쓴 디스패처를 Job 없이 그대로 뽑아둔 필드(plan task 5 §작업④) —
-     * [close] 가 `runBlocking(coreDispatcherOnly)` 로 정리 코드를 이 디스패처 위에서 돌리기
-     * 위한 것이다. `coreScope.coroutineContext` 를 그대로 쓰지 않는 이유: 그 컨텍스트는
+     * [close] 가 `CoroutineScope(coreDispatcherOnly).launch { … }` 로 정리 코드를 이
+     * 디스패처 위에 예약하기 위한 것이다(plan `runtime-no-runblocking` task 2(B) — 블로킹 대기
+     * 없이 예약만 한다). `coreScope.coroutineContext` 를 그대로 쓰지 않는 이유: 그 컨텍스트는
      * `SupervisorJob` 을 포함하는데, 정리 도중 `coreScope.cancel()` 이 그 Job 을 취소해버리면
      * 정리 코드 자체가 취소된다 — 그래서 Job 이 아예 없는 디스패처만 따로 갖고 있어야
      * `coreScope` 취소와 독립적으로 정리를 끝까지 돌릴 수 있다.
@@ -775,18 +785,46 @@ internal class BleRuntime private constructor(
 
     internal fun isClosed(): Boolean = closed
 
-    /** Synchronous views join the same serialized registry owner as commands. */
+    /**
+     * View 생성은 코어 디스패처를 기다리지 않는다(plan `runtime-no-runblocking` task 1(A)).
+     * `Session` 생성자는 StateFlow·coordinator 초기화뿐 — launch 도 부수효과도 없어 코어
+     * 스레드 밖에서 만들어도 안전하고, registry 멤버십은 이제 동기화돼 있다(위 KDoc).
+     *
+     * v2 의 조건부 `remove`("이 호출이 만든 것만 지운다")는 아직 부족했다(plan v3 review
+     * HIGH round-2 재발). `existing == null`은 "이 호출이 그 Session 을 만들었다"는 뜻이
+     * 아니라 "이 호출이 [registry.get] 시점에 그 Session 을 못 봤다"는 뜻일 뿐이다 —
+     * `checkOpen()` 과 `getOrCreate` 사이에서 다른 스레드가 같은 [deviceId] 로 먼저
+     * `getOrCreate`(다른 `sessionForView` 호출이든, `connect()` 의 ~862 `existing ?:
+     * registry.getOrCreate`든)를 끝내 살아 있는 Session S' 을 등록해뒀을 수 있다. 그 경우
+     * 이 호출의 `getOrCreate`는 새로 만들지 않고 S' 을 그대로 받아온다(registry 는
+     * `@Synchronized` — 같은 키에 두 인스턴스가 생기지 않는다) — 그런데 [existing] 은 이미
+     * null 로 캡처된 뒤라, 아래서 gate 가 서 있으면 "내가 만들었으니 지운다" 분기가 S' 을
+     * 지운다. S' 을 만든/채택한 쪽이 이 호출이 아니라도 상관없이 지워지므로, `close()` 의
+     * 지연 정리(`runCloseCleanup`, `registry.all()` 스냅샷)가 그 스냅샷을 뜨기 전에 S' 이
+     * 사라지면 `gattBridge.close`(driver.close)가 영원히 안 불린다(GATT 핸들 누수) —
+     * v2 리뷰가 고친 경합과 형태만 다른 같은 결함이다.
+     *
+     * 그래서 `remove` 자체를 없앤다. gate 뒤에 살아남는 Session 은 두 갈래뿐이고 둘 다
+     * 안전하다:
+     * - cleanup 이 이미 `registry.all()` 스냅샷을 뜬 *뒤에* 이 호출이 `getOrCreate`로 새
+     *   Session 을 등록한 경우 — 그 Session 은 스냅샷에 없어 cleanup 이 못 보지만, 애초에
+     *   GATT 핸들을 가진 적이 없다(방금 생성된 순수 로컬 객체, driver.connect 를 부른 적
+     *   없음) — close 할 게 없어 안전하게 GC 된다. 그리고 이 함수가 곧바로 `checkOpen()`
+     *   재검사(아래 `if (closed)`)로 던지므로, 호출자는 이 Session 을 절대 손에 넣지
+     *   못한다 — 좀비 Session 이 공개 API 로 새어나가지 않는다.
+     * - cleanup 이 아직 스냅샷을 뜨지 *않았고* 이 호출(또는 동시의 다른 경로)이 만든
+     *   Session 이 registry 에 남아 있는 경우 — cleanup 이 뒤이어 그 스냅샷에서 이 Session
+     *   을 보고 정상적으로 정리한다(멱등, 한 번만).
+     * 어느 갈래든 [checkOpen] 이 먼저 닫힌 클라이언트를 걸러 좀비 노출이 없고, cleanup 은
+     * 자신이 실제로 스냅샷한 Session 집합만 책임진다 — 이 함수가 그 집합을 사후에 축소할
+     * 권한을 갖지 않는다.
+     */
     internal fun sessionForView(deviceId: PeripheralId): Session {
         checkOpen()
-        return onRuntimeBlocking {
-            checkOpen()
-            registry.getOrCreate(deviceId)
-        }
+        val session = registry.getOrCreate(deviceId)
+        if (closed) throw clientClosed()
+        return session
     }
-
-    private fun <T> onRuntimeBlocking(block: () -> T): T =
-        if (onRuntimeThread.get() == true) block()
-        else runBlocking(coreDispatcherOnly) { block() }
 
     public suspend fun startScan(filter: BleScanFilter = BleScanFilter(), options: BleScanOptions = BleScanOptions()): Unit =
         transportCommand(FailurePhase.Scan) {
@@ -991,6 +1029,9 @@ internal class BleRuntime private constructor(
         }
     }
 
+    /** [close] 가 예약한 정리가 끝났는지 기다린다(plan `runtime-no-runblocking` task 2(B)). */
+    internal suspend fun awaitClosed() = closeCompleted.await()
+
     /** Internal projection seam: no facade keeps a parallel snapshot or session map. */
     internal suspend fun officialSnapshot(): ClientSnapshot {
         closedOfficialSnapshot?.let { return it }
@@ -1018,19 +1059,62 @@ internal class BleRuntime private constructor(
     }
 
     /**
-     * Close admission first, then synchronously release local resources on their
-     * owner. Runtime callbacks clean up inline so they never wait for their own
-     * dispatcher. The dispatcher context carries no Job, so scope cancellation
-     * cannot interrupt cleanup or replace a command caller's cancellation.
+     * 정리 본문(plan `runtime-no-runblocking` task 2(B)) — [close] 에서 추출했다. 코어
+     * 스레드 위라면 [close] 가 인라인으로, 아니면 [coreDispatcherOnly] 에 예약된 코루틴이
+     * 이 함수를 돈다. 정리가 실패해도 `closeCompleted` 는 반드시 완료돼야 한다 —
+     * 그러지 않으면 [officialSnapshot] 이 영원히 멈춘다.
+     *
+     * `runCloseCleanupBody` 가 던지면(예: `gattBridge.close` 안 driver 호출 실패) 여기서
+     * 삼킨다(plan v2 review MEDIUM). [close] 는 코어 스레드 위에서 이 함수를 inline 으로도
+     * 부르므로, 삼키지 않으면 그 예외가 스레드의 uncaught handler 까지 올라가 Android
+     * 프로세스를 죽인다 — 두 호출 경로(inline/예약된 코루틴)가 같은 의미(호출자에게 절대
+     * throw 하지 않는다, 대신 기록한다)를 갖도록 여기 한 곳에서만 catch 한다.
      */
-    fun close() {
-        // This gate is deliberately before dispatch: no command can be admitted
-        // between a close caller and deferred cleanup.
-        if (!closeGate.compareAndSet(false, true)) return
-        onRuntimeBlocking {
-            scanner.stopScan()
-            val sessions = registry.all()
-            sessions.forEach { session ->
+    private fun runCloseCleanup() {
+        try {
+            // 세션별 실패는 반환값으로 받아 보고한다 — 디스패처 close(finally) 보다 먼저 보고해야
+            // CLEANUP_FAILURE 가 logger 큐로도 나갈 기회를 얻는다(호환 스트림은 어느 경우든 받는다).
+            runCloseCleanupBody()?.let { failure ->
+                closeFailure = failure
+                reportCleanupFailure(failure)
+            }
+        } catch (t: Throwable) {
+            closeFailure = t
+            reportCleanupFailure(t)
+            // 실패 지점에 따라 closedOfficialSnapshot 이 아직 안 섰을 수 있다 — officialSnapshot()
+            // 이 typed 결과로 끝나려면 폴백이라도 세워야 한다.
+            if (closedOfficialSnapshot == null) {
+                closedOfficialSnapshot = ClientSnapshot(
+                    adapterState = _adapterState.value,
+                    isScanning = false,
+                    sessions = emptyList(),
+                )
+            }
+        } finally {
+            // receiver·디스패처·스코프 정리는 정상·실패 공통으로 딱 한 번 — 보고 뒤라 디스패처 close 가 보고를 삼키지 않는다.
+            runCatching { if (registerAdapterReceiver) central?.context?.unregisterReceiver(adapterStateReceiver) }
+            runCatching { diagnosticDispatcher.close() }
+            runCatching { coreScope.cancel() }
+            closeCompleted.complete(Unit)
+        }
+    }
+
+    /**
+     * plan v3 review MEDIUM Fix 2 — 세션별로 `runCatching`(fault-isolate)한다. 한 세션의
+     * `gattBridge.close`(driver.close)가 던지면 v2 코드는 그 예외가 이 함수 전체를 끝내
+     * 뒤 세션들이 정리되지 않고(GATT 핸들 누수) `unregisterReceiver`/`diagnosticDispatcher.close()`/
+     * `coreScope.cancel()` 꼬리까지 스킵됐다 — 한 핸들의 실패가 나머지 정리를 막으면 안 된다.
+     * 첫 예외만 [firstFailure] 에 모아 반환한다 — 호출자인 [runCloseCleanup] 이 그 값을
+     * [closeFailure] 에 기록하고 로거로 보고한다(호출자에게는 절대 전파되지 않는다). 스냅샷
+     * 구성은 세션 실패 여부와 무관하게 항상 돌고, receiver 해제·`diagnosticDispatcher.close()`·
+     * `coreScope.cancel()` 는 [runCloseCleanup] 의 finally 가 담당한다(예기치 못한 throw 에도 실행).
+     */
+    private fun runCloseCleanupBody(): Throwable? {
+        scanner.stopScan()
+        val sessions = registry.all()
+        var firstFailure: Throwable? = null
+        sessions.forEach { session ->
+            runCatching {
                 // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
                 session.resubscribeJob?.cancel()
                 session.reconnectJob?.cancel()
@@ -1041,24 +1125,83 @@ internal class BleRuntime private constructor(
                     kr.co.nucode.ble.internal.TerminalCleanupReason.ClientClosed,
                 )
                 gattBridge.close(session)
+            }.onFailure { t -> if (firstFailure == null) firstFailure = t }
+        }
+        closedOfficialSnapshot = ClientSnapshot(
+            adapterState = _adapterState.value,
+            isScanning = false,
+            sessions = sessions.map { session ->
+                SessionSnapshot(
+                    peripheralId = session.deviceId,
+                    connectionState = session.connectionState.value,
+                    services = session.services.value,
+                    subscriptions = session.subscriptionState.desiredSnapshot,
+                )
+            },
+        )
+        sessions.forEach { runCatching { registry.remove(it.deviceId) } }
+        // receiver 해제·디스패처/스코프 정리는 runCloseCleanup 의 finally 로 미룬다 — 예기치 못한 throw 에도
+        // 반드시 돌게(receiver 누수 방지) + 보고가 디스패처 close 보다 먼저이게.
+        return firstFailure
+    }
+
+    /**
+     * 정리 실패를 [config]의 logger 로 보고한다(plan v2 review MEDIUM (a)) — 구성된 logger 가
+     * 있으면 [diagnosticReporter] 를 직접 부른다. `emit(diagnostic(...))` 을 쓰지 않는 이유:
+     * 그 공개 경로는 `closed` 게이트를 검사해 이미 닫힌 시점에는 조용히 버린다(위 [emit] 참고) —
+     * 정리는 게이트가 선 뒤에만 돌므로 그 경로로는 절대 보고되지 않는다. `diagnosticReporter.report`
+     * 는 게이트를 보지 않고 이 실패를 호환 이벤트 스트림과(아직 열려 있으면) logger 워커 큐로
+     * non-blocking 하게 흘린다 — [closeFailure] 는 logger 유무와 무관하게 항상 기록되는
+     * 테스트/진단 보조 관측점이다.
+     */
+    private fun reportCleanupFailure(error: Throwable) {
+        // plan v3 review LOW Fix 4 — client 가 이미 닫힌 뒤의 실패는 CLIENT_CLOSED 와 같은
+        // 이유로 재시도 대상이 아니다: 재시도할 대상 client 자체가 더는 없다.
+        val failure = transportFailure(code = "CLEANUP_FAILURE", phase = FailurePhase.Close, retryability = Retryability.Never)
+        try {
+            diagnosticReporter.report(Severity.Error, failure) {
+                mapOf(
+                    "cleanup_exception" to DiagnosticValue.Text(
+                        (error.message ?: error::class.java.simpleName).take(DiagnosticValue.MAX_TEXT_LENGTH),
+                    ),
+                )
             }
-            closedOfficialSnapshot = ClientSnapshot(
-                adapterState = _adapterState.value,
-                isScanning = false,
-                sessions = sessions.map { session ->
-                    SessionSnapshot(
-                        peripheralId = session.deviceId,
-                        connectionState = session.connectionState.value,
-                        services = session.services.value,
-                        subscriptions = session.subscriptionState.desiredSnapshot,
-                    )
-                },
-            )
-            sessions.forEach { registry.remove(it.deviceId) }
-            if (registerAdapterReceiver) central?.context?.unregisterReceiver(adapterStateReceiver)
-            diagnosticDispatcher.close()
-            coreScope.cancel()
-            closeCompleted.complete(Unit)
+        } catch (_: Throwable) {
+            // Hostile/failing logger path cannot escape cleanup; closeFailure above already holds the record.
+        }
+    }
+
+    /**
+     * Close admission first, then schedule cleanup on its owner and return
+     * immediately — [close] never blocks the caller's dispatcher. On the core
+     * thread, cleanup runs inline (no dispatch round-trip). Off the core
+     * thread, cleanup is scheduled onto [coreDispatcherOnly], which carries no
+     * `Job`, so [coreScope]`.cancel()` inside cleanup cannot cancel cleanup
+     * itself. All `Session` mutation is confined to this single dispatcher —
+     * there is no separate state store (design §3 rule 2, `PublicModels.kt`
+     * `BleConfig` KDoc) — so a command that already began mutating `Session`
+     * state before this gate flips runs to completion on that same thread
+     * before cleanup gets its turn there too (not a FIFO-ordering claim about
+     * commands not yet admitted). [officialSnapshot] / [awaitClosed] observe cleanup completion —
+     * at the moment [close] returns, `BluetoothGatt.close()` may not have run
+     * yet; if the process exits immediately after [close] returns, the
+     * platform reclaims any still-open handles on process death.
+     *
+     * Cleanup never rethrows to a caller — there is none to rethrow to, since
+     * both the inline and the scheduled path run [runCloseCleanup], which
+     * catches every `Throwable`, records it in [closeFailure], and reports it
+     * through the configured logger when one exists (plan
+     * `runtime-no-runblocking/v2` review MEDIUM). [awaitClosed] always
+     * completes even when cleanup failed partway through.
+     */
+    fun close() {
+        // This gate is deliberately before dispatch: no command can be admitted
+        // between a close caller and deferred cleanup.
+        if (!closeGate.compareAndSet(false, true)) return
+        if (onRuntimeThread.get() == true) {
+            runCloseCleanup()
+        } else {
+            CoroutineScope(coreDispatcherOnly).launch { runCloseCleanup() }
         }
     }
 }

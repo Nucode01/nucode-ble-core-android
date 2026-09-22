@@ -2,6 +2,10 @@ package kr.co.nucode.ble.internal
 
 import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
@@ -117,5 +121,55 @@ class SessionRegistryTest {
         val recreated = registry.getOrCreate(deviceId)
 
         assertNotSame(originalScheduler, recreated.gattOperationScheduler)
+    }
+
+    // ── thread safety(plan runtime-no-runblocking task 1(A)) ───────
+
+    @Test
+    fun `8개 스레드가 동시에 getOrCreate해도 인스턴스는 하나뿐이고 all은 절대 던지지 않는다`() {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val threadCount = 8
+        val iterationsPerThread = 200
+        val pool = Executors.newFixedThreadPool(threadCount)
+        val ready = CountDownLatch(threadCount)
+        val start = CountDownLatch(1)
+        val instances = Collections.synchronizedSet(mutableSetOf<Session>())
+        val allErrors = Collections.synchronizedList(mutableListOf<Throwable>())
+        val allReaderRunning = java.util.concurrent.atomic.AtomicBoolean(true)
+
+        // getOrCreate와 동시에 all()을 계속 불러 ConcurrentModificationException이 없는지도 본다.
+        val allReader = Thread {
+            while (allReaderRunning.get()) {
+                try {
+                    registry.all()
+                } catch (t: Throwable) {
+                    allErrors.add(t)
+                }
+            }
+        }
+        allReader.start()
+
+        try {
+            val futures = (1..threadCount).map {
+                pool.submit {
+                    ready.countDown()
+                    start.await()
+                    repeat(iterationsPerThread) {
+                        instances.add(registry.getOrCreate(deviceId))
+                    }
+                }
+            }
+            ready.await()
+            start.countDown()
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            allReaderRunning.set(false)
+            allReader.join(TimeUnit.SECONDS.toMillis(10))
+            pool.shutdown()
+        }
+
+        assertEquals("동시 getOrCreate(같은 id)는 인스턴스 하나로 수렴해야 한다", 1, instances.size)
+        assertTrue("all()이 동시 접근 중 예외를 던지면 안 된다: $allErrors", allErrors.isEmpty())
     }
 }

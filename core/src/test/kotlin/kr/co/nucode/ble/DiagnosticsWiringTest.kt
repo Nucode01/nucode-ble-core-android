@@ -2,11 +2,14 @@ package kr.co.nucode.ble
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.internal.BleRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -71,7 +74,24 @@ class DiagnosticsWiringTest {
     fun `blocked logger does not block compatibility event or close`() = runTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val core = newCore(BleLogger { entered.countDown(); release.await() })
+        val released = AtomicBoolean(false)
+        // plan `runtime-no-runblocking/v3` review MEDIUM Fix 3 — interrupt 로 풀리는 latch.await()
+        // 는 이 테스트의 목적(정리가 blocked logger 를 join 하지 않는다는 계약)을 증명하지
+        // 못한다: `DiagnosticDispatcher.close()`가 `interrupt()` 만 부르든 `interrupt(); join()`
+        // 으로 회귀하든, interruptible latch 는 어느 쪽이든 즉시 풀려 두 구현을 구분 못 한다.
+        // 그래서 이 로거는 interrupt 를 삼키고 명시적 `released` 신호 전까지 계속 블록한다 —
+        // `close()`가 join 으로 회귀하면 그 join 이 이 무한 블록을 기다리게 돼 아래
+        // `withTimeout(200)` 이 진짜로 실패한다.
+        val core = newCore(BleLogger {
+            entered.countDown()
+            while (!released.get()) {
+                try {
+                    release.await()
+                } catch (_: InterruptedException) {
+                    // 계속 블록한다 — 명시적 release 전까지는 interrupt 에 풀리지 않는다.
+                }
+            }
+        })
         val events = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(events) }
         runCurrent()
@@ -84,6 +104,15 @@ class DiagnosticsWiringTest {
         core.close()
         val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
         assertTrue("close waited for logger: $elapsedMillis ms", elapsedMillis < 200)
+        // close() 자체가 즉시 반환하는 건 이제(plan `runtime-no-runblocking` task 2(B)) 늘
+        // 참이라 위 단언만으로는 공허하다(정리를 스케줄만 하고 실제로 안 돌아도 통과한다) —
+        // 정리가 blocked logger 를 실제로 기다리지 않고 끝난다는 것 자체를 증명하려면, 아직
+        // release 하지 않은 상태에서 정리 완료(`awaitClosed()`)까지 200ms 안에 끝나는지 봐야
+        // 한다(plan v2 review MEDIUM Fix 3). `diagnosticDispatcher.close()` 는 워커 스레드를
+        // join 하지 않고 `interrupt()` 만 요청하므로(DiagnosticDispatcher.close 참고) 정리가
+        // 이 blocked logger 를 기다릴 이유가 없다.
+        runBlocking { withTimeout(200) { core.awaitClosed() } }
+        released.set(true)
         release.countDown()
     }
 
@@ -111,8 +140,11 @@ class DiagnosticsWiringTest {
         logger: BleLogger?,
         diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
     ): BleRuntime = BleRuntime(
-        // close() is synchronous; use the runtime's real single-thread dispatcher here rather
-        // than a test dispatcher which requires this test thread to advance its scheduler.
+        // close() no longer blocks (plan `runtime-no-runblocking` task 2(B)): the runtime's real
+        // single-thread dispatcher is fine here without wiring a `StandardTestDispatcher`.
+        // "blocked logger does not block compatibility event or close" DOES assert a post-close
+        // effect (`awaitClosed()` completing within 200ms while the logger is still blocked) —
+        // it calls `awaitClosed()` on a real `runBlocking` before releasing the logger latch.
         config = BleConfig(logger = logger, diagnosticOptions = diagnosticOptions),
         adapter = { null },
     )

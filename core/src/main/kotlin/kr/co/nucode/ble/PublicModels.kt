@@ -322,8 +322,18 @@ public sealed interface AdapterState {
  * - **Job 을 포함한 컨텍스트를 넣지 마라** — 명령의 withContext 가 호출자 Job 을 그
  *   Job 으로 덮어 소비자의 withTimeout·취소가 전파되지 않게 된다(review #7 의 부활 경로).
  *   디스패처(+필요시 이름)만 넣어라.
- * - Dispatchers.Main 을 넣고 메인 스레드에서 close() 를 부르면 close() 내부의
- *   runBlocking 이 데드락한다. 코어 디스패처 위에서 close() 호출 금지와 같은 뿌리다.
+ * - **단일 스레드로 확정되는 디스패처만 넣어라.** 근거는 FIFO 순서가 아니라 `Session` 상태
+ *   단일 스레드 확정이다(plan `runtime-no-runblocking/v2` review 정정) — `Session`(state/mtu/…)
+ *   변경은 전부 이 디스패처 위에서만 일어난다는 게 설계 §3 규칙 2 의 불변이고, 그 불변은
+ *   디스패처가 실제로 단일 스레드일 때만 성립한다(병렬 디스패처를 넣으면 `Session` 필드에
+ *   `Mutex` 없이 동시 쓰기가 생긴다). `close()` 는 더 이상 호출자를 블록하지 않는다(plan
+ *   `runtime-no-runblocking` task 2(B)) — 정리는 이 디스패처 위에 예약되고 `close()` 는 즉시
+ *   반환한다. 이 계약 덕에 `Dispatchers.Main` 이나 `StandardTestDispatcher` 를 넣고
+ *   `session()`/`connect()`/`close()` 를 그 디스패처 위에서 직접 불러도 더는 데드락하지 않는다 —
+ *   문서화된 테스트 seam(`StandardTestDispatcher`)이 이제 모든 공개 호출에 대해 실제로 동작한다.
+ *   `close()` 가 반환하는 시점에 플랫폼 연결 핸들 정리가 아직 안 끝났을 수 있다 — 그 직후
+ *   프로세스가 바로 종료되면(예: 테스트 프로세스, 강제 종료) 남은 핸들 회수는 플랫폼이
+ *   프로세스 죽음 시점에 담당한다(코어가 보장하는 범위 밖).
  *
  * @param operationTimeoutMillis write ack 와 CCCD ack 공용 대기 상한(plan 결정③). 느린 기기·
  * 혼잡 환경이면 늘려라.

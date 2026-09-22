@@ -307,3 +307,17 @@ JVM: `:core:testDebugUnitTest` 296 green. 동일 UUID 다중 instance는 실기�
 2회차 pass가 하네스 멱등성의 증거다: 1회차의 cleanup(`IT:BOND_RESET` ACCEPTED 확인 → 폰 키 제거)이 다음 실행이
 요구하는 "양쪽 본딩 없음" 상태를 남겼다. 이전 하네스는 폰 키를 먼저 지워 보드 잔존을 만들었고, 그 상태는
 `BOARD_BOND_RESIDUE` fail-fast(32 s)로 진단됐다(앞 절). 프로세스 강제 종료 시 cleanup 미보장은 여전하다.
+
+### 사후 검증 — plan H(runBlocking 제거) 완료 후 (2026-09-22, 체크포인트 `cc04350`, squash 전)
+
+`session()`/`connect()`가 registry 락으로 즉시 뷰를 만들고, `close()`가 정리를 코어 디스패처에 예약하고 즉시 반환하는 상태.
+
+| 항목 | 결과 |
+|---|---|
+| `AdapterStateBaselineTest` | pass — 직접 재연결 Ready 1,079 ms, `Ready > PoweredOff > Ready` |
+| `longWritesAndReconnectRestore…` / `duplicateDisconnect…` | pass 8.3 s / 2.8 s |
+| `bondingPersists…`(연속 3회차) | pass 25.2 s |
+| 권한 revoke | pass — `Unauthorized(canRequest=true)`, `PERMISSION_DENIED/Adapter/AfterEnvironmentChange` |
+
+JVM 309 green(red→green 4: session view 2, close 2). 하네스는 `close()` 뒤 `snapshot()`/`connectionState` 로 정리 완료를 관측하므로
+지연 정리와 무관하게 통과했다.

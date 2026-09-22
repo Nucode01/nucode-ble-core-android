@@ -90,6 +90,9 @@ class BleClientFacadeTest {
         val existing = client.session(PeripheralId("AA:BB:CC:DD:EE:02"))
 
         client.close()
+        // close()는 더 이상 정리 완료까지 블록하지 않는다(plan `runtime-no-runblocking`
+        // task 2(B)) — 정리부가 세션 상태를 갱신할 시간을 준다.
+        runBlocking { core.awaitClosed() }
 
         assertEquals(
             ConnectionState.Disconnected(BleDisconnectReason.ClientClosed),
@@ -229,6 +232,9 @@ class BleClientFacadeTest {
                 }
                 start.countDown()
                 closing.get(2, java.util.concurrent.TimeUnit.SECONDS)
+                // close()는 더 이상 정리 완료까지 블록하지 않는다(plan `runtime-no-runblocking`
+                // task 2(B)) — registry 비워짐을 단언하기 전에 정리 완료를 기다린다.
+                runBlocking { core.awaitClosed() }
                 val created = view.get(2, java.util.concurrent.TimeUnit.SECONDS)
                 assertTrue(core.registry.all().isEmpty())
                 created?.let {

@@ -21,5 +21,16 @@ public interface BleClient : Closeable {
     ): BleSession
 
     public suspend fun snapshot(): ClientSnapshot
+
+    /**
+     * Idempotent — a second call is a no-op. Schedules cleanup on the core dispatcher and
+     * returns immediately without waiting for it; [snapshot] awaits that cleanup's completion
+     * before returning, so callers that need a post-close guarantee should go through
+     * [snapshot] rather than assuming [close] itself blocked. Any command issued after [close]
+     * has run fails with `CLIENT_CLOSED`. Because [close] can return before the underlying
+     * platform connection handles are released, those handles may still be open at the moment
+     * this call returns — if the process exits immediately afterward, the platform reclaims
+     * them on process death.
+     */
     override fun close()
 }

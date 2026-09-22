@@ -334,37 +334,30 @@ class BleCoreWiringTest {
     // ── D. close 후 재호출(plan D5/review #7 — task 6 이 뺐던 close 테스트 부활) ────────
 
     /**
-     * task 6 KDoc(구 이력, 아래 실측은 여전히 유효): `close()` 의 `runBlocking(coreDispatcherOnly)`
-     * 는 이 테스트가 주입한 `StandardTestDispatcher` 위에서 데드락이다 — `runBlocking` 이
-     * 그 안에서 예약한 정리 코루틴을 실제로 돌리려면 스케줄러가 pump 돼야 하는데,
-     * `runBlocking` 은 자신을 호출한 바로 그 스레드를 정지시켜 기다릴 뿐이라 아무도
-     * `runCurrent()`/`advanceUntilIdle()` 을 대신 불러주지 않는다 — 그래서 `close()` 를
-     * 이 테스트 코루틴에서 직접(동기) 부르면 이 테스트 자체가 멈춘다.
-     *
-     * D5(review #7)가 `closed = true` 를 `runBlocking` **이전**의 첫 줄로 옮겨 둔 덕에
-     * "close 후 진입 차단"은 그 `runBlocking` 정리부가 끝나는 것과 무관하게 관측 가능하다
-     * — 그래서 `close()` 는 별도 JVM 스레드에서 부르고(정리부의 데드락 가능성을 이 테스트
-     * 스레드에서 분리한다) **join 하지 않는다** — 정리부 실행 완료를 기다리지 않고
-     * `closed` 플래그가 반영되는 순간만 짧게 폴링해 검증을 끝낸다(plan task 2 지시 —
-     * "정리부 실행 전에 검증 종료"). 고정 `Thread.sleep` 대신 폴링을 쓰는 이유는 스레드
-     * 시작 타이밍에 대한 임의 대기를 정당화할 근거가 없어서다.
+     * plan `runtime-no-runblocking` task 2(B) — `close()` 는 더 이상 `runBlocking` 으로
+     * 정리부를 기다리지 않는다: gate(`closeGate.compareAndSet`)는 dispatch 이전에 동기로
+     * 서고, 정리는 [BleRuntime.coreDispatcherOnly] 위에 예약될 뿐이다. 그래서 이 테스트
+     * 코루틴 위에서 `close()` 를 직접(동기) 불러도 더 이상 멈추지 않는다 — 예전엔
+     * `runBlocking(coreDispatcherOnly)` 가 이 테스트가 주입한 `StandardTestDispatcher` 를
+     * pump 해줄 스레드가 자기 자신뿐이라 데드락했다(별도 JVM 스레드 + 폴링으로 우회했던
+     * 이유). `onCore` 의 진입 검사(`if (closed) throw`)는 dispatch 전에 동기로 도니
+     * `startScan()` 은 `close()` 직후 곧바로 CLIENT_CLOSED 로 실패하고, `runCurrent()` 뒤엔
+     * `awaitClosed()` 가 즉시 완료된다(정리가 끝났다는 증거).
      */
     @Test(timeout = 5_000)
     fun `D1 close 이후 진입은 CLIENT_CLOSED typed failure로 막힌다`() = runTest {
         val core = newCore()
 
-        Thread { core.close() }.start()
+        core.close()
 
-        var thrown: Throwable? = null
-        val deadlineNanos = System.nanoTime() + 2_000_000_000L
-        while (System.nanoTime() < deadlineNanos && (thrown as? BleException)?.failure?.code?.value != "CLIENT_CLOSED") {
-            thrown = runCatching { core.startScan() }.exceptionOrNull()
-        }
-
+        val thrown = runCatching { core.startScan() }.exceptionOrNull()
         assertTrue(
             "close 이후 진입은 CLIENT_CLOSED typed failure여야 한다: $thrown",
             (thrown as? BleException)?.failure?.code?.value == "CLIENT_CLOSED",
         )
+
+        runCurrent()
+        core.awaitClosed()
     }
 
     // ── E. registry 경유 상태 확인(internal registry 와 공개 API 의 일관성) ────────────
@@ -1179,13 +1172,14 @@ class BleCoreWiringTest {
 
     /**
      * plan F — `close()`가 scheduler pending/queued와 resubscribeJob/reconnectJob/timeoutJob을
-     * 전부 종결하는지 확인한다(D1 close 테스트 확장). `coreDispatcherOnly`
-     * 가 `StandardTestDispatcher` 이면 close() 의 `runBlocking` 이 데드락한다(D1 KDoc) —
-     * 그래서 여기서는 `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜
-     * `Dispatchers.Default` 기반 인스턴스를 별도로 만들어 close() 를 동기 호출한다.
+     * 전부 종결하는지 확인한다(D1 close 테스트 확장). 여기서는
+     * `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜 `Dispatchers.Default`
+     * 기반 인스턴스를 별도로 만든다 — `close()` 는 이 디스패처 위에 정리를 예약하고 즉시
+     * 반환하므로(plan `runtime-no-runblocking` task 2(B)), 단언 전에 `awaitClosed()` 로
+     * 정리 완료를 기다린다.
      */
     @Test
-    fun `PL-F close 후 scheduler와 lifecycle job이 모두 종결된다`() {
+    fun `PL-F close 후 scheduler와 lifecycle job이 모두 종결된다`() = kotlinx.coroutines.runBlocking {
         val core = BleRuntime(config = BleConfig(), adapter = { null })
         val id = testDeviceId()
         val resubscribeJob = kotlinx.coroutines.Job()
@@ -1206,6 +1200,7 @@ class BleCoreWiringTest {
         session.gattOperationScheduler.startNext()
 
         core.close()
+        core.awaitClosed()
 
         assertTrue("scheduler pending이 종결돼야 한다(plan F)", pending.completion.isCompleted)
         assertTrue("scheduler queued가 종결돼야 한다(plan F)", queued.completion.isCompleted)

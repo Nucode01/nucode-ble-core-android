@@ -32,7 +32,10 @@ key.properties
 .DS_Store
 
 # Local documentation and Jay Flow artifacts
-docs/
+docs/*
+!docs/v1/
+docs/v1/*
+!docs/v1/android-real-device-results.md
 .plans/
 
 # AI assistant configuration, prompts, sessions, and local state

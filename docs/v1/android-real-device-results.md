@@ -1,0 +1,292 @@
+# Slice 8 Android 실기기 검증 결과
+
+> **상태: 부분 진행**
+> 이 문서는 Slice 8 전체 완료 기록이 아니다. 실행한 시나리오와 관찰 범위만 보존하며,
+> 실행하지 않은 matrix 항목은 계속 **검증 필요**다.
+
+## 실행 요약
+
+| 날짜 | 실행 | 결과 | 보존된 근거 |
+|---|---|---|---|
+| 2026-09-21 | 장문 write와 disconnect 경합 수동 검증 | pass | 아래 관찰 기록 |
+| 2026-09-21 | 자동 하네스: 장문 write 두 mode, duplicate connect, 강제 disconnect 뒤 reconnect·subscription restore | pass | `BleHardwareIntegrationTest.longWritesAndReconnectRestoreAreVerifiedByPeripheral` 실행 관찰 |
+| 2026-09-21 | 자동 하네스: duplicate disconnect와 session 재사용 | pass | `BleHardwareIntegrationTest.duplicateDisconnectEmitsOneTransitionAndSessionRemainsReusable` 실행 관찰 |
+| 2026-09-22 | 자동 하네스: bonding 유지, firmware bond reset, 재본딩 | **pass (1/1)** | `sample/build/outputs/androidTest-results/connected/debug/TEST-Pixel 5a - 14-_sample-.xml`, failures/errors/skipped 0 |
+
+Gradle connected-test 결과 디렉터리는 실행마다 덮어써질 수 있다. 현재 저장된 XML은 마지막
+bonding 단독 실행만 포함하며, 앞선 두 자동 시나리오는 이 문서의 실행 관찰 기록으로 남긴다.
+
+## 2026-09-21 — 장문 write와 disconnect 경합
+
+### 환경
+
+| 항목 | 값 |
+|---|---|
+| Android 기기 | Google Pixel 5a |
+| Android 버전 | 14 |
+| Peripheral | Nordic nRF52840 DK |
+| Firmware | Zephyr Nordic UART Service 기반 로컬 검증 firmware |
+| Service | Nordic UART Service |
+| 협상 MTU | 65 |
+| ATT payload capability | 62 bytes |
+| write mode | write with response |
+
+Firmware revision은 별도 커밋으로 고정하지 않았다. 따라서 이 결과는 위 로컬 검증 firmware와
+보드 조합에 한정하며 다른 firmware/OEM의 동작을 일반화하지 않는다.
+
+### 결과
+
+| scenario | 결과 | 관찰 증거 |
+|---|---|---|
+| 600-byte 정상 write | **pass** | Android `WriteReceipt(bytesCompleted=600, chunksCompleted=10, delivery=RemoteAcknowledged)` |
+| peripheral 전체 payload 수신 | **pass** | firmware callback 10회 뒤 `Long write verified: 600 bytes` |
+| 전송 중 user disconnect | **pass** | 250 ms 뒤 disconnect 요청, `OPERATION_INVALIDATED` 반환 |
+| partial progress | **pass** | `totalBytes=600`, `totalChunks=10`, `bytesCompleted=124`, `chunksCompleted=2`, `failedChunkIndex=2`, `failedChunkBytes=62` |
+| 현재 chunk 불확실성 | **pass** | `failedChunkWasStarted=true`, `delivery=RemoteAcknowledged`, `currentChunkDeliveryUnknown=true` |
+| implicit replay 금지 | **pass** | disconnect 뒤 10초 관찰 동안 자동 재연결 및 남은 payload 재전송 없음 |
+| JVM 회귀 oracle | **pass** | MTU 65 정상 10청크 및 3번째 청크 중단 진행률 테스트; `:core:testDebugUnitTest` green |
+
+`RemoteAcknowledged`는 앞선 두 chunk의 GATT write response 완료를 뜻하며 firmware 제품 로직의
+처리 완료를 뜻하지 않는다. 시작된 세 번째 chunk는 전달 여부를 확정할 수 없어 unknown으로
+남긴다.
+
+### 이 수동 실행만으로 증명하지 않은 범위
+
+- RF link loss 또는 peripheral 전원 차단
+- write without response 처리율과 backpressure
+- reconnect와 subscription restore(후속 자동 하네스 결과는 아래 절 참조)
+- Bluetooth off/on, permission revoke, GATT 8/19/133
+- timeout 뒤 late callback과 wrong callback
+- notify/indicate 차이, bonding(후속 자동 하네스 결과는 아래 절 참조), 중복 UUID instance
+- Android API 24~32 및 다른 OEM 기기
+- 로그 유용성 및 PII/secret 수동 검토
+
+따라서 이 수동 실행 자체는 Slice 8 matrix의 `write with response`와
+`long write cancel/disconnect` 일부 셀만 충족한다. 같은 환경의 후속 자동 하네스 결과는
+아래 절에서 별도로 기록한다.
+
+## 2026-09-21~22 — 자동 실기기 하네스
+
+### 환경
+
+| 항목 | 값 |
+|---|---|
+| Android 기기 | Google Pixel 5a |
+| Android 버전 | 14 |
+| Peripheral | Nordic nRF52840 DK |
+| Firmware | NUS 기반 통합 테스트 firmware (`IT:*` 명령 지원) |
+| 테스트 | `sample/src/androidTest/.../BleHardwareIntegrationTest.kt` |
+
+### 결과
+
+| matrix 항목 | 결과 | 자동 oracle |
+|---|---|---|
+| 600-byte write with response | **pass** | 10 chunk, `RemoteAcknowledged`, peripheral 수신 결과 확인 |
+| 600-byte write without response | **pass** | 10 chunk, `SubmittedToPlatform`, peripheral 수신 결과 확인 |
+| duplicate connect | **pass** | 동일 options 연결 2회가 추가 상태 전이·link connect count를 만들지 않음 |
+| 강제 disconnect 뒤 SDK reconnect | **pass** | firmware `IT:DISCONNECT` 뒤 같은 session이 `Ready`로 복귀 |
+| subscription restore | **pass** | reconnect 뒤 subscribe count 증가 및 notification sequence 재개 |
+| duplicate disconnect | **pass** | `Disconnecting` 전이 1회, 최종 disconnected |
+| disconnected session 재사용 | **pass** | 같은 peripheral에 다시 연결해 status와 notification 수신 |
+| Android bond 생성 | **pass** | `AndroidBondController.createBond`, 시스템 승인 자동화 후 bonded |
+| bond 유지와 암호화 reconnect | **pass** | reconnect 전후 firmware bond count 1, security level 2 이상 |
+| peripheral bond reset | **pass** | `IT:BOND_RESET` accepted 뒤 disconnect 및 peripheral 저장 bond 삭제 |
+| 재본딩 | **pass** | 로컬 bond 정리 후 createBond 재실행, firmware `reset=PASS`, bond count 1 |
+
+본딩 검증에서 Android의 bond 삭제는 공개 라이브러리 API가 아니라 androidTest 전용
+`AndroidBondTestController`가 숨은 `removeBond`를 호출한다. 제품 API는 bond 생성과 상태 조회만
+제공하고, peripheral의 bond 삭제는 통합 테스트 firmware 명령으로만 수행한다.
+
+### 아직 증명하지 않은 범위
+
+- write without response의 장시간 처리율·backpressure와 다른 OEM 동작
+- RF range out/in, peripheral 전원 차단, GATT 8/19/133
+- Bluetooth off/on, runtime permission revoke
+- timeout 뒤 late callback과 wrong callback
+- indication, 동일 UUID 다중 instance, service topology 변경 중 restore
+- Android API 24~32 및 Pixel 외 OEM 기기
+- 로그 유용성 및 PII/secret 수동 검토
+
+따라서 Pixel 5a/Android 14/nRF52840 조합의 정상 경로와 명시적 firmware disconnect·bond reset은
+통과했지만, OEM/API-level callback matrix와 장애 주입 matrix는 계속 **검증 필요**다.
+
+## 2026-09-22 — 어댑터 상태 baseline (plan B `AndroidCentral` 배선 선행 조건)
+
+> **목적**: `BleRuntime` 의 어댑터·권한 판정 코드를 `AndroidCentral` 로 위임하기 **전**의 동작을
+> 고정한다. 아래 두 시나리오는 이전까지 "아직 증명하지 않은 범위"였다. plan B 뒤 같은 테스트를
+> 다시 돌려 이 표와 diff 한다.
+
+### 환경
+
+| 항목 | 값 |
+|---|---|
+| 코드 | `5716ea2` (plan A 완료 직후, plan B 이전) |
+| Android 기기 | Google Pixel 5a / Android 14 |
+| Peripheral | nRF52840 DK, Zephyr NUS firmware, `F0:2F:24:A8:0F:9E` |
+| 테스트 | `sample/src/androidTest/.../AdapterStateBaselineTest.kt`, `AdapterStatePermissionBaselineTest.kt` (logcat tag `BleBaseline`) |
+
+### ① Bluetooth off → on (세션 Ready 상태에서)
+
+`UiDevice.executeShellCommand("svc bluetooth disable" / "enable")` 로 토글.
+
+| 단계 | 관찰 | 결과 |
+|---|---|---|
+| off 직후 | `adapterState` `Ready → PoweredOff` (335 ms) | **pass** |
+| off 직후 세션 | `Ready → Disconnected(Failed: ADAPTER_UNAVAILABLE / phase Adapter)` — sweep 동작 | **pass** |
+| on 뒤 | `adapterState` `PoweredOff → Ready` (3.3 s) | **pass** |
+| on 뒤 **직접** `connect(peripheralId)` (재스캔 없이) | `Connecting → (30 s) → Disconnecting → Disconnected(Failed: LINK_TIMEOUT / Link)` | **fail** |
+| on 뒤 **재스캔 후** `connect(peripheralId)` | 재스캔 0.2 s에 발견, `Connecting → DiscoveringServices → Configuring → Ready` 1.2 s | **pass** |
+
+관찰 시퀀스(logcat):
+```
+adapter    = Ready > PoweredOff > Ready
+connection = Connecting > DiscoveringServices > Configuring > Ready
+           > Disconnected(Failed:ADAPTER_UNAVAILABLE/Adapter)
+           > Connecting > Disconnecting > Disconnected(Failed:LINK_TIMEOUT/Link)      ← 직접 connect
+           > Connecting > DiscoveringServices > Configuring > Ready                    ← 재스캔 후
+           > Disconnecting > Disconnected(Initial)
+```
+
+**기존 결함(plan B 무관)**: `ble-core-diagrams.md` §7 의 "BT off→on 이후에도 앱이 들고 있던
+`PeripheralId` 로 재발견 없이 다시 `connect()` 할 수 있다" 는 이 조합에서 성립하지 않는다.
+원인 후보(확인 필요): BT 재시작으로 LE 주소 캐시가 비면 `BluetoothAdapter.getRemoteDevice(address)`
+가 주소 타입을 알 수 없어 random static 주소의 peripheral 에 직접 연결이 되지 않는 Android 스택
+동작 — API 33+ `getRemoteLeDevice(address, ADDRESS_TYPE_RANDOM)` 또는 "재스캔 후 연결" 정책이
+후보. 별도 plan 사안.
+
+### ② 런타임 권한 회수 (프로세스 재시작 후 초기 상태)
+
+Android 는 런타임 권한 회수 시 앱 프로세스를 종료하므로 라이브 전이가 아니라 **재시작 후 초기
+상태**로 관측한다. `adb shell pm revoke` 두 권한 → `am instrument` → `pm grant` 복구.
+
+| 단계 | 관찰 | 결과 |
+|---|---|---|
+| 클라이언트 생성 직후 `adapterState.value` | `Unauthorized(canRequest=true)` | **pass** |
+| `startScan()` | `BleException PERMISSION_DENIED / phase Adapter / AfterEnvironmentChange` | **pass** |
+
+매니페스트 미선언(`Unauthorized(canRequest=false)`)은 sample 이 권한을 선언하므로 이 방법으로
+재현 불가 — 계속 **검증 필요**.
+
+### 재현 명령
+
+```
+# ① — gradle 이 APK 설치·실행·삭제
+./gradlew :sample:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.hardwareBle=true \
+  -Pandroid.testInstrumentationRunnerArguments.class=kr.co.nucode.ble.sample.AdapterStateBaselineTest
+adb logcat -d -s BleBaseline
+
+# ② — APK 를 직접 설치한 뒤 권한 회수 상태로 실행 (GrantPermissionRule 없음)
+adb install -r -t sample/build/outputs/apk/debug/sample-debug.apk
+adb install -r -t sample/build/outputs/apk/androidTest/debug/sample-debug-androidTest.apk
+adb shell pm revoke kr.co.nucode.ble.sample android.permission.BLUETOOTH_SCAN
+adb shell pm revoke kr.co.nucode.ble.sample android.permission.BLUETOOTH_CONNECT
+adb shell am instrument -w -e hardwareBle true \
+  -e class kr.co.nucode.ble.sample.AdapterStatePermissionBaselineTest \
+  kr.co.nucode.ble.sample.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s BleBaseline
+adb shell pm grant kr.co.nucode.ble.sample android.permission.BLUETOOTH_SCAN
+adb shell pm grant kr.co.nucode.ble.sample android.permission.BLUETOOTH_CONNECT
+```
+
+### 사후 검증 — plan B 완료 후 (2026-09-22, HEAD `52e4c0d` → squash 전)
+
+같은 두 테스트를 `AndroidCentral` 배선 뒤 재실행. peripheral 은 `blePeripheralId=F0:2F:24:A8:0F:9E` 로 고정
+(미지정 시 주변의 다른 NUS 광고 기기 `D1:0B:C5:49:D9:AD` 가 먼저 잡혔다 — 어댑터 경로 결과는 동일했으나
+재연결 행 비교를 같은 기기로 맞추기 위해 고정 재실행).
+
+| 항목 | baseline (`5716ea2`) | plan B 후 | diff |
+|---|---|---|---|
+| off → `PoweredOff` | 335 ms | 385 ms | 상태 동일 |
+| off → 세션 | `Disconnected(Failed: ADAPTER_UNAVAILABLE/Adapter)` | 동일 | 0 |
+| on → `Ready` | 3.3 s | 3.25 s | 상태 동일 |
+| on → 직접 `connect` | `LINK_TIMEOUT` (fail) | `LINK_TIMEOUT` (fail) | 0 — 기존 결함 유지 |
+| on → 재스캔 후 `connect` | 발견 0.2 s · Ready 1.2 s | 발견 0.33 s · Ready 1.3 s | 상태 동일 |
+| 권한 회수 → 초기 상태 | `Unauthorized(canRequest=true)` | 동일 | 0 |
+| 권한 회수 → `startScan()` | `PERMISSION_DENIED/Adapter/AfterEnvironmentChange` | 동일 | 0 |
+
+연결 시퀀스 15단계(logcat `SEQUENCE connection=`)가 baseline 2차 실행과 문자열 단위로 동일.
+**판정: 동작 보존.** 직접 재연결 실패는 plan B 이전부터 있던 결함으로 별도 사안.
+
+### 진단 — BT 토글 뒤 직접 재연결 실패 (2026-09-22, raw Android API 프로브)
+
+라이브러리를 거치지 않는 프로브로 같은 주소(`F0:2F:24:A8:0F:9E`, random static)에 세 방식을 비교.
+BT 스택 로그(`bt_btif_gattc: btif_gattc_open_impl`)의 `device type` / `address type` 이 결정 증거다.
+
+| 시점 | 방식 | 스택이 본 주소 타입 | 결과 |
+|---|---|---|---|
+| 토글 전 | `getRemoteDevice(addr).connectGatt` | device type=2(LE), address type=1(RANDOM) | 연결 547 ms |
+| 토글 후 | **A** `getRemoteDevice(addr).connectGatt` | **device type=0(UNKNOWN), address type=0(PUBLIC)** | **12 s 무응답** |
+| 토글 후 | **B** `getRemoteLeDevice(addr, ADDRESS_TYPE_RANDOM).connectGatt` (API 33+) | address type=1 | 연결 261 ms |
+| 토글 후 | **C** 주소 필터 스캔 1회 → `getRemoteDevice(addr).connectGatt` | address type=1 | 스캔 즉시 발견, 연결 123 ms |
+
+**원인**: BT 재시작으로 스택의 LE 기기 캐시(주소별 device/address type)가 비면
+`BluetoothAdapter.getRemoteDevice(address)` 는 타입을 모른 채 PUBLIC 으로 연결을 시도한다.
+random static 주소의 peripheral 은 PUBLIC 으로는 존재하지 않으므로 콜백이 오지 않고 라이브러리의
+`linkTimeoutMillis` 까지 매달린다. 스캔은 캐시를 다시 채워 타입을 복원하고(C), API 33+ 에서는
+타입을 명시해 우회할 수 있다(B). 스택 코드 위치: `packages/modules/Bluetooth/system/btif/src/btif_gatt_client.cc:339`.
+
+라이브러리는 `PeripheralId` 문자열만 들고 있어 주소 타입을 모른다. `BluetoothDevice.getAddressType()` 는
+API 35 부터라 Pixel 5a(34)에서는 스캔 결과에서도 읽을 수 없다. 주소 상위 2비트(11 = random static)
+휴리스틱은 첫 옥텟이 0xC0 이상인 **public** OUI 와 구분되지 않아 안전하지 않다.
+
+### 수정 결과 — cold-cache 재발견 (2026-09-22, plan F, HEAD `b79594a` → squash 전)
+
+`connect()` 앞에 이 클라이언트가 마지막 Ready 이후 본 적 없는 주소(cold)면 주소 필터 스캔 1회
+(`AndroidPeripheralRediscovery`, 상한 `BleConfig.rediscoveryTimeoutMillis` = 3 s)로 스택 LE 캐시를
+채운 뒤 `connectGatt` 한다. warm 주소(스캔 관측·링크 성립)는 그대로 직접 연결.
+
+| 항목 | 수정 전 (`5716ea2`) | 수정 후 | 근거 |
+|---|---|---|---|
+| BT on → 직접 `connect(peripheralId)` | 30 s `LINK_TIMEOUT` | **Ready 1,280 ms** | `AdapterStateBaselineTest` pass, `btif_gattc_open_impl … address type =1` |
+| 어댑터 시퀀스 | `Ready > PoweredOff > Ready` | 동일 | logcat `SEQUENCE` |
+| 연결 시퀀스 | (재스캔 폴백 경로) | `… Disconnected(ADAPTER_UNAVAILABLE) > Connecting > DiscoveringServices > Configuring > Ready` — 재스캔 없이 | logcat `SEQUENCE` |
+| 하네스 `longWritesAndReconnectRestore…` (warm 재연결·CCCD 복원) | pass | pass | XML |
+| 하네스 `duplicateDisconnect…` | pass | pass | XML |
+| 하네스 `bondingPersists…` | pass(아침) | **fail — 환경** | 아래 |
+
+**본딩 하네스 실패는 plan F 와 무관한 환경 문제다.** 폰 로그에 BONDING(11) 진입이 없고
+`btm_sec_pairing_timeout … state: IDLE`; 프로브로 보낸 `IT:BOND_RESET` 에 펌웨어가
+`status=DENIED_SECURITY`(암호화 링크 필요 = 펌웨어에 본딩이 남아 있음). 아침 실행이 재본딩 단계로
+끝나 펌웨어 본딩을 남겼고, 테스트 시작의 정리는 폰 쪽 본딩만 지운다 → 펌웨어는 이미 본딩된
+상대의 재페어링을 거부해 다이얼로그가 뜨지 않는다. 그 테스트는 스캔→connect(warm) 라 재발견
+경로를 밟지 않는다. **복구: 보드에서 본딩 삭제(Zephyr 셸 `bt clear all` 또는 리플래시) 후 재실행.**
+후속: 본딩 하네스가 실행 간 멱등이 되도록 마지막 단계에서 `IT:BOND_RESET` 을 한 번 더 보내야 한다.
+
+JVM: `GattBridgeRediscoveryTest` 6(cold 선행 · warm 미호출 · 미주입 경로 보존 · NotFound fail-fast ·
+Unavailable 폴백+Diagnostic · 재발견 중 disconnect 중단) + `BleConfig` require 1. `:core:testDebugUnitTest` 288 green.
+
+### 사후 검증 — plan D(GattBridge lifecycle/operation 분리) 완료 후 (2026-09-22, 체크포인트 `9a15364`, squash 전)
+
+`GattBridge` 를 `GattConnectionLifecycle`(789줄) + `GattOperationEngine`(918줄) + façade(200줄)로 가른 뒤,
+`OperationQueue` 실패 helper 를 `GattFailureFactory` 로 흡수한 상태. peripheral `F0:2F:24:A8:0F:9E` 고정.
+
+| 항목 | plan F 뒤 | plan D 뒤 | 근거 |
+|---|---|---|---|
+| BT on → 직접 `connect` | Ready 1,102~1,280 ms | **Ready 1,074 ms** | `AdapterStateBaselineTest` pass |
+| 어댑터 시퀀스 | `Ready > PoweredOff > Ready` | 동일 | logcat `SEQUENCE` |
+| 연결 시퀀스 | `… Ready > Disconnected(Failed:ADAPTER_UNAVAILABLE) > Connecting > DiscoveringServices > Configuring > Ready > Disconnecting > Disconnected(Initial)` | 동일 | logcat `SEQUENCE` |
+| `longWritesAndReconnectRestore…` (600B 두 모드·warm 재연결·CCCD 복원) | pass | pass 8.9 s | XML |
+| `duplicateDisconnect…` | pass | pass 4.8 s | XML |
+| 권한 revoke → `Unauthorized(canRequest=true)`, `startScan` → `PERMISSION_DENIED/Adapter/AfterEnvironmentChange` | pass | pass | `AdapterStatePermissionBaselineTest` 수동 경로 |
+| `bondingPersists…` | fail — 환경(보드 본딩 잔존) | 미실행(보드 본딩 미삭제) | — |
+
+write 경로 실패의 `FailureContext` 에 `sessionId`/`connectionGeneration` 이 붙는 것(plan D 승인 변경)은 실기기
+로그의 `GATT_PAYLOAD_OBSERVED` context 에서 확인(`sessionId=21f4eec1…, connectionGeneration=1`).
+JVM: `:core:testDebugUnitTest` 296 green.
+
+### 사후 검증 — plan E(모델 수렴) 완료 후 (2026-09-22, 체크포인트 `b7e3fb4`, squash 전)
+
+내부 legacy 모델(`DeviceId`·`CharRef`·`Chunking`·`CharProperty`·`Discovered*`·`Scan*`·`Snapshot`)을 지우고 공개 타입을
+내부에서 직접 쓰는 상태. characteristic 미발견 실패는 `attribute`/`CHARACTERISTIC_NOT_FOUND`로 통일.
+
+| 항목 | plan D 뒤 | plan E 뒤 | 근거 |
+|---|---|---|---|
+| BT on → 직접 `connect` | Ready 1,074 ms | **Ready 1,309 ms** | `AdapterStateBaselineTest` pass |
+| 어댑터/연결 시퀀스 | 동일 | 동일 | logcat `SEQUENCE` |
+| `longWritesAndReconnectRestore…` | pass | pass 9.0 s | XML |
+| `duplicateDisconnect…` | pass | pass 4.0 s | XML |
+| NUS 속성 투영(`CharProperty`→`CharacteristicProperty` 매핑) | — | TX `6e400003` `[Notify]`, RX `6e400002` `[WriteWithResponse, WriteWithoutResponse]` | `Services` 이벤트 로그 |
+| 권한 revoke | pass | pass | `AdapterStatePermissionBaselineTest` 수동 경로 |
+
+JVM: `:core:testDebugUnitTest` 296 green. 동일 UUID 다중 instance는 실기기(NUS 단일 instance)로 검증 불가 — JVM 3건만.

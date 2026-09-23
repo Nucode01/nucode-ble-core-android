@@ -7,11 +7,9 @@ import kr.co.nucode.ble.BleWriteMode
 import kr.co.nucode.ble.BleWriteOptions
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteReceipt
-import kr.co.nucode.ble.WriteResult
-import kr.co.nucode.ble.WriteType
 
 /** Stateless per-peripheral view; Session remains the sole mutable state owner. */
 internal class DefaultBleSession(

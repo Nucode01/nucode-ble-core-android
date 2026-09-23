@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.connection
 
 import android.annotation.SuppressLint
 import kotlinx.coroutines.CoroutineScope
@@ -7,17 +7,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleReconnectPolicy
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
-import kr.co.nucode.ble.ReconnectPolicy
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.Severity
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
  * 백오프 곡선. `base * 2^attempt` 를 `maxDelay` 로 clamp 한다 — 순수 함수라 `Reconnector`

@@ -3,7 +3,7 @@ package kr.co.nucode.ble
 import kotlinx.coroutines.Job
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
-import kr.co.nucode.ble.internal.SessionRegistry
+import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

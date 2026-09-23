@@ -8,6 +8,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.event.DiagnosticObservation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

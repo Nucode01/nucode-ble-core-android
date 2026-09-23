@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.event
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList

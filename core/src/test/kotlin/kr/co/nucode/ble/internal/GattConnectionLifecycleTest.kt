@@ -3,8 +3,12 @@ package kr.co.nucode.ble.internal
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.ConnectOptions
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.gatt.GattConnectionLifecycle
+import kr.co.nucode.ble.internal.gatt.GattOperationHooks
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

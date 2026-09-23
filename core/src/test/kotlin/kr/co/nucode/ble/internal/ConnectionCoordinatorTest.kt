@@ -6,6 +6,13 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.ConnectionCoordinator
+import kr.co.nucode.ble.internal.session.ConnectionLifecycleSnapshot
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

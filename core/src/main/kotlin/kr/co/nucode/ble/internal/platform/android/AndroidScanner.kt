@@ -14,11 +14,11 @@ import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
 import kr.co.nucode.ble.BleServiceDataFilter
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureMapper
-import kr.co.nucode.ble.internal.ScanObservation
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.scan.ScanObservation
 
-/** Android implementation of scan lifetime. Policy/predicate state stays in internal.Scanner. */
+/** Android implementation of scan lifetime. Policy/predicate state stays in internal.scan.Scanner. */
 internal class AndroidScanner(private val scanner: () -> BluetoothLeScanner?) {
     private var callback: ScanCallback? = null
 

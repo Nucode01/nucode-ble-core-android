@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import java.util.UUID
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.AdvertisementData
@@ -7,20 +8,21 @@ import kr.co.nucode.ble.BleManufacturerDataFilter
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleServiceDataFilter
 import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
+import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.UUID
 
 class ScannerContractTest {
     private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext)) { null }
@@ -113,7 +115,7 @@ class ScannerContractTest {
 
     @Test
     fun `client level scan failure does not manufacture a session correlation`() {
-        val events = mutableListOf<kr.co.nucode.ble.BleEvent>()
+        val events = mutableListOf<kr.co.nucode.ble.internal.event.BleEvent>()
         val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext)) { null }
         scanner.startOverride = { _, _ ->
             kr.co.nucode.ble.BleFailure(
@@ -126,7 +128,7 @@ class ScannerContractTest {
 
         scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions())
 
-        val failure = (events.single() as kr.co.nucode.ble.BleEvent.Diagnostic).failure
+        val failure = (events.single() as kr.co.nucode.ble.internal.event.BleEvent.Diagnostic).failure
         assertNull(failure.context.sessionId)
         assertNull(failure.context.connectionGeneration)
     }

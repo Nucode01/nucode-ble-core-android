@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.diagnostics
 
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit

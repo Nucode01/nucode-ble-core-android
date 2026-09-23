@@ -1,10 +1,11 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import java.util.UUID
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.session.Session
 
 /**
  * Android GATT command/callback boundary.

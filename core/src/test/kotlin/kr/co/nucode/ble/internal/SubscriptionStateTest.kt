@@ -1,15 +1,17 @@
 package kr.co.nucode.ble.internal
 
 import java.util.UUID
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SubscriptionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

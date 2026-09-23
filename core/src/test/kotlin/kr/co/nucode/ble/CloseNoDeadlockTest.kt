@@ -12,8 +12,10 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.GattDriver
+import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

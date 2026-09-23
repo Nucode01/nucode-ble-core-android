@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import java.util.UUID
 import kr.co.nucode.ble.CharacteristicRef

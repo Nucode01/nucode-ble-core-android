@@ -2,13 +2,14 @@ package kr.co.nucode.ble
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
+import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kr.co.nucode.ble.internal.DiagnosticDispatcher
-import kr.co.nucode.ble.internal.DiagnosticReporter
 
 class DiagnosticPayloadTest {
     @Test

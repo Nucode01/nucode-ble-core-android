@@ -1,6 +1,5 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.ConnectionState
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -9,13 +8,16 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleChunking
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.WriteResult
-import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.gatt.OperationQueue
+import kr.co.nucode.ble.internal.gatt.chunkSizeForMtu
+import kr.co.nucode.ble.internal.gatt.splitIntoChunks
+import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame

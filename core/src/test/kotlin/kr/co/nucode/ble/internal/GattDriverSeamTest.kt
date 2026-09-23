@@ -1,7 +1,5 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.BleDisconnectReason
-import kr.co.nucode.ble.ConnectionState
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -15,28 +13,40 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.BleChunking
+import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.CharacteristicProperty
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.CharacteristicProperty
-import kr.co.nucode.ble.BleChunking
-import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.WriteResult
-import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattBridge
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattOperation
+import kr.co.nucode.ble.internal.gatt.GattOperationKind
+import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.gatt.OperationQueue
+import kr.co.nucode.ble.internal.gatt.ScheduledGattOperation
 import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
 import kr.co.nucode.ble.internal.platform.android.characteristicChangedEvent
 import kr.co.nucode.ble.internal.platform.android.characteristicReadEvent
 import kr.co.nucode.ble.internal.platform.android.characteristicWriteEvent
 import kr.co.nucode.ble.internal.platform.android.descriptorWriteEvent
 import kr.co.nucode.ble.internal.platform.android.identityIndexOrNull
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -709,7 +719,7 @@ class GattDriverSeamTest {
                 characteristic,
                 charRef,
                 byteArrayOf(1),
-                kr.co.nucode.ble.WriteType.WithResponse,
+                kr.co.nucode.ble.internal.WriteType.WithResponse,
             )
         }
         runCurrent()

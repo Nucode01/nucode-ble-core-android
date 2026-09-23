@@ -7,6 +7,7 @@ import kr.co.nucode.ble.BleManufacturerDataFilter
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleServiceDataFilter
 import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

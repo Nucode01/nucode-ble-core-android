@@ -1,8 +1,11 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.connection
 
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 
 /**
  * 연결 절차 진행 hook. 상태·서비스·MTU 사실을 발행한 소유자가 발행 **직후** 부른다 —

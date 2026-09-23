@@ -1,4 +1,13 @@
-package kr.co.nucode.ble
+package kr.co.nucode.ble.internal.event
+
+import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.DiagnosticOptions
+import kr.co.nucode.ble.DiagnosticValue
+import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.Severity
 
 /**
  * 코어 내부 신호. 내부 관측 탭(`_events`)과 공식 이벤트 투영의
@@ -58,7 +67,7 @@ internal sealed interface BleEvent {
 
 /**
  * Internal diagnostic input retained for same-module test seams. It is not a [BleEvent]; runtime
- * producers use [kr.co.nucode.ble.internal.DiagnosticIngress] directly.
+ * producers use [kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress] directly.
  *
  * Despite the name, `BleRuntime.emit(DiagnosticObservation)` goes through `report` and IS projected to
  * the public event stream. Do not route per-payload observations through it — those must use
@@ -70,27 +79,4 @@ internal class DiagnosticObservation(
     private val valuesFactory: (DiagnosticOptions) -> Map<String, DiagnosticValue> = { emptyMap() },
 ) {
     internal fun values(options: DiagnosticOptions): Map<String, DiagnosticValue> = valuesFactory(options)
-}
-
-/**
- * Structured official projection: connection, services, subscription restore failures and
- * diagnostics. Scan results are not projected here; they flow only through `BleClient.scanResults`.
- */
-public sealed interface OfficialBleClientEvent : BleClientEvent {
-    public data class Connection(val peripheralId: PeripheralId, val state: ConnectionState) : OfficialBleClientEvent
-    public data class Services(val peripheralId: PeripheralId, val services: List<GattService>) : OfficialBleClientEvent
-    /** A desired subscription could not be restored permanently and was removed from intent. */
-    public data class SubscriptionRestoreFailed(
-        val peripheralId: PeripheralId,
-        val characteristic: CharacteristicRef,
-        val failure: BleFailure,
-    ) : OfficialBleClientEvent
-    public data class Diagnostic(val severity: Severity, val failure: BleFailure) : OfficialBleClientEvent
-}
-
-/** Diagnostic 심각도. 작게 유지한다. */
-public enum class Severity {
-    Info,
-    Warning,
-    Error,
 }

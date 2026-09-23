@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test

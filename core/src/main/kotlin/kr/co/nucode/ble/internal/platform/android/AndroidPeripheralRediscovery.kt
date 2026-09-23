@@ -13,8 +13,8 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
-import kr.co.nucode.ble.internal.PeripheralRediscovery
-import kr.co.nucode.ble.internal.RediscoveryOutcome
+import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 
 /**
  * Address-filtered, bounded scan that repopulates the platform LE cache before connectGatt.

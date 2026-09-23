@@ -1,21 +1,22 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.session
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.UUID
-import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.FailureContext
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleDisconnectReason
-import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.DisconnectReason
+import kr.co.nucode.ble.FailureContext
+import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.gatt.GattOperationScheduler
 
 /**
  * 기기 하나의 상태 전부. 설계 §3 규칙 2 — 기기별 상태는 객체 하나에 모은다.

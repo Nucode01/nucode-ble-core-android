@@ -1,11 +1,11 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.scan
 
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanFilter as AndroidScanFilter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdvertisementData
-import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanOptions

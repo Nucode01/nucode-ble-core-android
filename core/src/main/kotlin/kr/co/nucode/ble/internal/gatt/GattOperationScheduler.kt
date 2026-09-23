@@ -1,7 +1,8 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import java.util.ArrayDeque
 import kotlinx.coroutines.CompletableDeferred
+import kr.co.nucode.ble.internal.session.Session
 
 /** FIFO 항목과 caller completion을 함께 보존하는 internal handle. */
 internal class ScheduledGattOperation<T> internal constructor(

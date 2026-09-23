@@ -3,6 +3,8 @@ package kr.co.nucode.ble.internal
 import java.util.UUID
 import kr.co.nucode.ble.DiagnosticOptions
 import kr.co.nucode.ble.DiagnosticValue
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticPolicy
+import kr.co.nucode.ble.internal.diagnostics.PayloadDirection
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

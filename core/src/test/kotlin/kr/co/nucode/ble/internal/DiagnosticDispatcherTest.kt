@@ -3,6 +3,7 @@ package kr.co.nucode.ble.internal
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleLogger
 import kr.co.nucode.ble.DiagnosticFailure
 import kr.co.nucode.ble.DiagnosticRecord
@@ -11,9 +12,10 @@ import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.BleFailure
-import org.junit.Assert.assertFalse
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticRateLimiter
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

@@ -2,9 +2,9 @@ package kr.co.nucode.ble
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kr.co.nucode.ble.internal.ConnectionStage
-import kr.co.nucode.ble.internal.Session
-import kr.co.nucode.ble.internal.TerminalCleanupReason
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 private val lifecycleFixtureScope = CoroutineScope(Dispatchers.Unconfined)
 

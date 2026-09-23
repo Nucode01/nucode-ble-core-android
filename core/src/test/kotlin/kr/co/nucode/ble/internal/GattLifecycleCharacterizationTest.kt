@@ -7,7 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kr.co.nucode.ble.BleException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -20,11 +19,25 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
-import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.ReconnectPolicy
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattBridge
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattOperation
+import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -86,7 +99,7 @@ class GattLifecycleCharacterizationTest {
             readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000),
         )
 
-        bridge.connect(DEVICE_ID, kr.co.nucode.ble.ConnectOptions(timeoutMillis = null))
+        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.ConnectOptions(timeoutMillis = null))
 
         assertEquals(1L, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
@@ -501,7 +514,7 @@ class GattLifecycleCharacterizationTest {
         assertEquals(listOf("disconnect", "close"), driver.commands)
 
         // BleCore.connect가 public state gate를 통과한 뒤 실행하는 실제 bridge path를 재현한다.
-        bridge.connect(DEVICE_ID, kr.co.nucode.ble.ConnectOptions())
+        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.ConnectOptions())
 
         assertEquals(firstGeneration + 1, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)

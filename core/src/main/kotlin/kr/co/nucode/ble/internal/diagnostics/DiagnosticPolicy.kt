@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.diagnostics
 
 import java.security.MessageDigest
 import kr.co.nucode.ble.CharacteristicRef

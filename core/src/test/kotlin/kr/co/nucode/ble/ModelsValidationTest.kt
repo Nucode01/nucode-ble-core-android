@@ -1,5 +1,7 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.ReconnectPolicy
 import org.junit.Assert.assertThrows
 import org.junit.Test
 

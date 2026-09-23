@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

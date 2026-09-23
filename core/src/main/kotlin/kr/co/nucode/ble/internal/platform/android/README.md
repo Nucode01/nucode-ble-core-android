@@ -9,7 +9,7 @@
 `ScanObservation`) 변환, 플랫폼 상수(`Manifest.permission.*`, `Build.VERSION_CODES.*`)에 따른
 판정. `BluetoothGattCallback`·`ScanCallback` 을 상속하는 코드는 전부 여기다.
 
-**orchestration** — 연결 단계, 작업 순서, 취소·정리 정책. `internal/` 에 남는다.
+**orchestration** — 연결 단계, 작업 순서, 취소·정리 정책. `internal/` 루트와 기능별 하위 패키지(`session/`·`connection/`·`gatt/`·`scan/`)에 남는다.
 `GattBridge`(+ `GattConnectionLifecycle`·`GattOperationEngine`), `BleRuntime`, `Session`, `Reconnector`, `OperationQueue`, `Scanner`.
 
 ## 이 규칙이 뜻하지 않는 것
@@ -28,5 +28,5 @@
 
 루트 README 규칙 10번(grep 게이트)을 따른다. 이 저장소의 테스트는 소스를 **경로 문자열로
 읽는다** — `GattDriverSeamTest` 가 `AndroidGattCallbackRouter.kt` 를, `PublicApiSurfaceTest` 와
-`LegacyBleCoreCompatibilityTest` 가 `PublicModels.kt`·`BleClient.kt`·`BleSession.kt` 를,
+`LegacyBleCoreCompatibilityTest` 가 `PublicModels.kt`·`BleClient.kt`·`BleSession.kt`·`ClientEvents.kt`·`internal/event/BleEvent.kt` 를,
 `BleClientContractTest` 가 `kr/co/nucode/ble/` 아래 상대 경로로 받은 파일을 텍스트로 검사한다.

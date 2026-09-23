@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
@@ -10,6 +10,9 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.session.ConnectionCoordinator
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
  * `BleFailure` 생성 전용 층. `Session` context·operation attribution·비플랫폼 code를

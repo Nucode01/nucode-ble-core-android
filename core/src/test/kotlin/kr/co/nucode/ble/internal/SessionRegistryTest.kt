@@ -1,11 +1,13 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.PeripheralId
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull

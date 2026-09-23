@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothGattCharacteristic
 import kotlinx.coroutines.CancellationException
@@ -6,17 +6,19 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
-import kr.co.nucode.ble.BleEvent
+import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.BleChunking
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.OperationKind
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteProgress
-import kr.co.nucode.ble.WriteResult
-import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.WriteResult
+import kr.co.nucode.ble.internal.WriteType
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 
 /**
  * write 직렬화 + 청킹(설계 §6 구성요소, §5 WriteResult, plan §잠재에러 chunkSize).

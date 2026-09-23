@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.session
 
 import java.util.Collections
 import kr.co.nucode.ble.CharacteristicRef

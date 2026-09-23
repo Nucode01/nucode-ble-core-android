@@ -1,4 +1,7 @@
-package kr.co.nucode.ble
+package kr.co.nucode.ble.internal
+
+import kr.co.nucode.ble.BleConfig
+import kr.co.nucode.ble.BleFailure
 
 /** nullable ByteArray 내용 비교. 둘 다 null 이면 같고, 하나만 null 이면 다르다. */
 private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {

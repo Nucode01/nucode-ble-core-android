@@ -1,12 +1,19 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.ConnectionState
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.gatt.GattLifecycleHooks
+import kr.co.nucode.ble.internal.gatt.GattOperationEngine
+import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

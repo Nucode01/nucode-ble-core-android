@@ -29,10 +29,30 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
+import kr.co.nucode.ble.internal.connection.ConnectSequence
+import kr.co.nucode.ble.internal.connection.Reconnector
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.event.DiagnosticObservation
+import kr.co.nucode.ble.internal.event.NotificationHub
+import kr.co.nucode.ble.internal.gatt.GattBridge
+import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidPeripheralRediscovery
 import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
+import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.scan.Scanner
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
  * D7(M-8+#16) 권한 판정 순수 함수 — `sdkInt`/매니페스트 선언 셋/런타임 grant 조회를 인자로
@@ -179,7 +199,7 @@ internal class BleRuntime private constructor(
 
     /**
      * [config]에 디스패처가 주입되지 않으면 코어가 단일 스레드 확정 디스패처를 만든다.
-     * 단일 스레드에 상태를 고정해 [kr.co.nucode.ble.internal.Session]·[SessionRegistry]에
+     * 단일 스레드에 상태를 고정해 [kr.co.nucode.ble.internal.session.Session]·[SessionRegistry]에
      * `Mutex`를 뿌리지 않아도 되게 한다(plan §접근 배선①).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -597,7 +617,7 @@ internal class BleRuntime private constructor(
             session.prepareDisconnect(DisconnectReason.Failed(failure))
             session.connectionCoordinator.completeCleanup(
                 session.connectionCoordinator.generation,
-                kr.co.nucode.ble.internal.TerminalCleanupReason.AdapterUnavailable,
+                kr.co.nucode.ble.internal.session.TerminalCleanupReason.AdapterUnavailable,
             )
             gattBridge.close(session)
             // mtu/chunkSize 무효화(plan G) — GattBridge.handleConnectionStateChange 의
@@ -1109,7 +1129,7 @@ internal class BleRuntime private constructor(
                 session.prepareDisconnect(DisconnectReason.ClientClosed)
                 session.connectionCoordinator.completeCleanup(
                     session.connectionCoordinator.generation,
-                    kr.co.nucode.ble.internal.TerminalCleanupReason.ClientClosed,
+                    kr.co.nucode.ble.internal.session.TerminalCleanupReason.ClientClosed,
                 )
                 gattBridge.close(session)
             }.onFailure { t -> if (firstFailure == null) firstFailure = t }

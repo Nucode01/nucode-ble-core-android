@@ -1,28 +1,35 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import java.util.UUID
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
-import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
-import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.internal.WriteType
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticPolicy
+import kr.co.nucode.ble.internal.diagnostics.PayloadDirection
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /** Task 3 operation whose ACK clock starts only after the platform start call returns. */
 private interface StartTrackedGattOperation {

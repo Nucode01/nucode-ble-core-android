@@ -1,5 +1,6 @@
 package kr.co.nucode.ble
 
+import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -8,13 +9,13 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.Session
 import kr.co.nucode.ble.internal.charRef
-import java.util.UUID
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

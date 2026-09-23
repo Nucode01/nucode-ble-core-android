@@ -4,6 +4,8 @@ import java.util.UUID
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test

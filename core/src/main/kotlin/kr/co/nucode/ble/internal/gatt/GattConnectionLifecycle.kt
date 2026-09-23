@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -7,20 +7,30 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AndroidApiOperation
-import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
+import kr.co.nucode.ble.internal.connection.ConnectSequenceHooks
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /** operation → lifecycle. */
 internal interface GattLifecycleHooks {

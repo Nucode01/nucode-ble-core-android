@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.session
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job

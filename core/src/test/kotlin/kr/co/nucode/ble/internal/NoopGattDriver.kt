@@ -4,6 +4,8 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 
 /**
  * 테스트 전용 무동작 [GattDriver] 기반 클래스.

@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.scan
 
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.PeripheralId

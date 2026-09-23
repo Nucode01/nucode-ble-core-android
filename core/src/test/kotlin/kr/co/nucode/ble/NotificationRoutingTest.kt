@@ -11,10 +11,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
-import kr.co.nucode.ble.internal.GattCallbackSource
-import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.GattDriverEvent
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

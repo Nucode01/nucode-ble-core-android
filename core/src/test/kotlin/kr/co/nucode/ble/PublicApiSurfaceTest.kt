@@ -1,8 +1,9 @@
 package kr.co.nucode.ble
 
-import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Modifier
+import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
+import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,11 +52,11 @@ class PublicApiSurfaceTest {
             "BleCore", "BleEvent", "ConnState", "ConnectOptions",
             "ReconnectPolicy", "DisconnectReason", "WriteResult", "WriteType",
         ).forEach { forbidden ->
-            val qualifiedName = "kr.co.nucode.ble.$forbidden"
+            // 패키지와 무관하게 이름으로 찾는다 — 이 타입들은 internal 하위 패키지로 옮겨졌으므로
+            // 공개 패키지 FQN 만 보면 어느 패키지에서든 다시 공개되는 것을 놓친다.
             assertFalse(
                 "legacy public API remains: $forbidden",
-                Regex("(^|[^A-Za-z0-9_$])${Regex.escape(qualifiedName)}([^A-Za-z0-9_$]|$)")
-                    .containsMatchIn(dump),
+                Regex("[.$]${Regex.escape(forbidden)}([^A-Za-z0-9_$]|$)").containsMatchIn(dump),
             )
         }
     }
@@ -181,9 +182,9 @@ class PublicApiSurfaceTest {
 
     @Test
     fun `logger-only observation is outside the public BleEvent hierarchy`() {
-        val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/BleEvent.kt").readText()
+        val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/internal/event/BleEvent.kt").readText()
         val observationDeclaration = eventSource.substringAfter("internal class DiagnosticObservation")
-            .substringBefore("/**\n * Structured official projection")
+            .substringBefore("\n}\n") // 선언 본문 끝(0열 닫는 괄호)까지
 
         assertFalse(observationDeclaration.contains(": BleEvent"))
         assertFalse(BleEvent::class.java.declaredClasses.any { it.simpleName == "DiagnosticObservation" })

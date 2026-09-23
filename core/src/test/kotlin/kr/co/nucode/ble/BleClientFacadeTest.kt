@@ -2,27 +2,29 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import kr.co.nucode.ble.internal.DefaultBleClient
-import kr.co.nucode.ble.internal.DefaultBleSession
-import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.GattCallbackSource
-import kr.co.nucode.ble.internal.GattCharacteristicIdentity
-import kr.co.nucode.ble.internal.GattDriverEvent
-import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.GattOperationTarget
-import kr.co.nucode.ble.internal.GattOperationTargetResolver
-import kr.co.nucode.ble.internal.SessionRegistry
 import java.util.UUID
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
+import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.DefaultBleClient
+import kr.co.nucode.ble.internal.DefaultBleSession
+import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattOperationTarget
+import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class BleClientFacadeTest {
     @Test

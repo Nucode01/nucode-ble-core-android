@@ -9,12 +9,12 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.GattCallbackSource
-import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.GattDriverEvent
-import kr.co.nucode.ble.internal.GattServiceSnapshot
-import kr.co.nucode.ble.internal.toIdentity
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.gatt.toIdentity
 
 internal fun characteristicChangedEvent(
     deviceId: PeripheralId,

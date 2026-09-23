@@ -10,6 +10,8 @@ import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticRateLimiter
+import kr.co.nucode.ble.internal.diagnostics.saturatedIncrement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

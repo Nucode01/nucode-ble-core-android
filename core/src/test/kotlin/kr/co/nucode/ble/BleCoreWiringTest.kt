@@ -21,24 +21,32 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kr.co.nucode.ble.internal.GattCallbackSource
-import kr.co.nucode.ble.internal.GattCharacteristicIdentity
-import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.GattDriver
-import kr.co.nucode.ble.internal.GattDriverEvent
-import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.GattOperationKind
-import kr.co.nucode.ble.internal.GattOperationTarget
-import kr.co.nucode.ble.internal.GattOperationTargetResolver
-import kr.co.nucode.ble.internal.ConnectionReadinessTimeouts
-import kr.co.nucode.ble.internal.ConnectionStage
-import kr.co.nucode.ble.internal.charRef
 import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.ReconnectPolicy
+import kr.co.nucode.ble.internal.WriteResult
+import kr.co.nucode.ble.internal.WriteType
+import kr.co.nucode.ble.internal.charRef
 import kr.co.nucode.ble.internal.evaluatePermissionState
-import kr.co.nucode.ble.internal.Session
-import kr.co.nucode.ble.internal.SessionRegistry
-import kr.co.nucode.ble.internal.TerminalCleanupReason
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattBridge
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattOperation
+import kr.co.nucode.ble.internal.gatt.GattOperationKind
+import kr.co.nucode.ble.internal.gatt.GattOperationTarget
+import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.scan.Scanner
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -51,7 +59,7 @@ import org.junit.Test
  * 테스트 seam(`BleRuntime(BleConfig, adapter)` 보조 생성자 + `emit` + `registry`)으로 실제
  * `ConnectSequence` 분기 · emit 순서 · dropped 카운터를 직접 두드린다.
  *
- * `adapter = { null }` 이라 [kr.co.nucode.ble.internal.Scanner]/[kr.co.nucode.ble.internal.GattBridge]
+ * `adapter = { null }` 이라 [kr.co.nucode.ble.internal.scan.Scanner]/[kr.co.nucode.ble.internal.gatt.GattBridge]
  * 의 실제 플랫폼 호출 경로는 이 테스트가 두드리는 명령(`emit`/`registry` 직접 조작)에서는
  * 애초에 진입하지 않는다 — 검증 대상은 `ConnectSequence` 자체이지 워커
  * 배선이 아니다(plan §테스트가능성).
@@ -697,11 +705,11 @@ class BleCoreWiringTest {
      */
     @Test
     fun `D6① GattBridge connect에서 adapter가 사라지면 AdapterUnavailable PoweredOff를 던진다`() {
-        val registry = kr.co.nucode.ble.internal.SessionRegistry()
+        val registry = kr.co.nucode.ble.internal.session.SessionRegistry()
         val id = testDeviceId()
         registry.getOrCreate(id)
 
-        val bridge = kr.co.nucode.ble.internal.GattBridge(
+        val bridge = kr.co.nucode.ble.internal.gatt.GattBridge(
             registry = registry,
             emit = {},
             scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
@@ -846,14 +854,14 @@ class BleCoreWiringTest {
         }
         val identity = GattCharacteristicIdentity.from(ref)
         val pendingA = sessionA.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.Read(0, identity),
+            kr.co.nucode.ble.internal.gatt.GattOperation.Read(0, identity),
         )
         val queuedA = sessionA.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
+            kr.co.nucode.ble.internal.gatt.GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
         )
         sessionA.gattOperationScheduler.startNext()
         val pendingB = sessionB.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.Read(0, identity),
+            kr.co.nucode.ble.internal.gatt.GattOperation.Read(0, identity),
         )
         sessionB.gattOperationScheduler.startNext()
 
@@ -1142,14 +1150,14 @@ class BleCoreWiringTest {
     }
 
     /**
-     * plan B — 취소 지점 3곳 중 [kr.co.nucode.ble.internal.GattBridge.disconnect]. `session.gatt`
+     * plan B — 취소 지점 3곳 중 [kr.co.nucode.ble.internal.gatt.GattBridge.disconnect]. `session.gatt`
      * 가 null 이어도(플랫폼 결합 없이) cancel 자체는 관측할 수 있다 — `session.gatt?.disconnect()`
      * 가 `?.` 라 null 이면 조용히 no-op 이기 때문이다(D6① 과 같은 방식으로 GattBridge 를
      * 직접 구성한다).
      */
     @Test
     fun `PL-B3 GattBridge disconnect가 세션의 resubscribeJob과 reconnectJob을 취소한다`() {
-        val registry = kr.co.nucode.ble.internal.SessionRegistry()
+        val registry = kr.co.nucode.ble.internal.session.SessionRegistry()
         val id = testDeviceId()
         val session = registry.getOrCreate(id)
         val resubscribeJob = kotlinx.coroutines.Job()
@@ -1157,7 +1165,7 @@ class BleCoreWiringTest {
         session.resubscribeJob = resubscribeJob
         session.reconnectJob = reconnectJob
 
-        val bridge = kr.co.nucode.ble.internal.GattBridge(
+        val bridge = kr.co.nucode.ble.internal.gatt.GattBridge(
             registry = registry,
             emit = {},
             scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
@@ -1195,10 +1203,10 @@ class BleCoreWiringTest {
         }
         val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.Read(0, identity),
+            kr.co.nucode.ble.internal.gatt.GattOperation.Read(0, identity),
         )
         val queued = session.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
+            kr.co.nucode.ble.internal.gatt.GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
         )
         session.gattOperationScheduler.startNext()
 
@@ -1213,7 +1221,7 @@ class BleCoreWiringTest {
     }
 
     /**
-     * plan G — [kr.co.nucode.ble.internal.GattBridge.handleConnectionStateChange] 의
+     * plan G — [kr.co.nucode.ble.internal.gatt.GattBridge.handleConnectionStateChange] 의
      * STATE_DISCONNECTED 정리 블록은 `BluetoothGatt` 콜백 파라미터가 필요해 직접 호출이
      * 불가하다(플랫폼 결합) — 대신 같은 정리를 추가한 [BleCore.sweepSessions] 경유로
      * mtu/chunkSize 무효화를 검증한다(스윕도 세션을 `Disconnected` 로 보내므로 대칭이다).
@@ -1616,7 +1624,7 @@ class BleCoreWiringTest {
         ) {}
         val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
-            kr.co.nucode.ble.internal.GattOperation.Read(
+            kr.co.nucode.ble.internal.gatt.GattOperation.Read(
                 session.gattOperationScheduler.currentGeneration,
                 identity,
             ),
@@ -1639,7 +1647,7 @@ class BleCoreWiringTest {
         val session = registry.getOrCreate(deviceId)
         val driver = LifecycleFakeGattDriver()
         val events = mutableListOf<BleEvent>()
-        val bridge = kr.co.nucode.ble.internal.GattBridge(
+        val bridge = kr.co.nucode.ble.internal.gatt.GattBridge(
             registry = registry,
             emit = events::add,
             scope = this,
@@ -1659,7 +1667,7 @@ class BleCoreWiringTest {
         val deviceId: PeripheralId,
         val session: Session,
         val driver: LifecycleFakeGattDriver,
-        val bridge: kr.co.nucode.ble.internal.GattBridge,
+        val bridge: kr.co.nucode.ble.internal.gatt.GattBridge,
         val events: MutableList<BleEvent>,
     ) {
         val generation: Long

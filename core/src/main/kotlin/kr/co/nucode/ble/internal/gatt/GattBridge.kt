@@ -1,19 +1,25 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
-import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ConnectOptions
-import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.WriteType
+import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.WriteType
+import kr.co.nucode.ble.internal.connection.ConnectSequenceHooks
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
+import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionRegistry
 
 /**
  * JVM unit tests cannot construct a usable [BluetoothGatt] service graph. This package-internal

@@ -59,7 +59,8 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
   [`core/api/ble-core.api`](core/api/ble-core.api)
 - automated: core unit/build와 official API만 쓰는 sample assemble
 - 실기기(단일 기기, `sample` 의 `BleHardwareIntegrationTest`·`AdapterStateBaselineTest`): scan →
-  connect → Ready → subscribe/notifications → 장문 write(응답 있음/없음) → disconnect, 재연결 뒤 CCCD 복구,
+  connect → Ready → read(GAP Device Name) → subscribe/notifications → 장문 write(응답 있음/없음) → disconnect,
+  재연결 뒤 CCCD 복구,
   본딩 유지·펌웨어 본딩 초기화·재본딩, BT off/on 스윕 뒤 재연결, 중복 disconnect. 결과와 알려진 간헐 이슈는
   [`docs/v1/android-real-device-results.md`](docs/v1/android-real-device-results.md).
-- 미실행: 실기기 `read`, 여러 기기·OEM callback 차이, 로그 유용성·PII 검토.
+- 미실행: 여러 기기·OEM callback 차이, 로그 유용성·PII 검토.

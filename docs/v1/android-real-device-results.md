@@ -423,3 +423,14 @@ GAP/GATT 만 돌려준 것으로 추정되나 검증 안 됨). 재발 시 `adb l
 검증: 루프 4 의 1회차(폰-only 잔존에서 시작) pass, 5회차 실패 뒤 폰 0 / 보드 0(RTT `LOCAL|BOND|count=0`) 확인.
 
 **간헐 `NUS service was not discovered`.** 이번 전체 구간(am instrument 20회 + 재설치 스위트 8회)에서 0회. 원인 미상 유지.
+
+### 실기기 `read` 검증 (2026-09-23)
+
+NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)을 읽는다 — 펌웨어 변경 불필요.
+`readReturnsGapDeviceNameConfiguredInFirmware`: 두 번 읽어 펌웨어 `CONFIG_BT_DEVICE_NAME`(`Nordic_UART_Service`)과 같은지,
+두 값이 같은지 확인.
+
+| 실행 | 결과 |
+|---|---|
+| 단독 | pass 1.4 s |
+| 전체 스위트(5개) | read pass 2.1 s. 본딩은 알려진 정리 단계 ACK 유실로 fail — 하네스가 보드 0 확인 후 폰 키 정리(자가 복구). 나머지 3개 pass |

@@ -43,6 +43,7 @@ import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.BleWriteMode
 import kr.co.nucode.ble.BleWriteOptions
+import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.DeliverySemantics
@@ -296,6 +297,36 @@ class BleHardwareIntegrationTest {
         } else {
             boardBondResidueMessage(peripheralId, resetMessage, bondOutcome)
         }
+
+    /**
+     * 실기기 `read` 경로. NUS 에는 읽기 가능한 characteristic 이 없어 표준 GAP Device Name(0x2A00)을 읽는다 —
+     * 펌웨어 `CONFIG_BT_DEVICE_NAME` 과 같아야 한다. 펌웨어 변경 없이 검증 가능한 유일한 Read 속성 값이다.
+     */
+    @Test(timeout = 60_000)
+    fun readReturnsGapDeviceNameConfiguredInFirmware() = runBlocking<Unit> {
+        awaitAdapterReady()
+        val peripheralId = discoverPeripheral()
+        val session = client.connect(peripheralId).also { activeSession = it }
+        awaitReady(session)
+        val deviceName = session.services.value
+            .firstOrNull { it.ref.uuid == GAP_SERVICE }
+            ?.characteristics?.firstOrNull { it.ref.uuid == GAP_DEVICE_NAME }
+            ?: error("GAP Device Name characteristic was not discovered")
+        assertTrue(
+            "Device Name must be readable: ${deviceName.properties}",
+            CharacteristicProperty.Read in deviceName.properties,
+        )
+
+        val first = session.read(deviceName.ref).decodeToString()
+        val second = session.read(deviceName.ref).decodeToString()
+
+        assertEquals(EXPECTED_DEVICE_NAME, first)
+        assertEquals("repeated read must return the same value", first, second)
+        session.disconnect()
+        withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+            session.connectionState.first { it is ConnectionState.Disconnected }
+        }
+    }
 
     @Test(timeout = 180_000)
     fun bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware() = runBlocking {
@@ -797,6 +828,11 @@ class BleHardwareIntegrationTest {
         const val STATUS_TIMEOUT_MILLIS = 10_000L
 
         val NUS_SERVICE = BleUuid(UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e"))
+        val GAP_SERVICE = BleUuid(UUID.fromString("00001800-0000-1000-8000-00805f9b34fb"))
+        val GAP_DEVICE_NAME = BleUuid(UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb"))
+
+        /** 펌웨어 `prj.conf` 의 `CONFIG_BT_DEVICE_NAME`. */
+        const val EXPECTED_DEVICE_NAME = "Nordic_UART_Service"
         val NUS_RX = BleUuid(UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e"))
         val NUS_TX = BleUuid(UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e"))
 

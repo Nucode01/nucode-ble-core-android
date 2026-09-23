@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.BleDisconnectReason
 import android.bluetooth.BluetoothGatt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -9,10 +10,9 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.ConnState
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ConnectOptions
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
@@ -186,11 +186,11 @@ class GattBridgeRediscoveryTest {
         assertEquals(FailurePhase.Connect, bleFailure.phase)
         assertEquals(Retryability.TransientMayHelp, bleFailure.retryability)
         assertTrue(driver.connectCalls.isEmpty())
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertTrue(session.suppressReconnect)
-        val disconnectedReason = (session.state as ConnState.Disconnected).reason
-        assertTrue(disconnectedReason is DisconnectReason.Failed)
-        assertEquals("PERIPHERAL_NOT_FOUND", (disconnectedReason as DisconnectReason.Failed).failure.code.value)
+        val disconnectedReason = (session.connectionState.value as ConnectionState.Disconnected).reason
+        assertTrue(disconnectedReason is BleDisconnectReason.Failed)
+        assertEquals("PERIPHERAL_NOT_FOUND", (disconnectedReason as BleDisconnectReason.Failed).failure.code.value)
     }
 
     @Test
@@ -258,7 +258,7 @@ class GattBridgeRediscoveryTest {
         // review MEDIUM 1 — gatt 가 아직 없어 driver.disconnect() 가 no-op 이다. 좁은 대안(narrow
         // alternative)은 disconnect 호출 즉시가 아니라 재발견 resume 시점에 cleanup 을 끝낸다 —
         // 그 전까지는 Disconnecting 에 머문다.
-        assertTrue(session.state is ConnState.Disconnecting)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnecting)
 
         deferred.complete(RediscoveryOutcome.Found)
         runCurrent()
@@ -266,7 +266,7 @@ class GattBridgeRediscoveryTest {
 
         assertTrue(driver.connectCalls.isEmpty())
         assertFalse(deferred.isCancelled)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
     }
 
     @Test
@@ -298,12 +298,12 @@ class GattBridgeRediscoveryTest {
         runCurrent()
 
         assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertTrue(driver.connectCalls.isEmpty())
         val connStateChangesAfterCancel = events.count { it is BleEvent.ConnStateChanged } - connStateChangesBeforeCancel
         assertEquals(1, connStateChangesAfterCancel)
         val lastConnStateChanged = events.last { it is BleEvent.ConnStateChanged } as BleEvent.ConnStateChanged
-        assertTrue(lastConnStateChanged.state is ConnState.Disconnected)
+        assertTrue(lastConnStateChanged.state is ConnectionState.Disconnected)
         assertTrue(job.isCancelled)
     }
 }

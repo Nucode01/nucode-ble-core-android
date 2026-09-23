@@ -142,7 +142,7 @@ internal class BleRuntime private constructor(
 
     /**
      * 테스트 전용 seam(plan task 5 §작업①, plan v2 변경 사항). 플랫폼 `Context` 없이
-     * 배선 로직(`advanceConnectSequence` 분기 · [emit] 순서 · [droppedEventCount])만
+     * 배선 로직([connectSequence] 분기 · [emit] 발행 · [droppedEventCount])만
      * 검증한다 — task 6 이 이 생성자로 `BleCoreWiringTest` 를 만든다.
      *
      * [central] 이 null 이라 [computeAdapterState] 는 항상 `evaluatePermissionState` 의
@@ -278,15 +278,15 @@ internal class BleRuntime private constructor(
      * 막지 않음) 버퍼가 차면 `tryEmit`이 `false`를 돌려줘 유실 사실을 알 수 있다.
      * `DROP_OLDEST`로 바꾸면 `tryEmit`이 항상 `true`라 유실이 조용해진다(plan §배선②).
      *
-     * 발행이 먼저다. 시퀀스 진행이 재귀 emit 을 유발하므로 순서를 바꾸면 이벤트 도착
-     * 순서가 뒤집힌다(설계 §6 런타임 flow) — `advanceConnectSequence` 를 먼저 부르면
-     * `MtuChanged` 처리 중 재귀로 발행되는 `Connected` 가 바깥의 `MtuChanged` 보다
-     * 먼저 소비자에 닿는다.
+     * 발행만 한다 — 제어를 일으키지 않는다(plan connect-sequence 불변식 ①). 연결 절차는
+     * 발행 소유자가 발행 **직후** [ConnectSequence] hook(`publishState` 도우미 ·
+     * `onServicesDiscovered` · `onMtuSettled`)을 불러 진행한다. 순서가 "발행 먼저, 진행 나중"
+     * 이어야 `MtuChanged` 뒤 절차가 발행하는 `Ready` 가 그 `MtuChanged` 보다 먼저 소비자에
+     * 닿지 않는다(설계 §6 런타임 flow).
      *
      * `internal` 로 올린 이유(plan task 5 §작업①) — 테스트 seam. 프로덕션 호출자는
      * 워커 4개가 생성자로 받은 `::emit` 참조뿐이고(규칙 7 불변), task 6 배선 테스트가
-     * `advanceConnectSequence` 순서 · `dropped` 카운트를 직접 검증하려고 두드리는
-     * 자리다.
+     * 공식 투영 · `dropped` 카운트를 직접 검증하려고 두드리는 자리다.
      */
     internal fun emit(e: BleEvent) {
         if (closed) return
@@ -315,8 +315,8 @@ internal class BleRuntime private constructor(
         // Capture each edge on its owner before later transitions or collector
         // scheduling can change the Session values it describes.
         val official = when (e) {
-            is BleEvent.ConnStateChanged -> registry.get(e.deviceId)?.let { session ->
-                OfficialBleClientEvent.Connection(e.deviceId, session.connectionState.value)
+            is BleEvent.ConnStateChanged -> registry.get(e.deviceId)?.let {
+                OfficialBleClientEvent.Connection(e.deviceId, e.state)
             }
             is BleEvent.ServicesDiscovered -> registry.get(e.deviceId)?.let { session ->
                 OfficialBleClientEvent.Services(e.deviceId, session.services.value)
@@ -326,7 +326,6 @@ internal class BleRuntime private constructor(
         }
         if (official != null && !_officialEvents.tryEmit(official)) dropped.incrementAndGet()
         if (!_events.tryEmit(e)) dropped.incrementAndGet()
-        advanceConnectSequence(e)
     }
 
     private fun emitScanObservation(observation: ScanObservation) {
@@ -340,7 +339,7 @@ internal class BleRuntime private constructor(
     /**
      * 기기별 상태를 담는 유일한 registry(규칙 2). `internal` 로 올린 이유(plan task 5
      * §작업①) — 테스트 seam. task 6 배선 테스트가 세션을 직접 만들고 상태를 세팅해
-     * `advanceConnectSequence` 분기를 구동한다. 프로덕션 호출자는 워커 4개와
+     * [connectSequence] 분기를 구동한다. 프로덕션 호출자는 워커 4개와
      * `BleRuntime` 자신뿐이다.
      */
     internal val registry = SessionRegistry()
@@ -364,6 +363,23 @@ internal class BleRuntime private constructor(
         ?: AndroidGattDriver(central?.context, adapter, coreScope)
     private val rediscovery: PeripheralRediscovery? = rediscoveryOverride
         ?: central?.let { c -> AndroidPeripheralRediscovery { c.adapter()?.bluetoothLeScanner } }
+    /**
+     * 연결 절차 진행([ConnectSequence]). emit 은 발행만 하고, 상태·서비스·MTU 발행 소유자가
+     * 발행 직후 이 hook 을 부른다. 협력자(bridge·reconnector)는 호출 시점에 평가되는
+     * 람다로만 참조하므로 그들보다 먼저 조립해 직접 넘긴다. `internal` 인 이유 — 테스트 seam: 배선 테스트가 이벤트 발행 없이
+     * 절차 분기를 직접 구동한다.
+     */
+    internal val connectSequence: ConnectSequence = ConnectSequence(
+        registry = registry,
+        isClosed = { closed },
+        markWarm = { deviceId -> warmAddresses += deviceId },
+        discoverServices = { deviceId -> gattBridge.discoverServices(deviceId) },
+        requestMtu = { deviceId, mtu -> gattBridge.requestMtu(deviceId, mtu) },
+        scheduleReconnect = { deviceId, failure -> reconnector.scheduleReconnect(deviceId, failure) },
+        publishState = ::publishState,
+        restoreSubscriptionsBeforeReady = ::restoreSubscriptionsBeforeReady,
+    )
+
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
@@ -381,6 +397,7 @@ internal class BleRuntime private constructor(
         ),
         rediscovery = rediscovery,
         linkCacheWarm = { deviceId -> deviceId in warmAddresses },
+        connectSequence = connectSequence,
     )
     private val operationQueue = OperationQueue(
         registry = registry,
@@ -389,7 +406,7 @@ internal class BleRuntime private constructor(
         ackTimeoutMillis = config.operationTimeoutMillis,
         writeCommand = gattBridge::writeCommand,
     )
-    private val reconnector = Reconnector(registry, ::emit, coreScope)
+    private val reconnector = Reconnector(registry, ::emit, coreScope, connectSequence)
 
     init {
         // plan blecore-app-tunables 결정② — Reconnector.policy 는 4워커 공통 생성자 계약
@@ -401,71 +418,14 @@ internal class BleRuntime private constructor(
 
     // ── 배선 ③ 연결 시퀀스 오케스트레이션 ────────────────────────────────────────
 
+
     /**
-     * 연결 시퀀스를 다음 단계로 민다.
-     * ★ 상태 기계가 아니다(규칙 1) — Action/Reducer/Store 가 아니라 GATT 표준 연결 절차의
-     *   호출 순서 + 재연결 메커니즘 트리거일 뿐이다. `Connected`/`Disconnected` 분기가
-     *   늘어난 건 "정책"이 아니라 "이 절차 다음에 뭘 부르는가"라는 절차 그대로다 — 재시도
-     *   횟수·백오프 같은 정책은 여전히 [Reconnector] 에 주입된 값이 정한다(plan §접근 ⑤,
-     *   규칙 1 무위반).
-     *
-     * 체인: `ConnStateChanged(_, DiscoveringServices)` → discoverServices
-     *      → `ServicesDiscovered` → `Configuring` → `gattBridge.requestMtu(_, session.requestedMtu)`
-     *        (plan blecore-app-tunables 결정① — connect() 시점 옵션값, 구 상수 REQUESTED_MTU 대체)
-     *      → `MtuChanged` → `Ready` 전이 + emit
-     *      → `Ready` 도달 시 retryCount 리셋. legacy `Connected` 소비와 재구독은 Task 4까지
-     *        병존하며, `Disconnected` 도착 시 기존 Reconnector 경계를 유지한다.
-     *
-     * readiness 상태 전이 자체를 다시 emit 하면 이 함수가 한 단계 재귀한다. 재귀 event는
-     * 다음 platform command를 시작하지 않는 Configuring/Ready이므로 무한 재귀가 아니다.
+     * 런타임이 직접 내는 상태 발행의 유일한 경로 — 발행 뒤 [connectSequence] 를 진행한다
+     * (plan connect-sequence 불변식 ②). `internal` 인 이유 — 테스트 seam.
      */
-    private fun advanceConnectSequence(e: BleEvent) {
-        when (e) {
-            is BleEvent.ConnStateChanged -> when (val st = e.state) {
-                is ConnState.DiscoveringServices -> {
-                    warmAddresses += e.deviceId
-                    gattBridge.discoverServices(e.deviceId)
-                }
-
-                is ConnState.Ready -> {
-                    val session = registry.get(e.deviceId) ?: return
-                    session.retryCount = 0
-                }
-
-                is ConnState.Disconnected -> {
-                    val session = registry.get(e.deviceId) ?: return
-                    if (!session.suppressReconnect) {
-                        reconnector.scheduleReconnect(
-                            e.deviceId,
-                            (st.reason as? DisconnectReason.Failed)?.failure,
-                        )
-                    }
-                }
-
-                else -> Unit
-            }
-
-            is BleEvent.ServicesDiscovered -> {
-                // plan blecore-app-tunables 결정① — connect() 시점에 저장해둔 Session.requestedMtu
-                // 를 그대로 쓴다(구 상수 REQUESTED_MTU 대체, GattBridge.connect KDoc). 세션이 이미
-                // 사라졌으면(예: 그 사이 close()) 요청할 대상 자체가 없어 조용히 넘어간다.
-                registry.get(e.deviceId)?.let { session ->
-                    if (session.connectionCoordinator.stage == ConnectionStage.Configuring) {
-                        emit(BleEvent.ConnStateChanged(e.deviceId, session.state))
-                    }
-                    gattBridge.requestMtu(e.deviceId, session.requestedMtu)
-                }
-            }
-
-            is BleEvent.MtuChanged -> {
-                val session = registry.get(e.deviceId) ?: return
-                if (session.connectionCoordinator.stage == ConnectionStage.Configuring) {
-                    restoreSubscriptionsBeforeReady(session)
-                }
-            }
-
-            else -> Unit
-        }
+    internal fun publishState(session: Session) {
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.connectionState.value))
+        connectSequence.onStatePublished(session.deviceId)
     }
 
     /** Restores the desired CCCD intent serially while this generation remains Configuring. */
@@ -508,7 +468,7 @@ internal class BleRuntime private constructor(
                 session.resubscribeJob = null
             }
             session.retryCount = 0
-            emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
+            publishState(session)
         }
     }
 
@@ -625,7 +585,7 @@ internal class BleRuntime private constructor(
             )
         }
         for (session in registry.all()) {
-            if (session.state is ConnState.Disconnected) continue // 이미 끝난 세션은 조용히
+            if (session.stage == ConnectionStage.Disconnected) continue // 이미 끝난 세션은 조용히
             session.suppressReconnect = true
             session.reconnectJob?.cancel(); session.reconnectJob = null
             // resubscribeJob 정리(plan B) — reconnectJob 과 같은 취소 지점 3곳 중 하나.
@@ -647,7 +607,7 @@ internal class BleRuntime private constructor(
             session.mtu = null
             session.chunkSize = null
             emit(diagnostic(Severity.Warning, failure))
-            emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
+            publishState(session)
         }
     }
 
@@ -869,8 +829,8 @@ internal class BleRuntime private constructor(
         onCore {
             val existing = registry.get(deviceId)
             if (existing != null) {
-                when (existing.state) {
-                    is ConnState.Disconnecting -> {
+                when (existing.stage) {
+                    ConnectionStage.Disconnecting -> {
                         emitConnectConflict(
                             deviceId = deviceId,
                             code = "CONNECT_DURING_DISCONNECT",
@@ -878,10 +838,10 @@ internal class BleRuntime private constructor(
                         )
                     }
 
-                    is ConnState.Connecting,
-                    is ConnState.DiscoveringServices,
-                    is ConnState.Configuring,
-                    is ConnState.Ready,
+                    ConnectionStage.Connecting,
+                    ConnectionStage.DiscoveringServices,
+                    ConnectionStage.Configuring,
+                    ConnectionStage.Ready,
                     -> {
                         if (existing.hasSameEffectiveConnectOptions(options)) return@onCore
                         emitConnectConflict(
@@ -891,7 +851,7 @@ internal class BleRuntime private constructor(
                         )
                     }
 
-                    is ConnState.Disconnected -> Unit
+                    ConnectionStage.Disconnected -> Unit
                 }
             }
 
@@ -905,14 +865,14 @@ internal class BleRuntime private constructor(
                 // Connecting 이 끝났음을 알아야 한다.
                 //
                 // connect 시작 실패는 재연결 대상이 아니다(D6) — Disconnected 를 emit 하면
-                // advanceConnectSequence 의 Disconnected 분기가 scheduleReconnect 로 가므로,
+                // ConnectSequence.onStatePublished 의 Disconnected 분기가 scheduleReconnect 로 가므로,
                 // emit 전에 suppressReconnect 를 세워 그 경로를 막는다. 시작도 못 했는데
                 // 백오프 5회를 도는 건 D2/M-4 와 같은 문제다. 다음 connect() 성공 경로가
                 // GattBridge.connect 에서 이미 false 로 리셋한다.
                 session.suppressReconnect = true
                 val failure = e.failure
                 session.prepareDisconnect(DisconnectReason.Failed(failure))
-                emit(BleEvent.ConnStateChanged(deviceId, session.state))
+                publishState(session)
                 throw BleException(failure)
             }
         }
@@ -978,7 +938,7 @@ internal class BleRuntime private constructor(
         withContext(coreDispatcherOnly) {
             if (closed) return@withContext
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-            if (session.state is ConnState.Disconnected) {
+            if (session.stage == ConnectionStage.Disconnected) {
                 session.suppressReconnect = true
                 session.reconnectJob?.cancel()
                 session.reconnectJob = null

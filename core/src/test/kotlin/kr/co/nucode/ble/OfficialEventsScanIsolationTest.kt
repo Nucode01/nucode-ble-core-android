@@ -53,13 +53,13 @@ class OfficialEventsScanIsolationTest {
             }
         }
         try {
-            backing.setStateForTest(ConnState.Connecting)
-            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnState.Connecting))
+            backing.setStateForTest(ConnectionState.Connecting)
+            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Connecting))
 
             repeat(5) { scanner.handle(observation) }
 
-            backing.setStateForTest(ConnState.Disconnecting)
-            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnState.Disconnecting))
+            backing.setStateForTest(ConnectionState.Disconnecting)
+            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Disconnecting))
             gate.complete(Unit)
 
             assertEquals(

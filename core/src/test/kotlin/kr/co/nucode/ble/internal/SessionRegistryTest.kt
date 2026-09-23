@@ -1,6 +1,6 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.ConnState
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -78,12 +78,12 @@ class SessionRegistryTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
-        session.setStateForTest(ConnState.Ready)
+        session.setStateForTest(ConnectionState.Ready)
         session.mtu = 247
         session.chunkSize = 244
 
         assertEquals(deviceId, session.deviceId)
-        assertEquals(ConnState.Ready, session.state)
+        assertEquals(ConnectionState.Ready, session.connectionState.value)
         assertEquals(247, session.mtu)
         assertEquals(244, session.chunkSize)
     }

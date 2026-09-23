@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.ConnectionState
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -11,7 +12,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteResult
@@ -94,7 +94,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -117,7 +117,7 @@ class OperationQueueTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
         }
 
@@ -145,7 +145,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -170,7 +170,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FE")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -192,7 +192,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FD")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -247,7 +247,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             // chunkSize 는 협상 전이라 기본 null
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -285,7 +285,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -318,7 +318,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = chunkSizeForMtu(65)
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -347,7 +347,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = chunkSizeForMtu(65)
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -386,7 +386,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -419,7 +419,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -446,7 +446,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -481,7 +481,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -508,7 +508,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to fakeCharacteristic(charRef)))
         }
@@ -546,7 +546,7 @@ class OperationQueueTest {
         val charB = fakeCharacteristic(charRef)
 
         val session = registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 244
             updateDiscovered(mapOf(charRef to charA))
         }
@@ -583,7 +583,7 @@ class OperationQueueTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 2
         }
         var legacyChunkCalls = 0

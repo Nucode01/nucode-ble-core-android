@@ -37,29 +37,6 @@ internal sealed interface WriteResult {
 }
 
 /**
- * 연결 상태. Reconnecting 이 없다 — 재연결은 정책이고 코어는 메커니즘만 갖는다(설계 §5).
- * 추가하지 않는다.
- */
-internal sealed interface ConnState {
-    /** A terminal session state with a stable, cross-platform reason. */
-    public data class Disconnected(
-        val reason: DisconnectReason = DisconnectReason.Initial,
-    ) : ConnState
-    public data object Connecting : ConnState
-
-    /** 링크는 연결됐지만 service/characteristic snapshot이 아직 확정되지 않은 단계. */
-    public data object DiscoveringServices : ConnState
-
-    /** service snapshot 확정 뒤 MTU 등 필수 연결 설정을 수행하는 단계. */
-    public data object Configuring : ConnState
-
-    /** service discovery와 필수 configuration이 끝나 public GATT operation이 가능한 단계. */
-    public data object Ready : ConnState
-
-    public data object Disconnecting : ConnState
-}
-
-/**
  * 연결 옵션. 최소한만.
  *
  * @param timeoutMillis 타임아웃 시 코어는 포기한다(D2) — 자동 재연결을 시작하지 않는다.

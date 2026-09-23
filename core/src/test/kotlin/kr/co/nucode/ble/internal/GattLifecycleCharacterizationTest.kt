@@ -22,7 +22,6 @@ import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.ReconnectPolicy
@@ -64,8 +63,8 @@ class GattLifecycleCharacterizationTest {
 
         assertFalse(rejected)
         assertEquals(
-            ConnState.Disconnected(DisconnectReason.ClientClosed),
-            session.state,
+            ConnectionState.Disconnected(BleDisconnectReason.ClientClosed),
+            session.connectionState.value,
         )
         assertEquals(
             ConnectionState.Disconnected(BleDisconnectReason.ClientClosed),
@@ -153,7 +152,7 @@ class GattLifecycleCharacterizationTest {
         advanceTimeBy(20)
         runCurrent()
         assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
     }
 
     @Test
@@ -231,7 +230,7 @@ class GattLifecycleCharacterizationTest {
 
         advanceTimeBy(1)
         runCurrent()
-        assertEquals(ConnState.DiscoveringServices, session.state)
+        assertEquals(ConnectionState.DiscoveringServices, session.connectionState.value)
         assertEquals(ConnectionStage.DiscoveringServices, session.connectionCoordinator.stage)
         assertEquals(listOf("discover"), driver.commands)
 
@@ -251,7 +250,7 @@ class GattLifecycleCharacterizationTest {
 
         advanceTimeBy(1)
         runCurrent()
-        assertEquals(ConnState.Configuring, session.state)
+        assertEquals(ConnectionState.Configuring, session.connectionState.value)
         assertEquals(ConnectionStage.Configuring, session.connectionCoordinator.stage)
         assertEquals(listOf("discover", "mtu:185"), driver.commands)
 
@@ -267,22 +266,22 @@ class GattLifecycleCharacterizationTest {
         )
         advanceTimeBy(29)
         runCurrent()
-        assertEquals(ConnState.Configuring, session.state)
+        assertEquals(ConnectionState.Configuring, session.connectionState.value)
 
         advanceTimeBy(1)
         runCurrent()
 
-        assertEquals(ConnState.Ready, session.state)
+        assertEquals(ConnectionState.Ready, session.connectionState.value)
         assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
         assertEquals(185, session.mtu)
         assertEquals(182, session.chunkSize)
         assertEquals(
             listOf(
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnState.DiscoveringServices),
+                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.DiscoveringServices),
                 BleEvent.ServicesDiscovered(DEVICE_ID, emptyList()),
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnState.Configuring),
+                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Configuring),
                 BleEvent.MtuChanged(DEVICE_ID, 185, 182),
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnState.Ready),
+                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Ready),
             ),
             observed,
         )
@@ -368,7 +367,7 @@ class GattLifecycleCharacterizationTest {
         runCurrent()
 
         assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertFalse(session.suppressReconnect)
         assertEquals(listOf("disconnect"), driver.commands)
     }
@@ -408,7 +407,7 @@ class GattLifecycleCharacterizationTest {
                 if (
                     !reconnectStarted &&
                     event is BleEvent.ConnStateChanged &&
-                    event.state is ConnState.Disconnected
+                    event.state is ConnectionState.Disconnected
                 ) {
                     reconnectStarted = true
                     session.reconnectJob = launch {
@@ -497,7 +496,7 @@ class GattLifecycleCharacterizationTest {
             TerminalCleanupReason.OperationInvalidated,
             session.connectionCoordinator.terminalCleanupReason,
         )
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertTrue(session.gattOperationScheduler.isPoisoned)
         assertEquals(listOf("disconnect", "close"), driver.commands)
 
@@ -547,7 +546,7 @@ class GattLifecycleCharacterizationTest {
             TerminalCleanupReason.OperationInvalidated,
             session.connectionCoordinator.terminalCleanupReason,
         )
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertTrue(session.gattOperationScheduler.isPoisoned)
         assertEquals(
             listOf("disconnect", "close", "connect:false", "disconnect", "close"),
@@ -568,14 +567,14 @@ class GattLifecycleCharacterizationTest {
         driver.emit(connectedEvent(generation - 1))
         runCurrent()
 
-        assertEquals(ConnState.Connecting, session.state)
+        assertEquals(ConnectionState.Connecting, session.connectionState.value)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
         assertTrue(driver.commands.isEmpty())
         assertTrue(observed.isEmpty())
 
         driver.emit(connectedEvent(generation))
         runCurrent()
-        assertEquals(ConnState.DiscoveringServices, session.state)
+        assertEquals(ConnectionState.DiscoveringServices, session.connectionState.value)
         assertEquals(listOf("discover"), driver.commands)
         driver.commands.clear()
         observed.clear()
@@ -616,7 +615,7 @@ class GattLifecycleCharacterizationTest {
         )
         runCurrent()
 
-        assertEquals(ConnState.DiscoveringServices, session.state)
+        assertEquals(ConnectionState.DiscoveringServices, session.connectionState.value)
         assertEquals(ConnectionStage.DiscoveringServices, session.connectionCoordinator.stage)
         assertNull(session.resolve(charRef))
         assertNull(session.mtu)
@@ -662,7 +661,7 @@ class GattLifecycleCharacterizationTest {
         )
 
         assertEquals(ConnectionStage.DiscoveringServices, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.DiscoveringServices)
+        assertTrue(session.connectionState.value is ConnectionState.DiscoveringServices)
         assertSame(discoveryDeadline, session.connectionCoordinator.activeDeadline)
         assertNull(session.connectionCoordinator.terminalCleanupReason)
         assertNull(session.terminalLifecycleCause)
@@ -688,7 +687,7 @@ class GattLifecycleCharacterizationTest {
         )
 
         assertEquals(ConnectionStage.Configuring, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.Configuring)
+        assertTrue(session.connectionState.value is ConnectionState.Configuring)
         assertSame(configurationDeadline, session.connectionCoordinator.activeDeadline)
         assertNull(session.connectionCoordinator.terminalCleanupReason)
         assertNull(session.terminalLifecycleCause)
@@ -712,7 +711,7 @@ class GattLifecycleCharacterizationTest {
         )
 
         assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
-        assertTrue(session.state is ConnState.Ready)
+        assertTrue(session.connectionState.value is ConnectionState.Ready)
         assertNull(session.connectionCoordinator.activeDeadline)
         assertNull(session.connectionCoordinator.terminalCleanupReason)
         assertNull(session.terminalLifecycleCause)
@@ -748,13 +747,13 @@ class GattLifecycleCharacterizationTest {
         assertEquals("SERVICE_DISCOVERY_FAILED", diagnostic.failure.code.value)
         assertEquals(133, (diagnostic.failure.platformDetail as? kr.co.nucode.ble.PlatformDetail.Android)?.statusCode)
         assertEquals(session.failureSessionId, diagnostic.failure.context.sessionId)
-        assertFalse(session.state is ConnState.Ready)
+        assertFalse(session.connectionState.value is ConnectionState.Ready)
         assertFalse(session.connectionCoordinator.stage == ConnectionStage.Ready)
         assertEquals(1, driver.commands.count { it == "discover" })
         assertTrue(observed.none { it is BleEvent.ServicesDiscovered })
         assertTrue(
             observed.none {
-                it is BleEvent.ConnStateChanged && it.state is ConnState.Ready
+                it is BleEvent.ConnStateChanged && it.state is ConnectionState.Ready
             },
         )
     }
@@ -774,13 +773,13 @@ class GattLifecycleCharacterizationTest {
         advanceTimeBy(60_000)
         runCurrent()
 
-        assertFalse(session.state is ConnState.Ready)
+        assertFalse(session.connectionState.value is ConnectionState.Ready)
         assertFalse(session.connectionCoordinator.stage == ConnectionStage.Ready)
         assertNull(session.connectionCoordinator.activeDeadline)
         assertEquals(1, driver.commands.count { it == "discover" })
         assertTrue(
             observed.none {
-                it is BleEvent.ConnStateChanged && it.state is ConnState.Ready
+                it is BleEvent.ConnStateChanged && it.state is ConnectionState.Ready
             },
         )
     }
@@ -812,24 +811,24 @@ class GattLifecycleCharacterizationTest {
         driver.emit(disconnected)
         runCurrent()
 
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertEquals(1, driver.commands.count { it == "discover" })
         assertEquals(
             1,
             observed.count {
-                it is BleEvent.ConnStateChanged && it.state is ConnState.DiscoveringServices
+                it is BleEvent.ConnStateChanged && it.state is ConnectionState.DiscoveringServices
             },
         )
         val firstDisconnected = observed.indexOfFirst {
-            it is BleEvent.ConnStateChanged && it.state is ConnState.Disconnected
+            it is BleEvent.ConnStateChanged && it.state is ConnectionState.Disconnected
         }
         assertTrue(firstDisconnected >= 0)
         assertTrue(
             observed.drop(firstDisconnected + 1).none {
                 it is BleEvent.ConnStateChanged && (
-                    it.state is ConnState.DiscoveringServices ||
-                        it.state is ConnState.Configuring ||
-                        it.state is ConnState.Ready
+                    it.state is ConnectionState.DiscoveringServices ||
+                        it.state is ConnectionState.Configuring ||
+                        it.state is ConnectionState.Ready
                     )
             },
         )
@@ -847,7 +846,7 @@ class GattLifecycleCharacterizationTest {
         val reconnectJob = Job()
         val timeoutJob = Job()
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             this.resubscribeJob = resubscribeJob
             this.reconnectJob = reconnectJob
             this.timeoutJob = timeoutJob
@@ -888,7 +887,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             mtu = 185
             chunkSize = 182
         }
@@ -928,13 +927,84 @@ class GattLifecycleCharacterizationTest {
         )
         runCurrent()
 
-        assertEquals(ConnState.Ready, session.state)
+        assertEquals(ConnectionState.Ready, session.connectionState.value)
         assertEquals(185, session.mtu)
         assertEquals(182, session.chunkSize)
         assertSame(scheduledWrite, session.gattOperationScheduler.pending)
         assertFalse(scheduledWrite.completion.isCompleted)
         assertTrue(observed.isEmpty())
         assertTrue(driver.commands.isEmpty())
+    }
+
+    /** MTU 협상 status 실패 — 폴백 MtuChanged(23) 발행 뒤 onMtuSettled 로 Ready 까지 간다. */
+    @Test(timeout = 10_000)
+    fun `MTU status failure falls back to default MTU and still reaches Ready`() = runTest {
+        val driver = FakeGattDriver(this)
+        val (session, observed) = driveToMtuRequest(driver)
+
+        driver.emitAfter(
+            1,
+            GattDriverEvent.MtuChanged(
+                DEVICE_ID,
+                CURRENT_SOURCE,
+                mtu = 185,
+                status = BluetoothGatt.GATT_FAILURE,
+                connectionGeneration = session.connectionCoordinator.generation,
+            ),
+        )
+        advanceTimeBy(1)
+        runCurrent()
+
+        assertFallbackThenReady(session, observed)
+    }
+
+    /** requestMtu 시작 실패(false) — 콜백이 없으므로 폴백 MtuChanged(23) 뒤 onMtuSettled 로 Ready 까지 간다. */
+    @Test(timeout = 10_000)
+    fun `MTU request start failure falls back to default MTU and still reaches Ready`() = runTest {
+        val driver = FakeGattDriver(this).apply { mtuStartResult = false }
+        val (session, observed) = driveToMtuRequest(driver)
+
+        assertFallbackThenReady(session, observed)
+    }
+
+    private fun TestScope.driveToMtuRequest(
+        driver: FakeGattDriver,
+    ): Pair<Session, MutableList<BleEvent>> {
+        val core = newCore(driver)
+        val session = core.registry.getOrCreate(DEVICE_ID).apply { requestedMtu = 185 }
+        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val observed = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(observed) }
+        runCurrent()
+
+        driver.emitAfter(1, connectedEvent(generation))
+        advanceTimeBy(1)
+        runCurrent()
+        driver.emitAfter(
+            1,
+            GattDriverEvent.ServicesDiscovered(
+                DEVICE_ID,
+                CURRENT_SOURCE,
+                BluetoothGatt.GATT_SUCCESS,
+                services = emptyList(),
+                connectionGeneration = generation,
+            ),
+        )
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf("discover", "mtu:185"), driver.commands)
+        return session to observed
+    }
+
+    private fun assertFallbackThenReady(session: Session, observed: List<BleEvent>) {
+        assertEquals(ConnectionState.Ready, session.connectionState.value)
+        assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
+        assertEquals(23, session.mtu)
+        assertEquals(20, session.chunkSize)
+        val fallback = observed.indexOf(BleEvent.MtuChanged(DEVICE_ID, 23, 20))
+        val ready = observed.indexOf(BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Ready))
+        assertTrue("fallback MtuChanged 누락: $observed", fallback >= 0)
+        assertTrue("Ready 가 폴백 뒤에 와야 한다: $observed", ready > fallback)
     }
 
     private fun TestScope.newCore(driver: GattDriver): BleRuntime = BleRuntime(
@@ -961,6 +1031,7 @@ class GattLifecycleCharacterizationTest {
         var connectionGeneration: Long? = null
         var discoverFailure: SecurityException? = null
         var disconnectFailure: Exception? = null
+        var mtuStartResult: Boolean = true
 
         override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect:$autoConnect"
@@ -993,7 +1064,7 @@ class GattLifecycleCharacterizationTest {
 
         override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
-            return true
+            return mtuStartResult
         }
 
         fun emitAfter(delayMillis: Long, event: GattDriverEvent): Job = callbackScope.launch {

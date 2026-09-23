@@ -4,7 +4,6 @@ import java.util.UUID
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCategory
@@ -95,7 +94,7 @@ class SubscriptionStateTest {
             ConnectionState.Recovering(attempt = 2, retryAfterMillis = 50, lastFailure = failure),
             session.connectionState.value,
         )
-        session.setStateForTest(ConnState.Connecting)
+        session.setStateForTest(ConnectionState.Connecting)
 
         assertEquals(ConnectionState.Connecting, session.connectionState.value)
     }

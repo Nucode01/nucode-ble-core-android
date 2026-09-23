@@ -45,7 +45,7 @@ class BleClientFacadeTest {
         val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver, adapterState = { AdapterState.Ready })
         val view = DefaultBleClient(core).session(peripheralId)
         core.registry.get(PeripheralId(peripheralId.value))!!.apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
         }
 
@@ -167,10 +167,10 @@ class BleClientFacadeTest {
             client.events.collect { edges += it }
         }
         try {
-            backing.setStateForTest(ConnState.Connecting)
-            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnState.Connecting))
-            backing.setStateForTest(ConnState.Disconnecting)
-            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnState.Disconnecting))
+            backing.setStateForTest(ConnectionState.Connecting)
+            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Connecting))
+            backing.setStateForTest(ConnectionState.Disconnecting)
+            core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Disconnecting))
             runCurrent()
 
             assertEquals(
@@ -189,7 +189,7 @@ class BleClientFacadeTest {
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:06")
         val view = client.session(id)
-        core.registry.get(PeripheralId(id.value))!!.setStateForTest(ConnState.Ready)
+        core.registry.get(PeripheralId(id.value))!!.setStateForTest(ConnectionState.Ready)
         val states = mutableListOf<ConnectionState>()
         val collector = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
             view.connectionState.collect { state ->

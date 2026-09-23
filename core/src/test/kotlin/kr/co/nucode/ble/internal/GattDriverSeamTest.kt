@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.BleDisconnectReason
+import kr.co.nucode.ble.ConnectionState
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -24,7 +26,6 @@ import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.BleChunking
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.ConnectOptions
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.PeripheralId
@@ -50,7 +51,7 @@ class GattDriverSeamTest {
     fun `read command starts once and returns a defensive callback copy`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        registry.getOrCreate(deviceId).setStateForTest(ConnState.Ready)
+        registry.getOrCreate(deviceId).setStateForTest(ConnectionState.Ready)
         val driver = FakeGattDriver()
         val starts = mutableListOf<GattOperationKind>()
         val bridge = GattBridge(
@@ -92,7 +93,7 @@ class GattDriverSeamTest {
     fun `read synchronous start rejection fails only that operation without poison`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val bridge = GattBridge(
             registry = registry,
             emit = {},
@@ -116,7 +117,7 @@ class GattDriverSeamTest {
     fun `started read timeout poisons generation drains queue and closes handle`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
         val bridge = GattBridge(
@@ -144,7 +145,7 @@ class GattDriverSeamTest {
         assertTrue(session.gattOperationScheduler.isPoisoned)
         assertNull(session.gattOperationScheduler.pending)
         assertEquals(0, session.gattOperationScheduler.queuedCount)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertEquals(listOf("disconnect", "close"), driver.commands)
 
         driver.emitRead(
@@ -169,7 +170,7 @@ class GattDriverSeamTest {
     fun `poison tail keeps its cause when disconnect re-enters DISCONNECTED synchronously`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
         val bridge = GattBridge(
@@ -201,8 +202,8 @@ class GattDriverSeamTest {
         assertEquals("OPERATION_TIMEOUT", session.terminalLifecycleCause?.code?.value)
         val connStateChanges = events.filterIsInstance<BleEvent.ConnStateChanged>()
         assertEquals(1, connStateChanges.size)
-        val disconnected = connStateChanges.single().state as ConnState.Disconnected
-        val failedReason = disconnected.reason as DisconnectReason.Failed
+        val disconnected = connStateChanges.single().state as ConnectionState.Disconnected
+        val failedReason = disconnected.reason as BleDisconnectReason.Failed
         assertEquals("OPERATION_TIMEOUT", failedReason.failure.code.value)
         assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
         assertEquals(listOf("disconnect", "close"), driver.commands)
@@ -212,7 +213,7 @@ class GattDriverSeamTest {
     fun `started caller cancellation propagates and poisons generation`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
             registry = registry,
@@ -244,7 +245,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
         }
         val driver = FakeGattDriver()
@@ -286,7 +287,7 @@ class GattDriverSeamTest {
         assertTrue(session.gattOperationScheduler.isPoisoned)
         assertNull(session.gattOperationScheduler.pending)
         assertEquals(0, session.gattOperationScheduler.queuedCount)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertEquals(listOf("disconnect", "close"), driver.commands)
         assertTrue(
             events.filterIsInstance<BleEvent.Diagnostic>()
@@ -299,7 +300,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
         }
         val driver = FakeGattDriver()
@@ -350,7 +351,7 @@ class GattDriverSeamTest {
     fun `started CCCD timeout through subscribe poisons generation`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
         val bridge = GattBridge(
@@ -386,7 +387,7 @@ class GattDriverSeamTest {
     fun `started CCCD caller cancellation through subscribe propagates and poisons generation`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val events = mutableListOf<BleEvent>()
         val bridge = GattBridge(
@@ -422,7 +423,7 @@ class GattDriverSeamTest {
     fun `disconnect drains scheduler waiters before platform callback`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
             registry = registry,
@@ -525,7 +526,7 @@ class GattDriverSeamTest {
                 BluetoothProfile.STATE_CONNECTED,
             ),
         )
-        assertEquals(ConnState.DiscoveringServices, session.state)
+        assertEquals(ConnectionState.DiscoveringServices, session.connectionState.value)
 
         val serviceUuid = UUID.randomUUID()
         val charUuid = UUID.randomUUID()
@@ -608,7 +609,7 @@ class GattDriverSeamTest {
                 BluetoothProfile.STATE_DISCONNECTED,
             ),
         )
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertEquals("close", driver.commands.last())
     }
 
@@ -617,7 +618,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
-        session.setStateForTest(ConnState.Connecting)
+        session.setStateForTest(ConnectionState.Connecting)
         val events = mutableListOf<BleEvent>()
         val driver = FakeGattDriver()
         GattBridge(registry, events::add, this, driver, ackTimeoutMillis = 5_000)
@@ -631,7 +632,7 @@ class GattDriverSeamTest {
             ),
         )
 
-        assertEquals(ConnState.Connecting, session.state)
+        assertEquals(ConnectionState.Connecting, session.connectionState.value)
         assertTrue(events.isEmpty())
     }
 
@@ -679,7 +680,7 @@ class GattDriverSeamTest {
     fun `write와 CCCD는 common FIFO에서 exact target callback으로만 차례로 완료된다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val starts = mutableListOf<GattOperationKind>()
         val events = mutableListOf<BleEvent>()
@@ -767,7 +768,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
         }
         val driver = FakeGattDriver()
@@ -833,7 +834,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 2
         }
         val driver = FakeGattDriver()
@@ -887,7 +888,7 @@ class GattDriverSeamTest {
     fun `Task4 drain이 pre-start completion을 취소하면 started 대기 caller도 종결된다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
         val bridge = GattBridge(
             registry = registry,
@@ -932,7 +933,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 2
         }
         val driver = FakeGattDriver()
@@ -998,7 +999,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 2
         }
         val firstRef = charRef(UUID.randomUUID(), UUID.randomUUID())
@@ -1058,7 +1059,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 2
         }
         val driver = FakeGattDriver()
@@ -1118,7 +1119,7 @@ class GattDriverSeamTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
-            setStateForTest(ConnState.Ready)
+            setStateForTest(ConnectionState.Ready)
             chunkSize = 20
         }
         val driver = FakeGattDriver()

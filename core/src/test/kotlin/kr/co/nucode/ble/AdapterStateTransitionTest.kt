@@ -67,7 +67,7 @@ class AdapterStateTransitionTest {
         val probe = ProbeHolder(AdapterState.Ready)
         val core = newCore { probe.state }
         val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
         val events = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(events) }
@@ -84,11 +84,11 @@ class AdapterStateTransitionTest {
     fun `a Ready에서 PoweredOff로 전이하면 세션이 ADAPTER_UNAVAILABLE로 종결되고 ConnStateChanged가 1회 나온다`() = runTest {
         val fx = fixtureAtPoweredOff()
 
-        val internalState = fx.session.state
+        val internalState = fx.session.connectionState.value
         assertTrue(
             "내부 state 는 Disconnected(ADAPTER_UNAVAILABLE) 여야 한다: $internalState",
-            internalState is ConnState.Disconnected &&
-                (internalState.reason as? DisconnectReason.Failed)?.failure?.code == FailureCode("ADAPTER_UNAVAILABLE"),
+            internalState is ConnectionState.Disconnected &&
+                (internalState.reason as? BleDisconnectReason.Failed)?.failure?.code == FailureCode("ADAPTER_UNAVAILABLE"),
         )
 
         // 공개 투영도 같은 결론이어야 한다. Session.connectionState 로 읽는다 —
@@ -138,7 +138,7 @@ class AdapterStateTransitionTest {
         val probe = ProbeHolder(AdapterState.Ready)
         val core = newCore { probe.state }
         val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
         val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
         session.subscriptionState.addDesired(ref)
         runCurrent()
@@ -156,7 +156,7 @@ class AdapterStateTransitionTest {
         val probe = ProbeHolder(AdapterState.Ready)
         val core = newCore { probe.state }
         val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
         val events = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(events) }
         runCurrent()
@@ -171,8 +171,8 @@ class AdapterStateTransitionTest {
         val state = changes.single().state
         assertTrue(
             "Disconnected(Failed ADAPTER_UNAVAILABLE) 여야 한다: $state",
-            state is ConnState.Disconnected &&
-                (state.reason as? DisconnectReason.Failed)?.failure?.code == FailureCode("ADAPTER_UNAVAILABLE"),
+            state is ConnectionState.Disconnected &&
+                (state.reason as? BleDisconnectReason.Failed)?.failure?.code == FailureCode("ADAPTER_UNAVAILABLE"),
         )
         assertEquals(
             1,

@@ -88,7 +88,7 @@ class SessionViewNoDeadlockTest {
                 adapter = { null },
                 gattDriver = driver,
             )
-            val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+            val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
             val startBarrier = CountDownLatch(2)
             val threadA = Thread {
@@ -114,9 +114,9 @@ class SessionViewNoDeadlockTest {
                 driver.closeCalls.get(),
             )
             assertEquals(
-                "라이브 세션은 close 뒤 Disconnected(ClientClosed) 여야 한다: ${session.state}",
-                ConnState.Disconnected(DisconnectReason.ClientClosed),
-                session.state,
+                "라이브 세션은 close 뒤 Disconnected(ClientClosed) 여야 한다: ${session.connectionState.value}",
+                ConnectionState.Disconnected(BleDisconnectReason.ClientClosed),
+                session.connectionState.value,
             )
         }
     }

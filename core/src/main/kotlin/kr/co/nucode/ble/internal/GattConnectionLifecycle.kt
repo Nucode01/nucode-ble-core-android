@@ -51,7 +51,14 @@ internal class GattConnectionLifecycle(
     private val rediscovery: PeripheralRediscovery?,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)?,
     private val operations: GattOperationHooks,
+    private val sequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
 ) : GattLifecycleHooks {
+
+    /** 상태 발행의 유일한 경로 — 발행 뒤 연결 절차 hook 을 부른다(plan connect-sequence 불변식 ②). */
+    private fun publishState(session: Session) {
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.connectionState.value))
+        sequence.onStatePublished(session.deviceId)
+    }
 
     /** Retained `BluetoothGatt.connect()` 성공 직후 coordinator generation과 link deadline을 연다. */
     private fun beginRetainedReconnectLifecycle(session: Session): Long? {
@@ -138,7 +145,7 @@ internal class GattConnectionLifecycle(
         session.resubscribeJob = null
         session.timeoutJob?.cancel()
         session.timeoutJob = null
-        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
+        publishState(session)
         try {
             driver.disconnect(session.deviceId, session.gatt)
         } catch (_: Exception) {
@@ -173,7 +180,7 @@ internal class GattConnectionLifecycle(
         session.chunkSize = null
         if (session.suppressReconnect) close(session)
 
-        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
+        publishState(session)
         if (!session.suppressReconnect) armRetainedReconnectLifecycle(session)
         return true
     }
@@ -262,7 +269,7 @@ internal class GattConnectionLifecycle(
                     operations.beginGenerationIfPoisoned(session)
                     session.timeoutJob?.cancel()
                     session.timeoutJob = null
-                    emit(BleEvent.ConnStateChanged(deviceId, session.state))
+                    publishState(session)
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -362,6 +369,7 @@ internal class GattConnectionLifecycle(
 
         session.replaceDiscoveredTopology(services, discoveredMap)
         emit(BleEvent.ServicesDiscovered(deviceId, services))
+        sequence.onServicesDiscovered(deviceId)
     }
 
     /**
@@ -373,8 +381,8 @@ internal class GattConnectionLifecycle(
      * 실패 분기(review #4): 예전에는 Diagnostic 만 내고 return 해 Discovering 에 영구
      * 정지했다(연결 시퀀스가 MtuChanged 를 기다리는데 다시 오지 않으므로). 협상 실패라도
      * 링크 자체는 살아 있고 유효 MTU 가 BLE 기본값 23 이므로, 23/20 폴백을 그대로
-     * 방출해 legacy direct seam의 기존 경로를 유지한다. coordinator readiness의 실패/fallback
-     * terminal 처리는 Task 3이 이관한다.
+     * 발행한 뒤 성공 경로와 똑같이 `sequence.onMtuSettled` 를 불러 구독 복구 → Ready 로
+     * 진행시킨다(발행 직후 hook — plan connect-sequence 불변식 ①).
      */
     internal fun handleMtuChanged(event: GattDriverEvent.MtuChanged) {
         val deviceId = event.deviceId
@@ -397,6 +405,7 @@ internal class GattConnectionLifecycle(
             session.mtu = DEFAULT_MTU
             session.chunkSize = fallbackChunk
             emit(BleEvent.MtuChanged(deviceId, DEFAULT_MTU, fallbackChunk))
+            sequence.onMtuSettled(deviceId)
             return
         }
 
@@ -404,7 +413,8 @@ internal class GattConnectionLifecycle(
         session.mtu = mtu
         session.chunkSize = chunkSize
         emit(BleEvent.MtuChanged(deviceId, mtu, chunkSize))
-        // public Ready 상태 발행은 이 callback fact를 받은 BleRuntime orchestration이 담당한다.
+        sequence.onMtuSettled(deviceId)
+        // public Ready 상태 발행은 onMtuSettled 이후 BleRuntime 구독 복구가 담당한다.
     }
 
     /**
@@ -463,7 +473,7 @@ internal class GattConnectionLifecycle(
             onTimeout = { onLifecycleDeadline(deviceId, it) },
         )
         session.subscriptionState.beginGeneration(connectionGeneration)
-        emit(BleEvent.ConnStateChanged(deviceId, session.state))
+        publishState(session)
         session.terminalLifecycleCause = null
 
         // 이전 connection generation의 waiter를 먼저 끝낸 뒤에만 새 generation을 연다.
@@ -502,7 +512,7 @@ internal class GattConnectionLifecycle(
         session.retryCount = 0
         session.autoConnect = options.autoConnect
         // plan blecore-app-tunables 결정① — 이번 연결 시도의 옵션값을 Session 에 보존한다.
-        // BleRuntime.advanceConnectSequence 의 ServicesDiscovered 분기가 이 값을 그대로 읽어
+        // ConnectSequence.onServicesDiscovered 가 이 값을 그대로 읽어
         // requestMtu 를 부른다(Session.requestedMtu KDoc, 구 상수 REQUESTED_MTU 대체).
         session.requestedMtu = options.requestedMtu
 
@@ -526,7 +536,7 @@ internal class GattConnectionLifecycle(
                         TerminalCleanupReason.LinkStartRejected,
                     )
                     operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
-                    emit(BleEvent.ConnStateChanged(deviceId, session.state))
+                    publishState(session)
                 }
                 throw e
             }
@@ -682,7 +692,7 @@ internal class GattConnectionLifecycle(
     }
 
     /**
-     * MTU 협상 요청. BleRuntime.advanceConnectSequence 가 `ServicesDiscovered` 이후 부른다.
+     * MTU 협상 요청. ConnectSequence.onServicesDiscovered 가 `ServicesDiscovered` 발행 이후 부른다.
      * `requestMtu()` 가 `false` 를 돌려주면(호출 자체 실패) [handleMtuChanged] 콜백이 오지
      * 않으므로, requestMtu 실패도 handleMtuChanged 의 협상 실패와 같은 23/20 폴백 경로로
      * 처리해 Discovering 영구 정지를 막는다(review #4, plan §접근 ④).
@@ -720,6 +730,7 @@ internal class GattConnectionLifecycle(
             session.mtu = DEFAULT_MTU
             session.chunkSize = fallbackChunk
             emit(BleEvent.MtuChanged(deviceId, DEFAULT_MTU, fallbackChunk))
+            sequence.onMtuSettled(deviceId)
         }
     }
 
@@ -764,7 +775,7 @@ internal class GattConnectionLifecycle(
         session.chunkSize = null
 
         emitDiagnostic(Severity.Warning, cause)
-        emit(BleEvent.ConnStateChanged(session.deviceId, session.state))
+        publishState(session)
     }
 
     private fun emitDiagnostic(severity: Severity, failure: BleFailure) {

@@ -9,7 +9,6 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleReconnectPolicy
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
@@ -54,7 +53,7 @@ internal fun canRetry(retryCount: Int, policy: ReconnectPolicy): Boolean =
  * 재연결 메커니즘만 담당한다. 정책(횟수 · 백오프 곡선 · 조건)은 [policy] 로 주입되고,
  * 실제 연결 재시도는 GattBridge(plan task 7)가 배선한다(설계 §6 "Reconnector — 메커니즘만").
  *
- * `ConnState` 에 `Reconnecting` 을 두지 않는다(설계 §5) — 재연결 중에도 상태는
+ * 연결 단계(`ConnectionStage`)에 `Reconnecting` 을 두지 않는다(설계 §5) — 재연결 중에도 상태는
  * `Disconnected` → `Connecting` 을 오갈 뿐이다.
  *
  * `delay()` 는 생성자로 받은 [scope] 의 디스패처 컨텍스트 안에서만 부른다 — `Thread.sleep` /
@@ -65,7 +64,14 @@ internal class Reconnector(
     private val registry: SessionRegistry,
     private val emit: (BleEvent) -> Unit,
     private val scope: CoroutineScope,
+    private val sequence: ConnectSequenceHooks,
 ) {
+
+    /** 상태 발행의 유일한 경로 — 발행 뒤 연결 절차 hook 을 부른다(plan connect-sequence 불변식 ②). */
+    private fun publishState(session: Session) {
+        emit(BleEvent.ConnStateChanged(session.deviceId, session.connectionState.value))
+        sequence.onStatePublished(session.deviceId)
+    }
 
     /**
      * 재연결 정책. 생성자 4번째 파라미터로 만들지 않는다 — 4·5·6·7 워커가 공유하는
@@ -94,9 +100,9 @@ internal class Reconnector(
      * "삼키지 않는다"는 계약이라, 코어가 내부적으로 재시도했다는 사실 자체가 반드시 남아야
      * 한다(설계 §5).
      *
-     * 기기별 예약 손잡이는 [Session.reconnectJob] 하나다. LAZY job을 이벤트 방출 전에 이
-     * 필드에 설치하므로, 방출된 Disconnected가 동기 재진입해도 같은 재연결을 다시 예약하지
-     * 않는다. 실제 platform start 직전에 손잡이를 비워야 시작 실패로 방출된 다음
+     * 기기별 예약 손잡이는 [Session.reconnectJob] 하나다. LAZY job을 상태 발행 전에 이
+     * 필드에 설치하므로, `publishState` 뒤 [ConnectSequenceHooks.onStatePublished] 가 (stage 가
+     * 여전히 Disconnected 라서) 동기 재진입해도 같은 재연결을 다시 예약하지 않는다. 실제 platform start 직전에 손잡이를 비워야 시작 실패로 방출된 다음
      * Disconnected가 다음 bounded retry를 예약할 수 있다.
      */
     fun scheduleReconnect(deviceId: PeripheralId, cause: BleFailure? = null) {
@@ -136,9 +142,9 @@ internal class Reconnector(
         session.retryCount = attempt + 1
 
         val failure = reconnectFailure("RECONNECT_ATTEMPT", session, cause)
-        // Install the lazy Job first.  Publishing the edge synchronously routes through
-        // BleRuntime's legacy sequencing, where a duplicate disconnect must observe this active
-        // handle and not create a second reconnect continuation.
+        // LAZY job 을 먼저 설치한다. 아래 publishState 가 ConnectSequence.onStatePublished 를
+        // 동기로 부르고, 그 Disconnected 분기가 이 scheduleReconnect 로 재진입할 때 이 손잡이를
+        // 보고 두 번째 continuation 을 만들지 않아야 한다.
         val reconnectJob = scope.launch(start = CoroutineStart.LAZY) {
             delay(delayMillis)
             reconnect(deviceId, reconnectPolicy)
@@ -158,9 +164,9 @@ internal class Reconnector(
                 failure = failure,
             ),
         )
-        // This is also the public-state edge for Recovering.  Session projects it to the official
-        // state flow while the legacy stream remains its terminal Disconnected fact.
-        if (official) emit(BleEvent.ConnStateChanged(deviceId, session.state))
+        // This is also the public-state edge for Recovering.  The event carries the Recovering
+        // projection captured here; the coordinator stage stays Disconnected.
+        if (official) publishState(session)
         reconnectJob.start()
     }
 
@@ -173,26 +179,26 @@ internal class Reconnector(
      * 안 해둔 앞단의 선택이 무의미해진다.
      *
      * `gatt.connect()` 가 `false` 를 돌려주면(호출 자체가 시작도 못 한 것) callback은 다시
-     * 오지 않는다. 이 시도가 [BleRuntime]의 `Disconnected` event로 다음 bounded retry/give-up을
-     * 요청할 수 있도록, platform start 전에 현재 job guard를 해제한다. 여기서 직접 재귀
-     * 호출하지 않는다. 재시도 정책과 backoff는 여전히 event 경로의 [scheduleReconnect] 한
+     * 오지 않는다. 이 시도의 `Disconnected` 발행(`publishState` → `ConnectSequence.onStatePublished`)이
+     * 다음 bounded retry/give-up을 요청할 수 있도록, platform start 전에 현재 job guard를 해제한다. 여기서 직접 재귀
+     * 호출하지 않는다. 재시도 정책과 backoff는 여전히 hook 경로의 [scheduleReconnect] 한
      * 곳만 소유하므로, `runTest`에서는 `advanceTimeBy`로 각 attempt를 관찰할 수 있다.
      */
     private suspend fun reconnect(deviceId: PeripheralId, reconnectPolicy: ReconnectPolicy) {
         val session = registry.get(deviceId) ?: return
         // 실행 시점 재확인(review H-2): 예약(백오프 대기) 중에 사용자가 disconnect() 를
-        // 불렀을 수 있다 — 예약 시점 가드(BleRuntime.advanceConnectSequence)만으로는
+        // 불렀을 수 있다 — 예약 시점 가드(ConnectSequence.onStatePublished)만으로는
         // 이미 큐에 들어간 시도를 못 막는다. 사용자가 끊은 기기를 코어가 되붙이면 안 된다.
         if (session.suppressReconnect || session.autoConnect) return
         // 이 job이 곧 platform start를 끝내므로 더는 "backoff 대기 중"이 아니다. false
-        // start가 Disconnected를 emit하면 BleRuntime.advanceConnectSequence가 즉시 다음 retry를
-        // 예약한다. 이 참조를 남기면 isActive guard가 그 유일한 continuation을 막는다.
+        // start가 Disconnected를 emit하면 ConnectSequence.onStatePublished가 즉시 다음 retry를
+        // 예약한다. 이 참조를 남기면 `reconnectJob != null` guard가 그 유일한 continuation을 막는다.
         session.reconnectJob = null
         // Generation must be incremented before touching the retained GATT handle so callbacks
         // cannot mutate a preceding lifecycle.
         val generation = beginReconnectLifecycle(deviceId) ?: return
         session.subscriptionState.beginGeneration(generation)
-        emit(BleEvent.ConnStateChanged(deviceId, session.state))
+        publishState(session)
 
         val started = session.gatt?.connect() ?: false
         if (!started) {
@@ -210,14 +216,14 @@ internal class Reconnector(
             // Connecting 잔류 금지(review — plan v2 ①): 시작조차 못 한 시도를 열린 채 두면
             // H-3 가드가 이후 사용자 connect() 를 조용한 no-op 으로 삼킨다. D6(시작 실패 =
             // 상태·스트림 종결)과 같은 패턴으로 닫는다 — 이 Disconnected emit 이
-            // advanceConnectSequence 를 타고 scheduleReconnect 로 가서, retryCount 가
+            // ConnectSequence.onStatePublished 를 타고 scheduleReconnect 로 가서, retryCount 가
             // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한).
             session.prepareDisconnect(DisconnectReason.Failed(failure))
             session.connectionCoordinator.completeCleanup(
                 generation,
                 TerminalCleanupReason.LinkStartRejected,
             )
-            emit(BleEvent.ConnStateChanged(deviceId, session.state))
+            publishState(session)
             return
         }
 
@@ -228,7 +234,7 @@ internal class Reconnector(
         // 다른 의미다. CONNECTED 도착 시 handleConnectionStateChange 가 이 job 을 cancel 한다.
         session.timeoutJob = scope.launch {
             delay(reconnectPolicy.attemptTimeoutMillis)
-            if (session.state is ConnState.Connecting) {
+            if (session.stage == ConnectionStage.Connecting) {
                 emit(
                     BleEvent.Diagnostic(
                         severity = Severity.Warning,

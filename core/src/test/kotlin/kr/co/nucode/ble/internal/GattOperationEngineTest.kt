@@ -1,11 +1,11 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.ConnectionState
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +22,7 @@ class GattOperationEngineTest {
     fun `permission denied at operation start enters lifecycle cleanup through the hook`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnState.Ready) }
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val beginCleanupCalls = mutableListOf<Triple<TerminalCleanupReason, String?, Boolean>>()
         var terminateForOperationInvalidationCalled = false
         val hooks = object : GattLifecycleHooks {

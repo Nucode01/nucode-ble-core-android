@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.BleDisconnectReason
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -9,7 +10,7 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleReconnectPolicy
-import kr.co.nucode.ble.ConnState
+import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureMapper
@@ -71,7 +72,7 @@ class ReconnectorTest {
         registry.getOrCreate(deviceId)
 
         val emitted = mutableListOf<BleEvent>()
-        val reconnector = Reconnector(registry, { emitted.add(it) }, this)
+        val reconnector = Reconnector(registry, { emitted.add(it) }, this, ConnectSequenceHooks.None)
         reconnector.policy = ReconnectPolicy(maxAttempts = 3, baseDelayMillis = 100L, maxDelayMillis = 1_000L)
 
         // 1회차 시도
@@ -84,16 +85,16 @@ class ReconnectorTest {
         advanceUntilIdle()
 
         // 시도 중 Connecting 이 방출된다 (Reconnecting 상태는 존재하지 않는다)
-        assertTrue(emitted.filterIsInstance<BleEvent.ConnStateChanged>().any { it.state == ConnState.Connecting })
+        assertTrue(emitted.filterIsInstance<BleEvent.ConnStateChanged>().any { it.state == ConnectionState.Connecting })
         // gatt 가 null(=connect() 시작 실패)이므로 시도는 typed failure Disconnected로
         // **종결**된다 — plan lifecycle v2 ①. 이전에는 Connecting 에 동결돼 H-3 가드가
         // 이후 사용자 connect() 를 영구 no-op 으로 만들었다(그 동결을 정상으로 박제했던
         // 이 자리의 구 assertion 이 review 에서 반박된 것).
-        val stateAfter = registry.get(deviceId)?.state
+        val stateAfter = registry.get(deviceId)?.connectionState?.value
         assertTrue(
             "시작 실패한 시도가 종결되지 않았다: $stateAfter",
-            stateAfter is ConnState.Disconnected &&
-                ((stateAfter as ConnState.Disconnected).reason as? DisconnectReason.Failed)
+            stateAfter is ConnectionState.Disconnected &&
+                ((stateAfter as ConnectionState.Disconnected).reason as? BleDisconnectReason.Failed)
                     ?.failure
                     ?.code
                     ?.value == "RECONNECT_CONNECT_START_FAILED",
@@ -131,7 +132,7 @@ class ReconnectorTest {
         assertEquals(3, registry.get(deviceId)?.retryCount)
     }
 
-    @Test
+    @Test(timeout = 10_000)
     fun `retained connect 동기 시작 실패는 active job guard를 풀어 다음 bounded retry로 이어진다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:01")
@@ -140,13 +141,9 @@ class ReconnectorTest {
         lateinit var reconnector: Reconnector
         reconnector = Reconnector(
             registry = registry,
-            emit = { event ->
-                emitted += event
-                if (event is BleEvent.ConnStateChanged && event.state is ConnState.Disconnected) {
-                    reconnector.scheduleReconnect(deviceId)
-                }
-            },
+            emit = { emitted += it },
             scope = this,
+            sequence = reconnectOnDisconnectedStage(registry) { reconnector },
         ).also {
             it.policy = ReconnectPolicy(
                 maxAttempts = 2,
@@ -181,11 +178,11 @@ class ReconnectorTest {
                 .count { it.failure.code.value == "RECONNECT_GIVE_UP" },
         )
         assertEquals(2, session.retryCount)
-        assertTrue(session.state is ConnState.Disconnected)
+        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
         assertTrue(session.reconnectJob == null)
     }
 
-    @Test
+    @Test(timeout = 10_000)
     fun `예약 상태를 알리는 동기 이벤트가 같은 재연결을 중복 예약하지 않는다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:04")
@@ -200,13 +197,9 @@ class ReconnectorTest {
         lateinit var reconnector: Reconnector
         reconnector = Reconnector(
             registry = registry,
-            emit = { event ->
-                emitted += event
-                if (event is BleEvent.ConnStateChanged && event.state is ConnState.Disconnected) {
-                    reconnector.scheduleReconnect(deviceId)
-                }
-            },
+            emit = { emitted += it },
             scope = this,
+            sequence = reconnectOnDisconnectedStage(registry) { reconnector },
         )
 
         reconnector.scheduleReconnect(deviceId)
@@ -226,7 +219,7 @@ class ReconnectorTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:03")
         val session = registry.getOrCreate(deviceId)
         val emitted = mutableListOf<BleEvent>()
-        val reconnector = Reconnector(registry, emitted::add, this).also {
+        val reconnector = Reconnector(registry, emitted::add, this, ConnectSequenceHooks.None).also {
             it.policy = ReconnectPolicy(maxAttempts = 1, baseDelayMillis = 10, maxDelayMillis = 10)
         }
 
@@ -236,7 +229,7 @@ class ReconnectorTest {
 
         val diagnostic = emitted.filterIsInstance<BleEvent.Diagnostic>()
             .first { it.failure.code.value == "RECONNECT_CONNECT_START_FAILED" }
-        val stateFailure = ((session.state as ConnState.Disconnected).reason as DisconnectReason.Failed).failure
+        val stateFailure = ((session.connectionState.value as ConnectionState.Disconnected).reason as BleDisconnectReason.Failed).failure
         assertEquals(stateFailure, diagnostic.failure)
         assertEquals(session.failureSessionId, diagnostic.failure.context.sessionId)
         assertEquals(session.connectionCoordinator.generation, diagnostic.failure.context.connectionGeneration)
@@ -254,7 +247,7 @@ class ReconnectorTest {
             )
         }
         val emitted = mutableListOf<BleEvent>()
-        val reconnector = Reconnector(registry, emitted::add, this)
+        val reconnector = Reconnector(registry, emitted::add, this, ConnectSequenceHooks.None)
 
         reconnector.scheduleReconnect(deviceId, linkFailure(deviceId, 133))
 
@@ -286,4 +279,23 @@ class ReconnectorTest {
         operation = AndroidApiOperation.OnConnectionStateChange,
         context = kr.co.nucode.ble.FailureContext(),
     )
+
+    /**
+     * 프로덕션 재진입 경로를 그대로 흉내 낸다 — `ConnectSequence.onStatePublished` 처럼 발행 직후
+     * 세션 stage 가 Disconnected 이고 `suppressReconnect` 가 아니면 재연결을 예약한다.
+     */
+    private fun reconnectOnDisconnectedStage(
+        registry: SessionRegistry,
+        reconnector: () -> Reconnector,
+    ): ConnectSequenceHooks = object : ConnectSequenceHooks {
+        override fun onStatePublished(deviceId: PeripheralId) {
+            val session = registry.get(deviceId) ?: return
+            if (session.stage == ConnectionStage.Disconnected && !session.suppressReconnect) {
+                reconnector().scheduleReconnect(deviceId)
+            }
+        }
+
+        override fun onServicesDiscovered(deviceId: PeripheralId) = Unit
+        override fun onMtuSettled(deviceId: PeripheralId) = Unit
+    }
 }

@@ -90,6 +90,7 @@ internal class GattBridge(
     private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress.None,
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
+    private val connectSequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -121,6 +122,7 @@ internal class GattBridge(
         readinessTimeouts,
         rediscovery,
         linkCacheWarm,
+        sequence = connectSequence,
         operations = object : GattOperationHooks {
             override fun invalidateAll(session: Session, failure: BleFailure) =
                 operations.invalidateAll(session, failure)

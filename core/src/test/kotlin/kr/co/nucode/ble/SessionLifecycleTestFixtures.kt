@@ -9,15 +9,16 @@ import kr.co.nucode.ble.internal.TerminalCleanupReason
 private val lifecycleFixtureScope = CoroutineScope(Dispatchers.Unconfined)
 
 /** Drives the real coordinator for tests that do not exercise platform connection callbacks. */
-internal fun Session.setStateForTest(target: ConnState) {
+internal fun Session.setStateForTest(target: ConnectionState) {
+    require(target !is ConnectionState.Recovering) { "Recovering is a transient projection; not supported by setStateForTest" }
     val coordinator = connectionCoordinator
     if (coordinator.stage != ConnectionStage.Disconnected) {
-        prepareDisconnect((target as? ConnState.Disconnected)?.reason ?: DisconnectReason.Initial)
+        prepareDisconnect((target as? ConnectionState.Disconnected)?.reason?.toInternalForTest() ?: DisconnectReason.Initial)
         coordinator.completeCleanup(coordinator.generation, TerminalCleanupReason.PlatformDisconnected)
     }
 
-    if (target is ConnState.Disconnected) {
-        prepareDisconnect(target.reason)
+    if (target is ConnectionState.Disconnected) {
+        prepareDisconnect(target.reason.toInternalForTest())
         return
     }
 
@@ -26,7 +27,7 @@ internal fun Session.setStateForTest(target: ConnState) {
         linkTimeoutMillis = Long.MAX_VALUE,
         onTimeout = {},
     )
-    if (target is ConnState.Connecting) return
+    if (target is ConnectionState.Connecting) return
 
     coordinator.transition(
         callbackGeneration = generation,
@@ -35,7 +36,7 @@ internal fun Session.setStateForTest(target: ConnState) {
         scope = lifecycleFixtureScope,
         timeoutMillis = Long.MAX_VALUE,
     )
-    if (target is ConnState.DiscoveringServices) return
+    if (target is ConnectionState.DiscoveringServices) return
 
     coordinator.transition(
         callbackGeneration = generation,
@@ -44,9 +45,9 @@ internal fun Session.setStateForTest(target: ConnState) {
         scope = lifecycleFixtureScope,
         timeoutMillis = Long.MAX_VALUE,
     )
-    if (target is ConnState.Configuring) return
+    if (target is ConnectionState.Configuring) return
 
-    if (target is ConnState.Ready) {
+    if (target is ConnectionState.Ready) {
         coordinator.transition(
             callbackGeneration = generation,
             expectedStage = ConnectionStage.Configuring,
@@ -56,7 +57,7 @@ internal fun Session.setStateForTest(target: ConnState) {
         return
     }
 
-    check(target is ConnState.Disconnecting)
+    check(target is ConnectionState.Disconnecting)
     coordinator.beginCleanup(
         targetGeneration = generation,
         reason = TerminalCleanupReason.UserRequested,
@@ -64,4 +65,11 @@ internal fun Session.setStateForTest(target: ConnState) {
         disconnectCleanupTimeoutMillis = Long.MAX_VALUE,
         onTimeout = {},
     )
+}
+
+private fun BleDisconnectReason.toInternalForTest(): DisconnectReason = when (this) {
+    BleDisconnectReason.Initial -> DisconnectReason.Initial
+    BleDisconnectReason.Requested -> DisconnectReason.Requested
+    BleDisconnectReason.ClientClosed -> DisconnectReason.ClientClosed
+    is BleDisconnectReason.Failed -> DisconnectReason.Failed(failure)
 }

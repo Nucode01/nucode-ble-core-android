@@ -1,6 +1,5 @@
 package kr.co.nucode.ble.internal
 
-import kr.co.nucode.ble.ConnState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -8,9 +7,9 @@ import org.junit.Test
 /** Guards the single-owner lifecycle and GATT-operation model against legacy state reintroduction. */
 class InternalConvergenceContractTest {
     @Test
-    fun `ConnState exposes only coordinator-derived lifecycle variants`() {
-        val variants = ConnState::class.java.declaredClasses
-            .map { it.simpleName }
+    fun `ConnectionStage exposes only coordinator lifecycle variants`() {
+        val variants = ConnectionStage.entries
+            .map { it.name }
             .toSet()
 
         assertEquals(
@@ -39,7 +38,7 @@ class InternalConvergenceContractTest {
             fields.any { it.type.name == "kotlinx.coroutines.sync.Mutex" },
         )
         assertFalse(
-            "Session.state must remain a read-only projection of ConnectionCoordinator.stage",
+            "Session.stage must remain a read-only view of ConnectionCoordinator.stage",
             Session::class.java.declaredMethods.any { it.name == "setState" },
         )
     }

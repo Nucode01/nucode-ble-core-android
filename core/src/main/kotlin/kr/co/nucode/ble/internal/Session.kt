@@ -12,7 +12,6 @@ import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.GattService
@@ -51,11 +50,14 @@ internal class Session(val deviceId: PeripheralId) {
     )
     internal val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private var disconnectReason: DisconnectReason = DisconnectReason.Initial
+    /** 마지막 terminal reason. [prepareDisconnect] 만 기록한다. */
+    var disconnectReason: DisconnectReason = DisconnectReason.Initial
+        private set
 
-    /** Coordinator stage에서 파생되는 compatibility view. 독립 setter를 두지 않는다. */
-    val state: ConnState
-        get() = connectionCoordinator.stage.toConnState(disconnectReason)
+    /** Coordinator stage 의 읽기 전용 view. 내부 판단의 유일한 연결 단계다. */
+    val stage: ConnectionStage
+        get() = connectionCoordinator.stage
+
 
     /**
      * Projects a bounded retry delay without introducing a second connection-state owner.
@@ -90,7 +92,7 @@ internal class Session(val deviceId: PeripheralId) {
     }
 
     private fun publishStage(stage: ConnectionStage) {
-        _connectionState.value = stage.toConnState(disconnectReason).toPublicConnectionState()
+        _connectionState.value = stage.toPublicConnectionState(disconnectReason)
     }
 
     /**
@@ -164,7 +166,7 @@ internal class Session(val deviceId: PeripheralId) {
      * connect() 시점에 요청한 MTU 값(plan blecore-app-tunables 결정① — `ConnectOptions.requestedMtu`
      * 를 상수(구 `REQUESTED_MTU`) 대신 여기 보존한다). 기본 247 은 `ConnectOptions.requestedMtu`
      * 기본값과 같다. [GattBridge.connect] 가 `options.requestedMtu` 를 저장하고,
-     * `BleRuntime.advanceConnectSequence` 의 `ServicesDiscovered` 분기가 이 값을 그대로 읽어
+     * `ConnectSequence.onServicesDiscovered` 가 이 값을 그대로 읽어
      * `gattBridge.requestMtu` 를 부른다 — 연결별/기기별로 다른 값을 허용하려면 상수로는 안 되고
      * Session 에 둬야 한다(규칙 2, 기기별 값은 Session).
      */
@@ -229,22 +231,15 @@ internal class Session(val deviceId: PeripheralId) {
         connectionCoordinator.stage == ConnectionStage.Ready
 }
 
-private fun ConnState.toPublicConnectionState(): ConnectionState = when (this) {
-    is ConnState.Disconnected -> ConnectionState.Disconnected(reason.toPublicDisconnectReason())
-    ConnState.Connecting -> ConnectionState.Connecting
-    ConnState.DiscoveringServices -> ConnectionState.DiscoveringServices
-    ConnState.Configuring -> ConnectionState.Configuring
-    ConnState.Ready -> ConnectionState.Ready
-    ConnState.Disconnecting -> ConnectionState.Disconnecting
-}
-
-private fun ConnectionStage.toConnState(disconnectReason: DisconnectReason): ConnState = when (this) {
-    ConnectionStage.Disconnected -> ConnState.Disconnected(disconnectReason)
-    ConnectionStage.Connecting -> ConnState.Connecting
-    ConnectionStage.DiscoveringServices -> ConnState.DiscoveringServices
-    ConnectionStage.Configuring -> ConnState.Configuring
-    ConnectionStage.Ready -> ConnState.Ready
-    ConnectionStage.Disconnecting -> ConnState.Disconnecting
+private fun ConnectionStage.toPublicConnectionState(
+    disconnectReason: DisconnectReason,
+): ConnectionState = when (this) {
+    ConnectionStage.Disconnected -> ConnectionState.Disconnected(disconnectReason.toPublicDisconnectReason())
+    ConnectionStage.Connecting -> ConnectionState.Connecting
+    ConnectionStage.DiscoveringServices -> ConnectionState.DiscoveringServices
+    ConnectionStage.Configuring -> ConnectionState.Configuring
+    ConnectionStage.Ready -> ConnectionState.Ready
+    ConnectionStage.Disconnecting -> ConnectionState.Disconnecting
 }
 
 private fun DisconnectReason.toPublicDisconnectReason(): BleDisconnectReason = when (this) {

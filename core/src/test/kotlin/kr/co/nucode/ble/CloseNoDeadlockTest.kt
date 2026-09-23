@@ -47,7 +47,7 @@ class CloseNoDeadlockTest {
     fun `close called on the test dispatcher returns and cleanup completes after runCurrent`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
         // 코어의 events 스트림이 close() 이후에도 정상 종결되는지(예외 없이) 함께 살펴본다 —
         // close() 의 정리부는(변경 전/후 모두) 이 스트림에 BleEvent.ConnStateChanged 를 emit
@@ -64,7 +64,7 @@ class CloseNoDeadlockTest {
         // awaitClosed() 가 이미 완료돼 있어야 한다(정리가 runCurrent() 동안 끝났다는 증거).
         core.awaitClosed()
 
-        assertEquals(ConnState.Disconnected(DisconnectReason.ClientClosed), session.state)
+        assertEquals(ConnectionState.Disconnected(BleDisconnectReason.ClientClosed), session.connectionState.value)
         assertNull(core.registry.get(id))
 
         val snapshot = core.officialSnapshot()
@@ -88,7 +88,7 @@ class CloseNoDeadlockTest {
     fun `snapshot dispatched before close observes the frozen result after the gate`() = runTest {
         val core = newCore()
         val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
         val before = async { core.officialSnapshot() }
         core.close()
@@ -121,7 +121,7 @@ class CloseNoDeadlockTest {
         val failure = IllegalStateException("gatt gone")
         val core = newCoreWithFailingClose(ThrowingCloseDriver(failure))
         val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
         core.close()
         runCurrent()
@@ -158,7 +158,7 @@ class CloseNoDeadlockTest {
         val id2 = failingId
         val id3 = testDeviceId("03")
         listOf(id1, id2, id3).forEach { id ->
-            core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+            core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
         }
 
         core.close()

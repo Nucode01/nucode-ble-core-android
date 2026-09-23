@@ -11,7 +11,6 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.BleChunking
-import kr.co.nucode.ble.ConnState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.OperationKind
@@ -59,7 +58,7 @@ internal class OperationQueue(
      * 동시 호출과 read/CCCD는 scheduler FIFO에서 command batch 뒤에 직렬화된다.
      *
      * 연결 여부는 [Session.canStartPublicGattOperation]으로 판정한다. Slice 2 lifecycle
-     * generation은 [ConnState.Ready]에서만 write를 시작한다.
+     * generation은 [ConnectionStage.Ready]에서만 write를 시작한다.
      * `NOT_CONNECTED` typed failure를 낸다. chunkSize 는 Session 이 들고 있는 협상된 값을 그대로 쓰되,
      * 아직 협상 전(null)이면 [DEFAULT_CHUNK_SIZE](BLE 기본 ATT_MTU 23 기준)로 대체한다 —
      * MTU 협상은 연결 이후에 일어나는 별개의 단계라, 협상 전이라고 해서 연결 자체가

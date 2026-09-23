@@ -448,3 +448,8 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 
 수정 전 유실률(4/9)이 유지됐다면 10회 연속 무유실 확률은 약 0.3% — 끊김 직전 notification 유실 경합이라는 가설과 부합한다.
 폰 호스트 스택에서의 유실 지점 자체는 btsnoop 없이 확인하지 못했다(가설 유지).
+
+### 페이로드 관측 진단 logger 전용화 후 (plan M, 2026-09-23)
+
+`GATT_PAYLOAD_OBSERVED` 가 `events` 대신 `BleConfig.logger` 로만 가도록 바꾼 뒤 전체 스위트(5개) **5/5 pass**.
+하네스 logger 로그의 관측 기록 54건, `events` 로 나온 관측 진단 0건 — 두 경로가 실기기에서 의도대로 갈렸다.

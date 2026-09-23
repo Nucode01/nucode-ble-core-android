@@ -34,6 +34,7 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConfig
+import kr.co.nucode.ble.BleLogger
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleScanFilter
@@ -89,6 +90,14 @@ class BleHardwareIntegrationTest {
                 discoveryTimeoutMillis = 15_000,
                 configurationTimeoutMillis = 15_000,
                 disconnectCleanupTimeoutMillis = 7_000,
+                // 모든 진단 기록을 남긴다. 페이로드 관측(GATT_PAYLOAD_OBSERVED)은 events 가 아니라 여기로만 온다.
+                logger = BleLogger { record ->
+                    Log.i(
+                        TAG,
+                        "diag=${record.failure.code.value} op=${record.failure.context.operationKind} " +
+                            "id=${record.failure.context.operationId}",
+                    )
+                },
             ),
         )
     }
@@ -334,8 +343,8 @@ class BleHardwareIntegrationTest {
         val peripheralId = discoverPeripheral()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val testBondController = AndroidBondTestController(context)
-        // 수신 진단(GATT_PAYLOAD_OBSERVED)과 하네스 수신(rx=)을 함께 남겨, notification 유실이
-        // 라이브러리 전/후 어디서 났는지 로그로 가를 수 있게 한다.
+        // 연결·진단 이벤트를 남긴다. 페이로드 관측(diag=GATT_PAYLOAD_OBSERVED, BleConfig.logger)과 하네스 수신(rx=)을 함께 보면
+        // notification 유실이 라이브러리 전/후 어디서 났는지 로그로 가를 수 있다.
         logScope.launch(start = CoroutineStart.UNDISPATCHED) {
             client.events.collect { Log.i(TAG, "event=$it") }
         }

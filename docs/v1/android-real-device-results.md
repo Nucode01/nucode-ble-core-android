@@ -351,3 +351,17 @@ BONDING 진입 자체가 없다 — 앞 절의 서명). Android 는 요청을 �
 간헐 1건: 수정 직후 한 번의 전체 스위트에서 BT 토글 테스트 직후 `longWrites…`·`bonding…` 이 `NUS service was not discovered`
 로 실패했다. 단독 2회·전체 스위트 재실행에서 재발 없음. 해당 실행 로그가 남지 않아 **원인 미상**(BT 재시작 직후 서비스 발견이
 GAP/GATT 만 돌려준 것으로 추정되나 검증 안 됨). 재발 시 `adb logcat -G 16M` 로 보존해 진단한다.
+
+### notification 경로 분리 후 (plan J, 2026-09-23)
+
+`BleSession.notifications()` 가 전역 이벤트 버퍼 대신 수집자별 버퍼(`NotificationHub`)를 쓰도록 바뀐 뒤의 회귀 확인.
+실기기 스위트에서 notification 을 수집하는 경로는 `longWrites…`(NUS TX 응답), `duplicateDisconnect…`(두 세션 순차),
+`bonding…`(재연결 후 응답) 셋이다.
+
+| 실행 | 결과 |
+|---|---|
+| `BleHardwareIntegrationTest` (3) | **3/3 pass** — longWrites 8.3 s, bonding 24.7 s, duplicateDisconnect 2.2 s |
+| `AdapterStateBaselineTest` (1) | **1/1 pass** — 5.8 s |
+
+유실 자체(느린 수집자 + 무관 이벤트 폭주)는 실기기로 재현하지 않았다 — JVM `NotificationRoutingTest` 가 결정적으로 고정한다.
+간헐 `NUS service was not discovered` 는 이번 실행에서 재발하지 않았다(logcat `-G 16M` 설정 상태).

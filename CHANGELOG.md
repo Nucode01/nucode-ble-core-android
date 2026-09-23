@@ -2,8 +2,8 @@
 
 ## 0.2.0 (unreleased)
 
-Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, release, Android 실기기
-검증은 수행하지 않았다.
+Slice 7 public API cleanup과 이후 내부 정리·결함 수정. Build·unit test와 단일 Android 기기(Pixel 5a,
+Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, tag, release 는 수행하지 않았다.
 
 ### Breaking changes
 
@@ -58,5 +58,8 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 - checked-in Kotlin-public surface with JVM member signatures:
   [`core/api/ble-core.api`](core/api/ble-core.api)
 - automated: core unit/build와 official API만 쓰는 sample assemble
-- 미실행: scan→connect→Ready→read/write→subscribe→disconnect 실기기 smoke, OEM callback,
-  reconnect/CCCD restore, 로그 유용성·PII 검토. 이 항목은 Slice 8 범위다.
+- 실기기(단일 기기, `sample` 의 `BleHardwareIntegrationTest`·`AdapterStateBaselineTest`): scan →
+  connect → Ready → subscribe/notifications → 장문 write(응답 있음/없음) → disconnect, 재연결 뒤 CCCD 복구,
+  본딩 유지·펌웨어 본딩 초기화·재본딩, BT off/on 스윕 뒤 재연결, 중복 disconnect. 결과와 알려진 간헐 이슈는
+  [`docs/v1/android-real-device-results.md`](docs/v1/android-real-device-results.md).
+- 미실행: 실기기 `read`, 여러 기기·OEM callback 차이, 로그 유용성·PII 검토.

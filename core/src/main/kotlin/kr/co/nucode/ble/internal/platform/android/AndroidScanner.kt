@@ -40,7 +40,6 @@ internal class AndroidScanner(private val scanner: () -> BluetoothLeScanner?) {
                         peripheralId = PeripheralId(result.device.address),
                         rssi = result.rssi,
                         advertisement = AndroidAdvertisementMapper.map(facts),
-                        legacyRaw = result.scanRecord?.bytes?.copyOf() ?: ByteArray(0),
                     ),
                 )
             }

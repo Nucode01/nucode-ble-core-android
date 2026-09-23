@@ -7,7 +7,6 @@ import kr.co.nucode.ble.BleManufacturerDataFilter
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleServiceDataFilter
 import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
@@ -66,19 +65,6 @@ class ScannerContractTest {
         val leakedGetterValue = requireNotNull(mapped.manufacturerData[1])
         leakedGetterValue[0] = 7
         assertArrayEquals(byteArrayOf(4), mapped.manufacturerData[1])
-    }
-
-    @Test
-    fun `observation copies deprecated raw bytes`() {
-        val raw = byteArrayOf(1)
-        val observation = ScanObservation(
-            peripheralId = PeripheralId("opaque"),
-            rssi = -50,
-            advertisement = AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null),
-            legacyRaw = raw,
-        )
-        raw[0] = 2
-        assertArrayEquals(byteArrayOf(1), observation.legacyRaw)
     }
 
     @Test

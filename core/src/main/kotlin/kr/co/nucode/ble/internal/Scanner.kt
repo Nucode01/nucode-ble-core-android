@@ -96,15 +96,8 @@ internal class Scanner(
     private fun handle(observation: ScanObservation) {
         val request = activeRequest ?: return
         if (!matches(request.filter, observation.advertisement)) return
-        // One callback has two deliberately distinct projections: the structured
-        // official ingress and exactly one deprecated raw compatibility event.
+        // One callback has exactly one projection: the structured official ingress.
         emitObservation(observation)
-        emit(BleEvent.ScanResult(
-            deviceId = observation.peripheralId,
-            name = observation.advertisement.localName,
-            rssi = observation.rssi,
-            advData = observation.legacyRaw,
-        ))
     }
 
     private fun handleFailure(failure: BleFailure) {
@@ -125,16 +118,12 @@ internal class Scanner(
     )
 }
 
-/** Structured common fields plus a copied deprecated raw packet from one Android callback. */
+/** Structured common fields from one Android callback. */
 internal class ScanObservation(
     val peripheralId: PeripheralId,
     val rssi: Int,
     val advertisement: AdvertisementData,
-    legacyRaw: ByteArray,
-) {
-    private val rawCopy = legacyRaw.copyOf()
-    val legacyRaw: ByteArray get() = rawCopy.copyOf()
-}
+)
 
 private fun ByteArray?.matches(expected: ByteArray?, mask: ByteArray?): Boolean {
     if (this == null) return false

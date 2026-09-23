@@ -1,8 +1,6 @@
 package kr.co.nucode.ble.internal
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleWriteMode
@@ -14,7 +12,6 @@ import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.WriteReceipt
 import kr.co.nucode.ble.WriteResult
 import kr.co.nucode.ble.WriteType
-import kr.co.nucode.ble.BleEvent
 
 /** Stateless per-peripheral view; Session remains the sole mutable state owner. */
 internal class DefaultBleSession(
@@ -73,8 +70,7 @@ internal class DefaultBleSession(
     }
 
     override fun notifications(characteristic: CharacteristicRef): Flow<ByteArray> {
-        return runtime.events.filter { it is BleEvent.CharValue && it.deviceId == peripheralId && it.charRef == characteristic }
-            .map { (it as BleEvent.CharValue).bytes.copyOf() }
+        return runtime.notifications(peripheralId, characteristic)
     }
 
     override suspend fun unsubscribe(characteristic: CharacteristicRef) {

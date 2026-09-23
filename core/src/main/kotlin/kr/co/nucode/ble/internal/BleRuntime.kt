@@ -212,7 +212,10 @@ internal class BleRuntime private constructor(
         onBufferOverflow = BufferOverflow.SUSPEND,
     )
 
-    /** 스캔결과·연결상태·수신·에러가 한 스트림으로 나온다(설계 §5). */
+    /**
+     * 내부 신호(연결 상태·서비스·MTU·진단)의 관찰 탭. production 소비자는 없다 — 테스트가 신호
+     * 순서를 관찰하는 자리다. notification 은 여기 오지 않는다([notifications], plan J).
+     */
     public val events: Flow<BleEvent> = _events.asSharedFlow()
 
     private val _officialEvents = MutableSharedFlow<BleClientEvent>(
@@ -222,8 +225,7 @@ internal class BleRuntime private constructor(
     )
     internal val officialEvents: Flow<BleClientEvent> = _officialEvents.asSharedFlow()
 
-    /** Structured scan ingress.  The official projection consumes this before
-     * the compatibility event projection has discarded advertisement fields. */
+    /** Structured scan ingress. It is the only scan projection; no raw advertisement event exists. */
     private val _scanObservations = MutableSharedFlow<ScanObservation>(
         replay = 0,
         extraBufferCapacity = config.eventBufferCapacity,
@@ -232,6 +234,20 @@ internal class BleRuntime private constructor(
     internal val scanObservations: Flow<ScanObservation> = _scanObservations.asSharedFlow()
 
     private val dropped = AtomicLong(0)
+
+    /** notification 은 [_events] 를 거치지 않고 수집자별 버퍼로 간다(plan J). */
+    private val notificationHub = NotificationHub(
+        capacity = config.eventBufferCapacity,
+        onDrop = { dropped.incrementAndGet() },
+    )
+
+    /** [DefaultBleSession.notifications] 의 진입점. collect 시 동기 등록된다. */
+    internal fun notifications(deviceId: PeripheralId, ref: CharacteristicRef): Flow<ByteArray> =
+        notificationHub.subscribe(deviceId, ref)
+
+    /** 테스트 관찰용 — 등록된 notification 수집자 수. */
+    internal val notificationCollectorCount: Int
+        get() = notificationHub.collectorCount
 
     // Null logger is a genuine fast path: no queue and no worker are allocated by the dispatcher.
     private val diagnosticDispatcher = DiagnosticDispatcher(
@@ -247,7 +263,8 @@ internal class BleRuntime private constructor(
     internal val diagnosticIngress: DiagnosticIngress = diagnosticReporter
 
     /**
-     * 유실된 이벤트 수. `SUSPEND` + `tryEmit` 조합에서 버퍼가 찼을 때만 늘어난다.
+     * 유실된 이벤트 수. `SUSPEND` + `tryEmit` 조합에서 버퍼가 찼을 때, 그리고 notification
+     * 수집자의 개별 버퍼([NotificationHub])가 찼을 때(수집자 하나당 한 번) 늘어난다.
      * 유실이 관측 불가능하면 이 배선의 의미가 없다(plan §배선②).
      */
     public val droppedEventCount: Long
@@ -275,6 +292,11 @@ internal class BleRuntime private constructor(
         if (closed) return
         if (e is BleEvent.Diagnostic) {
             diagnosticReporter.report(e.severity, e.failure)
+            return
+        }
+        if (e is BleEvent.CharValue) {
+            // notification 은 공용 버스에 넣지 않는다 — 무관한 이벤트가 버퍼를 채워 유실되는 것 방지.
+            notificationHub.deliver(e.deviceId, e.charRef, e.bytes)
             return
         }
         emitCompatibility(e)

@@ -21,12 +21,13 @@ class LegacyBleCoreCompatibilityTest {
     }
 
     @Test
-    fun `raw advertisement is confined to the deprecated compatibility event`() {
+    fun `raw advertisement is absent from all event and public sources`() {
         val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/BleEvent.kt").readText()
         val publicSource = listOf("PublicModels.kt", "BleClient.kt", "BleSession.kt")
             .joinToString("\n") { java.io.File("src/main/kotlin/kr/co/nucode/ble/$it").readText() }
 
-        assertTrue(eventSource.contains("public data class ScanResult(") && eventSource.contains("val advData: ByteArray"))
+        assertFalse("raw scan event must not exist", eventSource.contains("ScanResult("))
+        assertFalse("raw scan event must not exist", eventSource.contains("advData"))
         assertFalse("common API must expose structured advertisement only", publicSource.contains("advData"))
         assertFalse("common API must not expose a raw scan packet", publicSource.contains("rawAdvertisement"))
     }

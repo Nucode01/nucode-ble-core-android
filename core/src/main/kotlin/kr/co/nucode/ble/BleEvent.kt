@@ -1,35 +1,11 @@
 package kr.co.nucode.ble
 
 /**
- * 코어가 내보내는 단일 이벤트 스트림의 원소.
- * 타입별로 스트림을 쪼개지 않는다 — 쪼개면 브리지에 EventChannel 관리 로직이 생긴다(설계 §5).
+ * 코어 내부 신호. 연결 시퀀스 구동(`BleRuntime.advanceConnectSequence`)과 공식 이벤트 투영의
+ * 입력이다. 공개 스트림이 아니다 — 공개 API 는 `scanResults`/`events`/세션별 `notifications`로
+ * 쪼개져 있다. [CharValue] 는 공용 버스에 실리지 않고 `NotificationHub` 로만 간다(plan J).
  */
 internal sealed interface BleEvent {
-    public data class ScanResult(
-        val deviceId: PeripheralId,
-        val name: String?,
-        val rssi: Int,
-        val advData: ByteArray,
-    ) : BleEvent {
-        // ByteArray 를 data class 필드로 두면 equals/hashCode 가 참조 비교가 되므로 내용 비교로 직접 구현한다.
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is ScanResult) return false
-            return deviceId == other.deviceId &&
-                name == other.name &&
-                rssi == other.rssi &&
-                advData.contentEquals(other.advData)
-        }
-
-        override fun hashCode(): Int {
-            var result = deviceId.hashCode()
-            result = 31 * result + (name?.hashCode() ?: 0)
-            result = 31 * result + rssi
-            result = 31 * result + advData.contentHashCode()
-            return result
-        }
-    }
-
     public data class ConnStateChanged(
         val deviceId: PeripheralId,
         val state: ConnState,
@@ -46,7 +22,7 @@ internal sealed interface BleEvent {
         val charRef: CharacteristicRef,
         val bytes: ByteArray,
     ) : BleEvent {
-        // ByteArray 참조 비교 회피 — ScanResult 와 동일한 이유.
+        // ByteArray 를 data class 필드로 두면 equals/hashCode 가 참조 비교가 되므로 내용 비교로 직접 구현한다.
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is CharValue) return false
@@ -94,7 +70,7 @@ internal class DiagnosticObservation(
 
 /**
  * Structured official projection. Scan events are fed from ScanObservation at
- * ingress, not reconstructed from the deprecated raw [BleEvent.ScanResult].
+ * ingress; no raw advertisement projection exists.
  */
 public sealed interface OfficialBleClientEvent : BleClientEvent {
     public data class Scan(val result: ScanResult) : OfficialBleClientEvent

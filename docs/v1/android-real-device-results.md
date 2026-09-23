@@ -453,3 +453,8 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 
 `GATT_PAYLOAD_OBSERVED` 가 `events` 대신 `BleConfig.logger` 로만 가도록 바꾼 뒤 전체 스위트(5개) **5/5 pass**.
 하네스 logger 로그의 관측 기록 54건, `events` 로 나온 관측 진단 0건 — 두 경로가 실기기에서 의도대로 갈렸다.
+
+### 연결 절차 직접 호출화·ConnState 제거 후 (plan N, 2026-09-23)
+
+`advanceConnectSequence`(이벤트 재해석으로 절차 구동)를 `ConnectSequence` 직접 호출로 바꾸고 내부 `ConnState` 를 삭제한 뒤
+전체 스위트(5개) **5/5 pass** — 연결→서비스 발견→MTU→구독 복구→Ready, 재연결 복구, 본딩, BT off/on 스윕, 중복 disconnect, read.

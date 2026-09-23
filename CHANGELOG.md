@@ -46,6 +46,13 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
   `close()`가 반환하는 시점에 `BluetoothGatt.close()`가 아직 안 끝났을 수 있다 — 그 직후
   프로세스가 바로 종료되면 남은 GATT 핸들 회수는 플랫폼이 프로세스 죽음 시점에 담당한다.
 
+### Documented contracts
+
+- `BleClient.events` 는 **유실될 수 있는** 변경 알림 스트림이다. 버퍼(`eventBufferCapacity`)를 모든 수집자가 공유하므로
+  수집자 하나라도 그만큼 밀려 있으면 새 이벤트는 종류와 무관하게 모든 수집자에게서 버려진다. `scanResults` 도 같다.
+  연결 상태·서비스의 기준 값은 유실 없는 `BleSession.connectionState` / `services`(`StateFlow`) 다.
+  `notifications()` 는 수집자별 버퍼라 자기 수집자의 지연으로만 유실된다. KDoc 에 명시했다(동작 변경 없음).
+
 ### Verification boundary
 
 - checked-in Kotlin-public surface with JVM member signatures:

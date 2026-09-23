@@ -434,3 +434,17 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 |---|---|
 | 단독 | pass 1.4 s |
 | 전체 스위트(5개) | read pass 2.1 s. 본딩은 알려진 정리 단계 ACK 유실로 fail — 하네스가 보드 0 확인 후 폰 키 정리(자가 복구). 나머지 3개 pass |
+
+### 펌웨어 BOND_RESET 해제 지연 후 (2026-09-23)
+
+펌웨어 `peripheral_uart/src/main.c`: ACK 전송 완료(`nus_sent_cb`) 뒤 `bt_unpair`(끊김 동반) 재예약을 `K_NO_WAIT` →
+`INTEGRATION_TEST_BOND_RESET_UNPAIR_DELAY`(300 ms)로 변경. NCS v3.3.0 로 빌드, `nrfjprog --sectorerase` 로 앱 영역만 기록
+(본딩 저장 영역 유지). 기록 후 RTT `LOCAL|BOND|count=0` 확인.
+
+| 조건 | 재설치 전체 스위트(5개) 반복 | 본딩 정리 ACK 유실 |
+|---|---|---|
+| 수정 전 | 9회 | 4회 |
+| 수정 후 | 10회 | **0회** (10/10 전체 pass) |
+
+수정 전 유실률(4/9)이 유지됐다면 10회 연속 무유실 확률은 약 0.3% — 끊김 직전 notification 유실 경합이라는 가설과 부합한다.
+폰 호스트 스택에서의 유실 지점 자체는 btsnoop 없이 확인하지 못했다(가설 유지).

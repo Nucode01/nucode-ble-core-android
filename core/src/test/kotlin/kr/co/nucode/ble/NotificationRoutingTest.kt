@@ -9,15 +9,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.GattCallbackSource
 import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.GattDriver
 import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.NoopGattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -216,51 +213,5 @@ class NotificationRoutingTest {
         assertEquals(emptyList<Int>(), otherReceived)
     }
 
-    private class SinkCapturingDriver : GattDriver {
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        fun emit(event: GattDriverEvent) = sink(event)
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
-
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun readCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
-    }
+    private class SinkCapturingDriver : NoopGattDriver()
 }

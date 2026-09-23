@@ -101,4 +101,13 @@ class ModelsValidationTest {
         }
         assertThrows(IllegalArgumentException::class.java) { BleConfig(rediscoveryTimeoutMillis = 0) }
     }
+
+    // ── BleConfig.eventBufferCapacity — plan K task 1 ────────────────────────
+
+    @Test
+    fun `eventBufferCapacity 는 1 을 허용하고 0 과 음수는 거부된다`() {
+        BleConfig(eventBufferCapacity = 1)
+        assertThrows(IllegalArgumentException::class.java) { BleConfig(eventBufferCapacity = 0) }
+        assertThrows(IllegalArgumentException::class.java) { BleConfig(eventBufferCapacity = -1) }
+    }
 }

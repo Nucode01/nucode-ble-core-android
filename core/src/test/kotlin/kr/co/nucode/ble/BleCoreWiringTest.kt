@@ -27,6 +27,7 @@ import kr.co.nucode.ble.internal.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.GattDriver
 import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.GattOperationKind
 import kr.co.nucode.ble.internal.GattOperationTarget
 import kr.co.nucode.ble.internal.GattOperationTargetResolver
@@ -1772,16 +1773,11 @@ class BleCoreWiringTest {
         val generation: Long,
     )
 
-    private class LifecycleFakeGattDriver : GattDriver {
+    private class LifecycleFakeGattDriver : NoopGattDriver() {
         val commands = mutableListOf<String>()
         var connectFailure: Exception? = null
         var discoverStarted: Boolean = true
         var requestMtuStarted: Boolean = true
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
 
         override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect"
@@ -1807,28 +1803,6 @@ class BleCoreWiringTest {
             return requestMtuStarted
         }
 
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
-
         fun emitConnected(deviceId: PeripheralId, generation: Long) {
             emitConnection(
                 deviceId = deviceId,
@@ -1844,7 +1818,7 @@ class BleCoreWiringTest {
             status: Int,
             newState: Int,
         ) {
-            sink(
+            emit(
                 GattDriverEvent.ConnectionStateChanged(
                     deviceId = deviceId,
                     source = GattCallbackSource { true },
@@ -1856,7 +1830,7 @@ class BleCoreWiringTest {
         }
 
         fun emitServices(deviceId: PeripheralId, generation: Long, status: Int = BluetoothGatt.GATT_SUCCESS) {
-            sink(
+            emit(
                 GattDriverEvent.ServicesDiscovered(
                     deviceId = deviceId,
                     source = GattCallbackSource { true },
@@ -1868,7 +1842,7 @@ class BleCoreWiringTest {
         }
 
         fun emitMtu(deviceId: PeripheralId, generation: Long, mtu: Int, status: Int) {
-            sink(
+            emit(
                 GattDriverEvent.MtuChanged(
                     deviceId = deviceId,
                     source = GattCallbackSource { true },
@@ -1880,15 +1854,8 @@ class BleCoreWiringTest {
         }
     }
 
-    private class PublicFakeGattDriver : GattDriver {
+    private class PublicFakeGattDriver : NoopGattDriver() {
         val commands = mutableListOf<String>()
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
-
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
 
         override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "disconnect"
@@ -1897,10 +1864,6 @@ class BleCoreWiringTest {
         override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             commands += "close"
         }
-
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
 
         override fun setCharacteristicNotification(
             deviceId: PeripheralId,
@@ -1943,7 +1906,7 @@ class BleCoreWiringTest {
         }
 
         fun emitRead(deviceId: PeripheralId, ref: CharacteristicRef, value: ByteArray) {
-            sink(
+            emit(
                 GattDriverEvent.CharacteristicRead(
                     deviceId = deviceId,
                     source = CURRENT_SOURCE,
@@ -1960,7 +1923,7 @@ class BleCoreWiringTest {
         }
 
         fun emitWrite(deviceId: PeripheralId, ref: CharacteristicRef) {
-            sink(
+            emit(
                 GattDriverEvent.CharacteristicWrite(
                     deviceId = deviceId,
                     source = CURRENT_SOURCE,
@@ -1971,7 +1934,7 @@ class BleCoreWiringTest {
         }
 
         fun emitDescriptor(deviceId: PeripheralId, ref: CharacteristicRef) {
-            sink(
+            emit(
                 GattDriverEvent.DescriptorWrite(
                     deviceId = deviceId,
                     source = CURRENT_SOURCE,

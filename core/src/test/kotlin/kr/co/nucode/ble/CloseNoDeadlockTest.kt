@@ -2,7 +2,6 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -14,7 +13,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.GattDriver
-import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.NoopGattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -193,67 +192,19 @@ class CloseNoDeadlockTest {
     private class PartiallyFailingCloseDriver(
         private val failingId: PeripheralId,
         private val failure: Throwable,
-    ) : GattDriver {
+    ) : NoopGattDriver() {
         private val closeCalls = java.util.concurrent.ConcurrentHashMap<PeripheralId, AtomicInteger>()
 
         fun closeCallsFor(deviceId: PeripheralId): Int = closeCalls[deviceId]?.get() ?: 0
 
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) = Unit
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
         override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             closeCalls.getOrPut(deviceId) { AtomicInteger(0) }.incrementAndGet()
             if (deviceId == failingId) throw failure
         }
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
     }
 
     /** [cleanup failure is recorded and snapshot stays typed] 전용 — close() 에서만 던지는 fake driver. */
-    private class ThrowingCloseDriver(private val failure: Throwable) : GattDriver {
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) = Unit
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+    private class ThrowingCloseDriver(private val failure: Throwable) : NoopGattDriver() {
         override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?): Nothing = throw failure
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
     }
 }

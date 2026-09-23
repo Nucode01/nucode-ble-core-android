@@ -2,14 +2,13 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.GattCallbackSource
 import kr.co.nucode.ble.internal.GattCharacteristicIdentity
-import kr.co.nucode.ble.internal.GattDriver
 import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.GattOperationTarget
 import kr.co.nucode.ble.internal.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.SessionRegistry
@@ -248,23 +247,11 @@ class BleClientFacadeTest {
 
     private class RecordingWriteDriver(
         private val identity: GattCharacteristicIdentity,
-    ) : GattDriver {
+    ) : NoopGattDriver() {
         data class Call(val size: Int, val type: Int)
 
         val calls = mutableListOf<Call>()
-        private var sink: (GattDriverEvent) -> Unit = {}
 
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
-
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-        override fun setCharacteristicNotification(deviceId: PeripheralId, gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic, enabled: Boolean): Boolean = true
-        override fun writeDescriptor(deviceId: PeripheralId, gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor, value: ByteArray): Boolean = true
 
         override fun writeCharacteristic(
             deviceId: PeripheralId,
@@ -274,7 +261,7 @@ class BleClientFacadeTest {
             writeType: Int,
         ): Boolean {
             calls += Call(value.size, writeType)
-            sink(
+            emit(
                 GattDriverEvent.CharacteristicWrite(
                     deviceId = deviceId,
                     source = GattCallbackSource { true },

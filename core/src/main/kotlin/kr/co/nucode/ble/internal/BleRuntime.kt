@@ -332,7 +332,7 @@ internal class BleRuntime private constructor(
     private fun emitScanObservation(observation: ScanObservation) {
         if (closed) return
         warmAddresses += observation.peripheralId
-        _scanObservations.tryEmit(observation)
+        if (!_scanObservations.tryEmit(observation)) dropped.incrementAndGet()
         if (!_officialEvents.tryEmit(
                 OfficialBleClientEvent.Scan(ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)),
             )) dropped.incrementAndGet()
@@ -353,7 +353,11 @@ internal class BleRuntime private constructor(
      */
     private val warmAddresses = mutableSetOf<PeripheralId>()
 
-    private val scanner = Scanner(
+    /**
+     * `internal` 인 이유 — 테스트 seam. 스캔 테스트가 `startOverride` 로 스캔을 시작하고
+     * [Scanner.handle] 로 플랫폼 콜백을 주입한다. 프로덕션 호출자는 `BleRuntime` 자신뿐이다.
+     */
+    internal val scanner = Scanner(
         emit = ::emit,
         scope = coreScope,
         scanner = { adapter()?.bluetoothLeScanner },

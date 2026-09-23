@@ -26,6 +26,8 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 
 ### Fixed
 
+- `BleConfig(eventBufferCapacity)` 가 1 미만이면 이제 생성 시 `IllegalArgumentException` 을 던진다. 0 은 이전에
+  받아들여졌지만 모든 스트림이 사실상 전량 유실되는 값이었다.
 - `BleSession.notifications()` 값이 무관한 이벤트 때문에 유실되지 않는다. 이전에는 모든 notification 수집자가
   스캔 결과·연결 상태·진단과 버퍼(`eventBufferCapacity`) 하나를 공유해, 한 수집자가 바쁜 동안 스캔이나 다른
   세션의 이벤트가 버퍼를 채우면 notification 이 조용히 버려졌다. 이제 수집자마다 독립 버퍼를 갖고, 유실은

@@ -1,8 +1,6 @@
 package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -39,16 +37,9 @@ import org.junit.Test
 class GattBridgeRediscoveryTest {
 
     /** [GattBridge]가 요구하는 최소 driver — connect 호출을 [connectCalls]에 기록만 한다. */
-    private class RecordingGattDriver(private val log: MutableList<String>? = null) : GattDriver {
+    private class RecordingGattDriver(private val log: MutableList<String>? = null) : NoopGattDriver() {
         val connectCalls = mutableListOf<Pair<PeripheralId, Long>>()
         val disconnectCalls = mutableListOf<PeripheralId>()
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
-
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
 
         override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): BluetoothGatt? {
             connectCalls += deviceId to connectionGeneration
@@ -60,39 +51,6 @@ class GattBridgeRediscoveryTest {
             disconnectCalls += deviceId
         }
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun readCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
     }
 
     /** 고정 outcome 또는 [deferred] 로 지연되는 [PeripheralRediscovery] fake. */

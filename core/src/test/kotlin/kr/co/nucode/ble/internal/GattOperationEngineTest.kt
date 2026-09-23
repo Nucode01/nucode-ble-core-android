@@ -1,8 +1,5 @@
 package kr.co.nucode.ble.internal
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -74,49 +71,5 @@ class GattOperationEngineTest {
         assertFalse(terminateForOperationInvalidationCalled)
     }
 
-    private class FakeGattDriver : GattDriver {
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
-
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
-
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun readCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
-    }
+    private class FakeGattDriver : NoopGattDriver()
 }

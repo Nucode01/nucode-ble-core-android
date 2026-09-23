@@ -360,6 +360,9 @@ public data class BleConfig public constructor(
     public val diagnosticOptions: DiagnosticOptions = DiagnosticOptions(),
 ) {
     init {
+        require(eventBufferCapacity >= 1) {
+            "eventBufferCapacity 는 1 이상이어야 한다: $eventBufferCapacity"
+        }
         require(operationTimeoutMillis > 0) {
             "operationTimeoutMillis 는 0보다 커야 한다: $operationTimeoutMillis"
         }

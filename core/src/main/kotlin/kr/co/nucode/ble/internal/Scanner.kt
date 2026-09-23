@@ -93,7 +93,8 @@ internal class Scanner(
     internal fun toPlatformFilters(filter: BleScanFilter): List<AndroidScanFilter> =
         androidScanner.toPlatformFilters(filter)
 
-    private fun handle(observation: ScanObservation) {
+    /** 플랫폼 콜백 진입점(코어 스레드). `internal` 인 이유 — 테스트가 관측을 주입하는 seam. */
+    internal fun handle(observation: ScanObservation) {
         val request = activeRequest ?: return
         if (!matches(request.filter, observation.advertisement)) return
         // One callback has exactly one projection: the structured official ingress.

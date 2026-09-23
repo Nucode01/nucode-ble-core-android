@@ -2,7 +2,6 @@ package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -1335,14 +1334,9 @@ class GattDriverSeamTest {
         val snapshot: GattCharacteristicSnapshot,
     )
 
-    private class FakeGattDriver : GattDriver {
+    private class FakeGattDriver : NoopGattDriver() {
         val commands = mutableListOf<String>()
         var onDisconnect: ((PeripheralId) -> Unit)? = null
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
 
         override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect:$autoConnect"
@@ -1368,38 +1362,6 @@ class GattDriverSeamTest {
             return true
         }
 
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun readCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
-
-        fun emit(event: GattDriverEvent) {
-            sink(event)
-        }
-
         fun emitRead(
             deviceId: PeripheralId,
             characteristic: GattCharacteristicSnapshot,
@@ -1416,7 +1378,6 @@ class GattDriverSeamTest {
                 ),
             )
         }
-
 
         fun emitCharacteristicWrite(
             attributeIdentity: GattCharacteristicIdentity,

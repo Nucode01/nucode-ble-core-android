@@ -2,7 +2,6 @@ package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -957,16 +956,11 @@ class GattLifecycleCharacterizationTest {
 
     private class FakeGattDriver(
         private val callbackScope: CoroutineScope,
-    ) : GattDriver {
+    ) : NoopGattDriver() {
         val commands = mutableListOf<String>()
         var connectionGeneration: Long? = null
         var discoverFailure: SecurityException? = null
         var disconnectFailure: Exception? = null
-        private var sink: (GattDriverEvent) -> Unit = {}
-
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
-            this.sink = sink
-        }
 
         override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
             commands += "connect:$autoConnect"
@@ -1002,35 +996,9 @@ class GattLifecycleCharacterizationTest {
             return true
         }
 
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
-
-        fun emit(event: GattDriverEvent) {
-            sink(event)
-        }
-
         fun emitAfter(delayMillis: Long, event: GattDriverEvent): Job = callbackScope.launch {
             delay(delayMillis)
-            sink(event)
+            emit(event)
         }
     }
 

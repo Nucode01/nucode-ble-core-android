@@ -2,7 +2,6 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -12,8 +11,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
-import kr.co.nucode.ble.internal.GattDriver
-import kr.co.nucode.ble.internal.GattDriverEvent
+import kr.co.nucode.ble.internal.NoopGattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -184,35 +182,11 @@ class SessionViewNoDeadlockTest {
     }
 
     /** [close racing a view lookup never drops a live session from cleanup] 전용 최소 fake — close() 호출 횟수만 센다. */
-    private class CountingCloseDriver : GattDriver {
+    private class CountingCloseDriver : NoopGattDriver() {
         val closeCalls = AtomicInteger(0)
 
-        override fun setEventSink(sink: (GattDriverEvent) -> Unit) = Unit
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
         override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
             closeCalls.incrementAndGet()
         }
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
-        override fun setCharacteristicNotification(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            enabled: Boolean,
-        ): Boolean = true
-        override fun writeDescriptor(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
-            value: ByteArray,
-        ): Boolean = true
-        override fun writeCharacteristic(
-            deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-            writeType: Int,
-        ): Boolean = true
     }
 }

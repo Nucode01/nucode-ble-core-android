@@ -365,3 +365,19 @@ GAP/GATT 만 돌려준 것으로 추정되나 검증 안 됨). 재발 시 `adb l
 
 유실 자체(느린 수집자 + 무관 이벤트 폭주)는 실기기로 재현하지 않았다 — JVM `NotificationRoutingTest` 가 결정적으로 고정한다.
 간헐 `NUS service was not discovered` 는 이번 실행에서 재발하지 않았다(logcat `-G 16M` 설정 상태).
+
+### 버퍼 용량 검증·`events` 에서 Scan 제거 후 (plan K·L, 2026-09-23)
+
+`BleConfig.eventBufferCapacity >= 1` 검증, `scanResults` 유실 집계, 공개 `OfficialBleClientEvent.Scan` 제거 뒤의 회귀 확인.
+두 클래스를 한 번에(BT 토글 테스트 직후 나머지 3개가 이어지는 순서) 실행했다.
+
+| 테스트 | 결과 |
+|---|---|
+| `AdapterStateBaselineTest.bluetoothOffThenOnSweepsSessionAndAllowsReconnect` | pass 5.4 s |
+| `longWritesAndReconnectRestoreAreVerifiedByPeripheral` | pass 8.5 s |
+| `bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware` | pass 24.2 s |
+| `duplicateDisconnectEmitsOneTransitionAndSessionRemainsReusable` | pass 2.3 s |
+
+**4/4 pass.** 하네스는 `events` 에서 `Connection` 만 걸러 쓰므로 Scan 제거의 영향을 받지 않는다. 스캔 폭주 시 연결 이벤트
+유실 자체는 JVM `OfficialEventsScanIsolationTest` 가 결정적으로 고정한다(수정 전 `[Connecting]`, 수정 후 `[Connecting, Disconnecting]`).
+간헐 `NUS service was not discovered` 는 BT 토글 직후 순서에서도 재발하지 않았다.

@@ -29,6 +29,16 @@ internal class AndroidBondTestController(context: Context) {
     fun hasBond(peripheralId: PeripheralId): Boolean =
         adapter.getRemoteDevice(peripheralId.value).bondState != BluetoothDevice.BOND_NONE
 
+    /**
+     * 이 peripheral 에 대해 폰이 `BOND_BONDING` 에 한 번이라도 진입했는지 기록한다.
+     * 본딩 시도 전에 호출하고, 끝나면 반드시 [BondingObservation.close] 한다.
+     */
+    fun observeBonding(peripheralId: PeripheralId): BondingObservation {
+        val observation = BondingObservation(applicationContext, peripheralId)
+        register(observation.receiver)
+        return observation
+    }
+
     @Suppress("MissingPermission", "DiscouragedPrivateApi")
     suspend fun removeBond(
         peripheralId: PeripheralId,
@@ -84,6 +94,34 @@ internal class AndroidBondTestController(context: Context) {
             @Suppress("DEPRECATION")
             applicationContext.registerReceiver(receiver, filter)
         }
+    }
+}
+
+internal class BondingObservation(
+    private val context: Context,
+    private val peripheralId: PeripheralId,
+) {
+    @Volatile
+    var sawBonding: Boolean = false
+        private set
+
+    private var closed = false
+
+    internal val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val changedDevice = intent.bluetoothDevice() ?: return
+            if (!changedDevice.address.equals(peripheralId.value, ignoreCase = true)) return
+            if (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR) == BluetoothDevice.BOND_BONDING) {
+                sawBonding = true
+            }
+        }
+    }
+
+    fun close() {
+        if (closed) return
+        closed = true
+        context.unregisterReceiver(receiver)
     }
 }
 

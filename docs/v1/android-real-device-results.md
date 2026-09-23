@@ -321,3 +321,33 @@ JVM: `:core:testDebugUnitTest` 296 green. 동일 UUID 다중 instance는 실기�
 
 JVM 309 green(red→green 4: session view 2, close 2). 하네스는 `close()` 뒤 `snapshot()`/`connectionState` 로 정리 완료를 관측하므로
 지연 정리와 무관하게 통과했다.
+
+### 사후 검증 — plan I(read/write/subscribe 어댑터 게이트) (2026-09-23, 체크포인트 `9d98804`)
+
+| 항목 | 결과 |
+|---|---|
+| `AdapterStateBaselineTest` | pass — 직접 재연결 Ready 720 ms, `Ready > PoweredOff > Ready` |
+| `longWritesAndReconnectRestore…` / `duplicateDisconnect…` | pass 8.6 s / 4.1 s |
+| `bondingPersists…` | 1회차 **fail(오진)**, 화면 깨운 뒤 2회차 pass 22.6 s |
+
+BT off 중 read/write/subscribe 가 `ADAPTER_UNAVAILABLE` 을 던지는 경로는 JVM 으로만 검증했다(하네스에 op-while-off 시나리오 없음).
+
+**본딩 1회차 실패는 보드 잔존이 아니다 — 하네스 오진.** 하네스는 `BOARD_BOND_RESIDUE` 로 보고했지만 logcat 은 폰이
+`BOND_NONE => BOND_BONDING` 에 들어가 SMP 가 돌았고 페어링 요청(`pairingVariant=3`, consent)이 도착했음을 보여준다(보드 잔존이면
+BONDING 진입 자체가 없다 — 앞 절의 서명). Android 는 요청을 다이얼로그가 아니라 알림으로 띄웠고
+(`BluetoothPairingService: Show pairing notification for (null)`, `BluetoothEventManager: … we have no record of that device`),
+기기 이름이 null 이라 UiAutomator 가 승인 UI 를 찾지 못해 30 s 뒤 SMP 타임아웃. 2회차에는 같은 알림 경로가
+`(Nordic_UART_Service)` 로 떠 통과했다. 원인은 이름 캐시 전 알림 + 하네스가 "DENIED_SECURITY·폰 본딩 없음 → 본딩 실패"를
+전부 보드 잔존으로 판정하는 것(펌웨어는 비암호화 링크면 보드 본딩 유무와 무관하게 `DENIED_SECURITY` 를 준다).
+
+### 본딩 하네스 오진·알림 경로 수정 후 (2026-09-23)
+
+| 실행 | 결과 |
+|---|---|
+| 전체 스위트(수정 전, fallback `By.pkg("com.android.settings")`) | 본딩 fail — 이제 "BONDING 도달했으나 승인 안 됨"으로 **정확히 진단**(잔존 오진 해소) |
+| 기기 UI 덤프 | 알림 셰이드 노드는 전부 `com.android.systemui` 소유 — Settings package 로는 매치 불가(fallback 이 원천적으로 죽어 있었음). 알림 제목 `페어링 요청`, 본문 `<이름>에 페어링하려면 탭하세요.` |
+| 전체 스위트(수정 후, `com.android.systemui` + 제목 정규식) | **4/4 pass** — 이름 없는 알림 `(null)` 2회 발생에도 본딩 pass 24.2 s |
+
+간헐 1건: 수정 직후 한 번의 전체 스위트에서 BT 토글 테스트 직후 `longWrites…`·`bonding…` 이 `NUS service was not discovered`
+로 실패했다. 단독 2회·전체 스위트 재실행에서 재발 없음. 해당 실행 로그가 남지 않아 **원인 미상**(BT 재시작 직후 서비스 발견이
+GAP/GATT 만 돌려준 것으로 추정되나 검증 안 됨). 재발 시 `adb logcat -G 16M` 로 보존해 진단한다.

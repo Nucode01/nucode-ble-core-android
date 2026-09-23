@@ -12,6 +12,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import java.util.UUID
+import java.util.regex.Pattern
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -259,7 +260,13 @@ class BleHardwareIntegrationTest {
      * (possibly killed) run is detected and cleared automatically. The one state it cannot
      * self-heal is the phone bond being gone while the firmware still holds one: with no
      * shared key the link can never re-encrypt, so `IT:BOND_RESET` is denied forever. That
-     * case is diagnosed when the first bond attempt fails (a fresh board bonds fine) and fails
+     * case is diagnosed only on its real signature: the first bond attempt fails AND the phone
+     * never entered `BOND_BONDING` (Android logs `btm_sec_pairing_timeout ... state: IDLE`).
+     * `DENIED_SECURITY` on the start probe alone is not evidence of residue — the firmware
+     * answers it to any unencrypted link whether or not the board holds a bond. If the phone did
+     * reach `BOND_BONDING`, SMP ran and the failure is in pairing approval (e.g. the consent
+     * request was posted as a notification the harness could not find), so it fails with that
+     * cause instead. On the residue signature it fails
      * with a `BOARD_BOND_RESIDUE:` message telling the operator to clear the
      * board's bond store out-of-band (Zephyr shell `bt clear all`, or reflash) before
      * re-running. This start-of-test probe exists precisely because a killed test process
@@ -270,6 +277,19 @@ class BleHardwareIntegrationTest {
             "phone held no bond, and bonding then failed ($bondOutcome). The board keeps a stale bond from a previous " +
             "run that cannot be cleared over an unencrypted link — clear it out-of-band (Zephyr shell `bt clear all`) " +
             "or reflash the board before running this harness again."
+
+    private fun firstBondFailureMessage(
+        peripheralId: PeripheralId,
+        resetMessage: String,
+        bondOutcome: Any?,
+        sawBonding: Boolean,
+    ): String =
+        if (sawBonding) {
+            "pairing reached BONDING but was not approved/completed ($bondOutcome) — check the system pairing UI " +
+                "(dialog vs notification)"
+        } else {
+            boardBondResidueMessage(peripheralId, resetMessage, bondOutcome)
+        }
 
     @Test(timeout = 180_000)
     fun bondingPersistsAcrossReconnectAndCanBeResetByTestFirmware() = runBlocking {
@@ -321,11 +341,25 @@ class BleHardwareIntegrationTest {
         var firmwareBondMayRemain = false
         try {
             val bondController = AndroidBleClientFactory.createBondController(context)
-            val bondResult = runCatching { createBondWithSystemApproval(bondController, peripheralId) }
-                .getOrElse { if (suspectedBoardResidue) error(boardBondResidueMessage(peripheralId, initialResetMessage, it)) else throw it }
+            val observation = testBondController.observeBonding(peripheralId)
+            val bondResult = try {
+                runCatching { createBondWithSystemApproval(bondController, peripheralId) }
+                    .getOrElse {
+                        if (suspectedBoardResidue) {
+                            error(firstBondFailureMessage(peripheralId, initialResetMessage, it, observation.sawBonding))
+                        } else {
+                            throw it
+                        }
+                    }
+            } finally {
+                observation.close()
+            }
             assertTrue(
-                if (suspectedBoardResidue) boardBondResidueMessage(peripheralId, initialResetMessage, bondResult)
-                else "bond creation failed: $bondResult",
+                if (suspectedBoardResidue) {
+                    firstBondFailureMessage(peripheralId, initialResetMessage, bondResult, observation.sawBonding)
+                } else {
+                    "bond creation failed: $bondResult"
+                },
                 bondResult == AndroidBondResult.Bonded || bondResult == AndroidBondResult.AlreadyBonded,
             )
             firmwareBondMayRemain = true
@@ -647,9 +681,13 @@ class BleHardwareIntegrationTest {
             }
 
             device.openNotification()
+            // 이름이 아직 캐시되지 않으면 알림에 기기명이 없다("Show pairing notification for (null)").
+            // 그래서 이름으로 못 찾으면 Settings 패키지의 페어링 요청 알림 자체로 찾는다.
             val request = device.wait(
                 Until.findObject(By.textContains(PERIPHERAL_NAME)),
                 PAIRING_UI_POLL_MILLIS,
+            ) ?: device.findObject(
+                By.pkg(NOTIFICATION_SHADE_PACKAGE).text(PAIRING_NOTIFICATION_TEXT),
             )
             if (request != null) {
                 request.click()
@@ -710,6 +748,9 @@ class BleHardwareIntegrationTest {
         const val PAIRING_UI_POLL_MILLIS = 1_000L
         const val PAIRING_DIALOG_TIMEOUT_MILLIS = 3_000L
         const val PERIPHERAL_NAME = "Nordic_UART_Service"
+        /** 알림 셰이드의 행은 게시한 앱(Settings)이 아니라 SystemUI 가 그린다 — 기기 UI 덤프로 확인. */
+        const val NOTIFICATION_SHADE_PACKAGE = "com.android.systemui"
+        val PAIRING_NOTIFICATION_TEXT: Pattern = Pattern.compile("(?is).*(pairing request|pair request|페어링\\s*요청).*")
         const val RECONNECT_TIMEOUT_MILLIS = 45_000L
         const val DISCONNECT_TIMEOUT_MILLIS = 15_000L
         const val STATUS_TIMEOUT_MILLIS = 10_000L

@@ -26,6 +26,12 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 
 ### Fixed
 
+- `read`/`write`/`subscribe`는 이제 세션/디바이스 확인보다 **먼저** 어댑터 상태를 확인한다(`startScan` 과 같다;
+  `connect` 는 기존 세션 확인이 먼저다). 어댑터를 쓸 수 없으면 `NOT_READY` 대신
+  `ADAPTER_UNAVAILABLE`/`PERMISSION_DENIED`/`BLE_UNSUPPORTED`(phase `Adapter`, 세션 컨텍스트 없음)로 실패한다 —
+  모르는 id 도 마찬가지이며, 이전에는 `UNKNOWN_DEVICE` 였다. op 가 BT off 를 처음 관측하면 세션을 스윕하므로
+  호출이 throw 하기 전에 스트림에 `Diagnostic` + `ConnStateChanged(Disconnected)` 가 먼저 나온다.
+  `NOT_READY` 는 이제 어댑터는 Ready 인데 세션이 Ready 가 아닐 때만 뜻한다. `unsubscribe` 는 변화 없다.
 - `BleClient.close()`는 이제 코어 디스패처 위에 정리를 예약하고 즉시 반환한다(이전에는
   정리가 끝날 때까지 블록했다). `snapshot()`은 `close()` 뒤에도 여전히 정리 완료를 기다린
   뒤 동결된 스냅샷을 돌려준다. `session()`/`connect()`도 더는 호출자의 디스패처를 블록하지

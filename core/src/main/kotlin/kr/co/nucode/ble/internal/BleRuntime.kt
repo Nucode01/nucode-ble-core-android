@@ -974,6 +974,7 @@ internal class BleRuntime private constructor(
     public suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray =
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
             onCore {
+        ensureAdapterReady(AndroidApiOperation.ReadCharacteristic)
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
         if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
         gattBridge.read(deviceId, charRef)
@@ -982,7 +983,8 @@ internal class BleRuntime private constructor(
 
     /**
      * write 만 [WriteResult] 를 반환한다 — 부분 전달을 타입으로 강제해야 하므로(설계 §5).
-     * 즉시 실패(모르는 PeripheralId · 미연결)는 [OperationQueue.write] 가 이미 throw 한다.
+     * 즉시 실패는 이 함수가 직접 throw 한다 — 순서: 어댑터 사용 불가 → 모르는 PeripheralId → 세션 미Ready.
+     * 청크 단위 실패는 [OperationQueue.write] 가 처리한다.
      */
     public suspend fun write(
         deviceId: PeripheralId,
@@ -992,6 +994,7 @@ internal class BleRuntime private constructor(
         chunking: BleChunking = BleChunking.Automatic,
     ): WriteResult = transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
+        ensureAdapterReady(AndroidApiOperation.WriteCharacteristic)
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
         if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
         operationQueue.write(deviceId, charRef, bytes, writeType, chunking)
@@ -1001,6 +1004,7 @@ internal class BleRuntime private constructor(
     public suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit =
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
+            ensureAdapterReady(AndroidApiOperation.WriteDescriptor)
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
             if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
             // CCCD ack 성공 후에만 기록한다(plan §접근 ③, review #18/H-1) — 먼저 기록하면

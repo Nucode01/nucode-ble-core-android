@@ -77,6 +77,7 @@ class BleCoreWiringTest {
         rediscoveryTimeoutMillis: Long = minOf(3_000L, linkTimeoutMillis),
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
+        adapterState: (() -> AdapterState)? = null,
     ): BleRuntime = BleRuntime(
         config = BleConfig(
             dispatcher = StandardTestDispatcher(testScheduler),
@@ -92,6 +93,7 @@ class BleCoreWiringTest {
         reconnectPolicy = reconnectPolicy,
         gattDriver = gattDriver,
         gattOperationTargetResolver = gattOperationTargetResolver,
+        adapterState = adapterState,
     )
 
     private fun testDeviceId(suffix: String = "FF") = PeripheralId("AA:BB:CC:DD:EE:$suffix")
@@ -396,7 +398,7 @@ class BleCoreWiringTest {
      */
     @Test
     fun `H1 subscribe 실패 시 subscriptions에 기록이 남지 않는다`() = runTest {
-        val core = newCore()
+        val core = newCore(adapterState = { AdapterState.Ready })
         val id = testDeviceId()
         val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
@@ -455,7 +457,7 @@ class BleCoreWiringTest {
      */
     @Test
     fun `Slice1 public read는 내부 start rejection을 그대로 전달하고 scheduler를 비운다`() = runTest {
-        val core = newCore()
+        val core = newCore(adapterState = { AdapterState.Ready })
         val id = testDeviceId()
         val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
         val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
@@ -1403,7 +1405,7 @@ class BleCoreWiringTest {
     @Test
     fun `Slice2 public read write subscribe는 Configuring에서 driver start 전에 거부된다`() = runTest {
         val driver = PublicFakeGattDriver()
-        val core = newCore(gattDriver = driver)
+        val core = newCore(gattDriver = driver, adapterState = { AdapterState.Ready })
         val id = testDeviceId("A1")
         val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
         val session = core.registry.getOrCreate(id)
@@ -1679,6 +1681,7 @@ class BleCoreWiringTest {
             operationTimeoutMillis = operationTimeoutMillis,
             gattDriver = driver,
             gattOperationTargetResolver = targetResolver,
+            adapterState = { AdapterState.Ready },
         )
         val deviceId = testDeviceId()
         val session = core.registry.getOrCreate(deviceId).apply {

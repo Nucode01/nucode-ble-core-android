@@ -43,7 +43,7 @@ class BleClientFacadeTest {
                     BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
             )
         }
-        val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver)
+        val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver, adapterState = { AdapterState.Ready })
         val view = DefaultBleClient(core).session(peripheralId)
         core.registry.get(PeripheralId(peripheralId.value))!!.apply {
             setStateForTest(ConnState.Ready)

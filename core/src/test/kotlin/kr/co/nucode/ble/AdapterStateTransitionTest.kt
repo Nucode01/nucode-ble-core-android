@@ -12,6 +12,8 @@ import kr.co.nucode.ble.internal.Session
 import kr.co.nucode.ble.internal.charRef
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -106,15 +108,14 @@ class AdapterStateTransitionTest {
     }
 
     /**
-     * (b) — read()는 [BleRuntime.ensureAdapterReady] 를 거치지 않는다(connect/startScan 만
-     * 그 게이트를 탄다, BleRuntime.kt 실측). 여기서는 이미 (a)의 스윕으로 세션이
-     * Disconnected 가 된 상태라 [Session.canStartPublicGattOperation] 이 false 를 반환해
-     * NOT_READY 로 거부된다 — plan 원문이 read 도 ADAPTER_UNAVAILABLE 을 던진다고 적었지만
-     * 실제 게이트 지점이 다르다(반환 리포트 참고, plan 수정은 이 task 권한 밖).
+     * (b) — connect/startScan 뿐 아니라 read/write/subscribe 도 첫 문장에서
+     * [BleRuntime.ensureAdapterReady] 를 거친다. 어댑터가 꺼져 있으면 세션 상태와 무관하게
+     * ADAPTER_UNAVAILABLE 로 거부된다.
      */
     @Test
-    fun `b PoweredOff에서 connect와 startScan은 ADAPTER_UNAVAILABLE을 던지고 read는 게이트가 달라 NOT_READY를 던진다`() = runTest {
+    fun `b PoweredOff에서 connect·startScan·read·write·subscribe 모두 ADAPTER_UNAVAILABLE을 던진다`() = runTest {
         val fx = fixtureAtPoweredOff()
+        val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
 
         val connectFailure = runCatching {
             fx.core.connectOfficial(fx.id, BleConnectOptions())
@@ -124,10 +125,86 @@ class AdapterStateTransitionTest {
         val scanFailure = runCatching { fx.core.startScan() }.exceptionOrNull()
         assertFailureCode("ADAPTER_UNAVAILABLE", scanFailure)
 
-        val readFailure = runCatching {
-            fx.core.read(fx.id, charRef(UUID.randomUUID(), UUID.randomUUID()))
+        assertFailureCode("ADAPTER_UNAVAILABLE", runCatching { fx.core.read(fx.id, ref) }.exceptionOrNull())
+        assertFailureCode(
+            "ADAPTER_UNAVAILABLE",
+            runCatching { fx.core.write(fx.id, ref, byteArrayOf(1)) }.exceptionOrNull(),
+        )
+        assertFailureCode("ADAPTER_UNAVAILABLE", runCatching { fx.core.subscribe(fx.id, ref) }.exceptionOrNull())
+    }
+
+    @Test
+    fun `unsubscribe는 어댑터가 꺼져도 throw하지 않고 로컬 intent만 지운다`() = runTest {
+        val probe = ProbeHolder(AdapterState.Ready)
+        val core = newCore { probe.state }
+        val id = testDeviceId()
+        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
+        session.subscriptionState.addDesired(ref)
+        runCurrent()
+
+        probe.state = AdapterState.PoweredOff
+        core.refreshAdapterState()
+        runCurrent()
+
+        assertNull(runCatching { core.unsubscribe(id, ref) }.exceptionOrNull())
+        assertFalse("unsubscribe 뒤 desired intent 가 남으면 안 된다", session.subscriptionState.containsDesired(ref))
+    }
+
+    @Test
+    fun `e Ready 세션에서 op가 BT off를 처음 관측하면 스윕하고 ADAPTER_UNAVAILABLE을 던지며 이후 refresh는 재스윕하지 않는다`() = runTest {
+        val probe = ProbeHolder(AdapterState.Ready)
+        val core = newCore { probe.state }
+        val id = testDeviceId()
+        core.registry.getOrCreate(id).apply { setStateForTest(ConnState.Ready) }
+        val events = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(events) }
+        runCurrent()
+
+        probe.state = AdapterState.PoweredOff
+        val failure = runCatching { core.read(id, charRef(UUID.randomUUID(), UUID.randomUUID())) }.exceptionOrNull()
+        runCurrent()
+        assertFailureCode("ADAPTER_UNAVAILABLE", failure)
+
+        val changes = events.filterIsInstance<BleEvent.ConnStateChanged>().filter { it.deviceId == id }
+        assertEquals("op 관측 스윕은 ConnStateChanged 를 정확히 1회 낸다: $changes", 1, changes.size)
+        val state = changes.single().state
+        assertTrue(
+            "Disconnected(Failed ADAPTER_UNAVAILABLE) 여야 한다: $state",
+            state is ConnState.Disconnected &&
+                (state.reason as? DisconnectReason.Failed)?.failure?.code == FailureCode("ADAPTER_UNAVAILABLE"),
+        )
+        assertEquals(
+            1,
+            events.filterIsInstance<BleEvent.Diagnostic>().count { it.failure.code == FailureCode("ADAPTER_UNAVAILABLE") },
+        )
+        assertEquals(AdapterState.PoweredOff, core.adapterState.value)
+
+        core.refreshAdapterState()
+        runCurrent()
+        assertEquals(
+            "이미 op 가 non-Ready 를 기록했으므로 refresh 는 재스윕하지 않는다",
+            1,
+            events.filterIsInstance<BleEvent.ConnStateChanged>().count { it.deviceId == id },
+        )
+    }
+
+    @Test
+    fun `op는 Unauthorized 어댑터에서 PERMISSION_DENIED를 던진다`() = runTest {
+        val core = newCore { AdapterState.Unauthorized(canRequest = true) }
+        val failure = runCatching {
+            core.read(testDeviceId(), charRef(UUID.randomUUID(), UUID.randomUUID()))
         }.exceptionOrNull()
-        assertFailureCode("NOT_READY", readFailure)
+        assertFailureCode("PERMISSION_DENIED", failure)
+    }
+
+    @Test
+    fun `op는 Unsupported 어댑터에서 BLE_UNSUPPORTED를 던진다`() = runTest {
+        val core = newCore { AdapterState.Unsupported }
+        val failure = runCatching {
+            core.write(testDeviceId(), charRef(UUID.randomUUID(), UUID.randomUUID()), byteArrayOf(1))
+        }.exceptionOrNull()
+        assertFailureCode("BLE_UNSUPPORTED", failure)
     }
 
     @Test

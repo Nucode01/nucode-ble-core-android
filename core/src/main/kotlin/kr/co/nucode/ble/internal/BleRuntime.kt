@@ -333,9 +333,6 @@ internal class BleRuntime private constructor(
         if (closed) return
         warmAddresses += observation.peripheralId
         if (!_scanObservations.tryEmit(observation)) dropped.incrementAndGet()
-        if (!_officialEvents.tryEmit(
-                OfficialBleClientEvent.Scan(ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)),
-            )) dropped.incrementAndGet()
     }
 
     // ── 워커 조립 — 상태는 registry 하나(규칙 2), 출구는 emit 하나(규칙 7) ───────────

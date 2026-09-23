@@ -40,7 +40,7 @@ class SampleApp : Application() {
                 if (it is OfficialBleClientEvent.Services) {
                     discoveredServices[it.peripheralId] = it.services
                 }
-                if (it !is OfficialBleClientEvent.Scan) log(formatEvent(it))
+                log(formatEvent(it))
             }
         }
         scope.launch { client.scanResults.collect { log(formatScanResult(it)) } }
@@ -70,7 +70,6 @@ class SampleApp : Application() {
 }
 
 private fun formatEvent(e: BleClientEvent): String = when (e) {
-    is OfficialBleClientEvent.Scan -> formatScanResult(e.result)
     is OfficialBleClientEvent.Connection -> "CONN ${e.peripheralId} ${e.state}"
     is OfficialBleClientEvent.Services -> {
         val charCount = e.services.sumOf { it.characteristics.size }

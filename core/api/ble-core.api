@@ -32,7 +32,6 @@ CONSTRUCTOR public kr.co.nucode.ble.FailureContext(java.lang.String,java.lang.Lo
 CONSTRUCTOR public kr.co.nucode.ble.GattCharacteristic(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>) throws=
 CONSTRUCTOR public kr.co.nucode.ble.GattService(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
 CONSTRUCTOR public kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
-CONSTRUCTOR public kr.co.nucode.ble.OfficialBleClientEvent$Scan(kr.co.nucode.ble.ScanResult) throws=
 CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Android(java.lang.String,java.lang.Integer,java.lang.Integer,java.lang.String,java.lang.String) throws=
 CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Ios(java.lang.String,int,java.lang.String,java.lang.String) throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanRequest() throws=
@@ -356,7 +355,6 @@ METHOD public final <> kr.co.nucode.ble.GattCharacteristic kr.co.nucode.ble.Gatt
 METHOD public final <> kr.co.nucode.ble.GattService kr.co.nucode.ble.GattService.copy(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Connection kr.co.nucode.ble.OfficialBleClientEvent$Connection.copy-hhuSfVg(java.lang.String,kr.co.nucode.ble.ConnectionState) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.copy(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
-METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Scan kr.co.nucode.ble.OfficialBleClientEvent$Scan.copy(kr.co.nucode.ble.ScanResult) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Services kr.co.nucode.ble.OfficialBleClientEvent$Services.copy-hhuSfVg(java.lang.String,java.util.List<kr.co.nucode.ble.GattService>) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.copy-bxWR3DE(java.lang.String,kr.co.nucode.ble.CharacteristicRef,kr.co.nucode.ble.BleFailure) throws=
 METHOD public final <> kr.co.nucode.ble.OperationKind kr.co.nucode.ble.FailureContext.component4() throws=
@@ -372,8 +370,6 @@ METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.BleFailure
 METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.component4() throws=
 METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.getRetryability() throws=
 METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanRequest.copy(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
-METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.OfficialBleClientEvent$Scan.component1() throws=
-METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.OfficialBleClientEvent$Scan.getResult() throws=
 METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.ScanResult.copy-bxWR3DE(java.lang.String,int,kr.co.nucode.ble.AdvertisementData) throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.component1() throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.getService() throws=
@@ -558,7 +554,6 @@ TYPE public static final kr.co.nucode.ble.DiagnosticValue$Redacted extends=java.
 TYPE public static final kr.co.nucode.ble.DiagnosticValue$Text extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Connection extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
-TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Scan extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Android extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail

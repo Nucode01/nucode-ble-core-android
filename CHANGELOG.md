@@ -7,6 +7,7 @@ Slice 7 public API cleanup. Build와 unit test만 완료했으며 publish, tag, 
 
 ### Breaking changes
 
+- `OfficialBleClientEvent.Scan` 제거: 스캔 결과는 `BleClient.scanResults` 로만 나온다. `events` 는 연결·서비스·구독 복구 실패·진단만 싣는다 — 스캔이 `events` 버퍼를 채워 느린 소비자가 연결 이벤트를 잃던 문제를 없앤다. `when … else` 로 `events` 에서 스캔을 받던 코드는 컴파일은 되지만 더는 스캔을 받지 못한다.
 - deprecated `BleCore` adapter를 제거했다. Android 앱은
   `AndroidBleClientFactory.create(context, config)`로 `BleClient`를 만든다.
 - `DeviceId` → `PeripheralId`, `CharRef` → `CharacteristicRef`, 전역 `BleEvent` →

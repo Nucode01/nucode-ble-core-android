@@ -69,11 +69,10 @@ internal class DiagnosticObservation(
 }
 
 /**
- * Structured official projection. Scan events are fed from ScanObservation at
- * ingress; no raw advertisement projection exists.
+ * Structured official projection: connection, services, subscription restore failures and
+ * diagnostics. Scan results are not projected here; they flow only through `BleClient.scanResults`.
  */
 public sealed interface OfficialBleClientEvent : BleClientEvent {
-    public data class Scan(val result: ScanResult) : OfficialBleClientEvent
     public data class Connection(val peripheralId: PeripheralId, val state: ConnectionState) : OfficialBleClientEvent
     public data class Services(val peripheralId: PeripheralId, val services: List<GattService>) : OfficialBleClientEvent
     /** A desired subscription could not be restored permanently and was removed from intent. */

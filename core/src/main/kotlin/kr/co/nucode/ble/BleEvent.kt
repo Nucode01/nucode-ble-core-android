@@ -59,6 +59,10 @@ internal sealed interface BleEvent {
 /**
  * Internal diagnostic input retained for same-module test seams. It is not a [BleEvent]; runtime
  * producers use [kr.co.nucode.ble.internal.DiagnosticIngress] directly.
+ *
+ * Despite the name, `BleRuntime.emit(DiagnosticObservation)` goes through `report` and IS projected to
+ * the public event stream. Do not route per-payload observations through it — those must use
+ * `DiagnosticIngress.observe` (logger-only) or they flood `events` again.
  */
 internal class DiagnosticObservation(
     internal val severity: Severity,

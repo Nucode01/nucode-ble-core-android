@@ -87,7 +87,7 @@ internal class GattBridge(
         discoveryMillis = 10_000,
         configurationMillis = 10_000,
     ),
-    private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress { _, _, _ -> },
+    private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress.None,
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
 ) {

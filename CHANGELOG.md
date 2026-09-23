@@ -27,6 +27,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- `BleClient.events` 에 GATT 페이로드마다 `Diagnostic(Info, GATT_PAYLOAD_OBSERVED)` 가 실리던 것을 없앴다 — 관측 진단은 이제 `BleConfig.logger` 로만 간다. 고빈도 notify·장문 write 중 이 진단이 `events` 버퍼를 채워 느린 소비자에게서 연결 이벤트가 버려질 수 있었다. `events` 로 이 코드를 받던 코드는 logger 로 옮겨야 한다.
 - `BleConfig(eventBufferCapacity)` 가 1 미만이면 이제 생성 시 `IllegalArgumentException` 을 던진다. 0 은 이전에
   받아들여졌지만 모든 스트림이 사실상 전량 유실되는 값이었다.
 - `BleSession.notifications()` 값이 무관한 이벤트 때문에 유실되지 않는다. 이전에는 모든 notification 수집자가

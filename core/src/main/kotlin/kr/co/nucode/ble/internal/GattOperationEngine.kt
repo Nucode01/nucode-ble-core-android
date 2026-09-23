@@ -897,7 +897,7 @@ internal class GattOperationEngine(
         emit(BleEvent.Diagnostic(severity = severity, failure = failure))
     }
 
-    /** Payload is only copied if the reporter admits a logger record and then only by policy. */
+    /** Logger-only (not projected to events); payload is copied only if the logger admits a record, and then only by policy. */
     private fun emitPayloadObservation(
         session: Session,
         direction: PayloadDirection,
@@ -906,7 +906,7 @@ internal class GattOperationEngine(
         scheduled: ScheduledGattOperation<*>? = null,
     ) {
         val observation = GattFailureFactory.payloadObserved(session, scheduled)
-        diagnosticIngress.report(Severity.Info, observation) { options ->
+        diagnosticIngress.observe(Severity.Info, observation) { options ->
             DiagnosticPolicy().payloadValues(options, direction, characteristic, payload)
         }
     }

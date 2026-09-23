@@ -9,16 +9,44 @@ import kr.co.nucode.ble.DiagnosticSeverity
 import kr.co.nucode.ble.DiagnosticValue
 import kr.co.nucode.ble.Severity
 
-/** Internal-only ingress for logger observations; it is deliberately not a [BleEvent] subtype. */
-internal fun interface DiagnosticIngress {
+/**
+ * Internal diagnostic ingress (deliberately not a [BleEvent] subtype). [report] is for event-like
+ * diagnostics and is projected to the public event stream first; [observe] is logger-only.
+ */
+internal interface DiagnosticIngress {
     fun report(
         severity: Severity,
         failure: BleFailure,
         values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
     )
+
+    /** Logger-only observation (e.g. per-payload): never projected to the public event stream. */
+    fun observe(
+        severity: Severity,
+        failure: BleFailure,
+        values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
+    )
+
+    /** Drops everything — default for bridges built without a runtime (tests, standalone seams). */
+    object None : DiagnosticIngress {
+        override fun report(
+            severity: Severity,
+            failure: BleFailure,
+            values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
+        ) = Unit
+
+        override fun observe(
+            severity: Severity,
+            failure: BleFailure,
+            values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
+        ) = Unit
+    }
 }
 
-/** Projects one typed failure to the legacy event stream and optional isolated logger. */
+/**
+ * [report] projects one typed failure to the event stream, then to the optional isolated logger;
+ * [observe] goes to the logger only.
+ */
 internal class DiagnosticReporter(
     private val emitCompatibility: (BleEvent.Diagnostic) -> Unit,
     private val dispatcher: DiagnosticDispatcher,
@@ -31,6 +59,21 @@ internal class DiagnosticReporter(
     ) {
         // Keep this projection first: rate limiting/logger outcomes cannot affect public truth.
         emitCompatibility(BleEvent.Diagnostic(severity, failure))
+        dispatchToLogger(severity, failure, values)
+    }
+
+    /** 관측 진단 — 공개 이벤트 버퍼를 채우지 않도록 logger 로만 보낸다. */
+    override fun observe(
+        severity: Severity,
+        failure: BleFailure,
+        values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
+    ) = dispatchToLogger(severity, failure, values)
+
+    private fun dispatchToLogger(
+        severity: Severity,
+        failure: BleFailure,
+        values: (DiagnosticOptions) -> Map<String, DiagnosticValue>,
+    ) {
         if (!dispatcher.isAccepting) return
         val record = try {
             DiagnosticRecord(

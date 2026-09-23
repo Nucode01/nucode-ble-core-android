@@ -52,7 +52,7 @@ class GattOperationEngineTest {
             operationStarter = { _, _ -> throw SecurityException("no BLUETOOTH_CONNECT") },
             operationWriteTypeResolver = null,
             operationTargetResolver = null,
-            diagnosticIngress = DiagnosticIngress { _, _, _ -> },
+            diagnosticIngress = DiagnosticIngress.None,
             lifecycle = hooks,
         )
 

@@ -381,3 +381,45 @@ GAP/GATT 만 돌려준 것으로 추정되나 검증 안 됨). 재발 시 `adb l
 **4/4 pass.** 하네스는 `events` 에서 `Connection` 만 걸러 쓰므로 Scan 제거의 영향을 받지 않는다. 스캔 폭주 시 연결 이벤트
 유실 자체는 JVM `OfficialEventsScanIsolationTest` 가 결정적으로 고정한다(수정 전 `[Connecting]`, 수정 후 `[Connecting, Disconnecting]`).
 간헐 `NUS service was not discovered` 는 BT 토글 직후 순서에서도 재발하지 않았다.
+
+### 간헐 `NUS service was not discovered` 재현 시도 (2026-09-23)
+
+조건: APK 1회 설치 후 `am instrument` 로 `AdapterStateBaselineTest#bluetoothOffThenOnSweepsSessionAndAllowsReconnect`
+→ `BleHardwareIntegrationTest#longWritesAndReconnectRestoreAreVerifiedByPeripheral` 를 한 instrumentation 안에서 연속 실행,
+20회 반복. `blePeripheralId=F0:2F:24:A8:0F:9E`, logcat `-G 16M`, 실패 시 instrument 출력·logcat 을 보존하도록 구성.
+
+결과: **0/20 재현** (20회 모두 pass). 재현율 상한은 약 15%(95%, 3/n 규칙)로만 말할 수 있다 — 원인 미상 유지.
+원 실패 조건과의 차이: 원 실패는 gradle `connectedDebugAndroidTest`(매 실행 재설치) 전체 스위트에서, 하네스 수정 직후
+첫 실행이었다. 재설치 직후 첫 실행·본딩 테스트가 뒤따르는 순서는 이번 루프에 포함되지 않았다.
+
+### 재설치 전체 스위트 반복 — 본딩 정리 단계 ACK 유실 (2026-09-23)
+
+조건: gradle `connectedDebugAndroidTest`(매 회 재설치) 로 `AdapterStateBaselineTest` + `BleHardwareIntegrationTest` 반복,
+첫 실패에서 정지. 보드 RTT 로그(채널 0)를 pylink 로 호스트 시각과 함께 기록.
+
+| 루프 | 결과 |
+|---|---|
+| 2 (하네스 수정 전) | 1회차 본딩 fail, 2–20회차는 하네스 안전장치로 연쇄 fail(무효) |
+| 3 (하네스 수정 전, RTT 로그) | 1 pass, 2회차 본딩 fail |
+| 4 (하네스 수정 후) | 1–4 pass(1회차는 폰-only 잔존 상태에서 자가 복구), 5회차 본딩 fail |
+
+**증상.** 시나리오는 끝까지 통과한다. 실패는 정리 단계다: `IT:BOND_RESET` 쓰기는 성공(`RemoteAcknowledged`)하고
+보드는 ACK(`IT|RESULT|test=BOND_RESET|status=ACCEPTED`) 전송 → `bt_unpair` → 끊김(보드 0x16)까지 진행하지만,
+폰 쪽 하네스는 ACK 를 받지 못해 10 s 타임아웃. 같은 실행 안의 시나리오 `BOND_RESET` ACK(동일 명령·동일 링크 재사용 조건)는
+매번 수신됐다 — 간헐이다. 재현율: 재설치 스위트 8회 중 3회.
+
+**유실 위치.** 5회차 로그에서 쓰기(Tx 진단 11:26:39.670) 와 끊김(11:26:39.823) 사이에 라이브러리 엔진의 Rx 진단
+(`GATT_PAYLOAD_OBSERVED`, notification 수신 시 CharValue 발행 직전에 나옴)이 없다. Android 콜백 → 코어 스레드 전달은
+단일 스레드 FIFO(`AndroidGattCallbackRouter.forward`)라 끊김보다 먼저 처리된다. 따라서 notification 은 **앱 콜백에
+도달하지 않았다**(추론 — btsnoop 은 비루팅 기기라 켜지 못해 폰 호스트 스택 도달 여부는 미확인). 펌웨어는 ACK 전송 완료
+콜백(`nus_sent_cb`) 직후 곧바로 `bt_unpair`/끊김을 하므로, 끊김 직전 데이터가 폰 호스트에서 버려지는 경합으로 보인다(가설).
+
+**여파와 조치.** 정리 단계가 보드 삭제를 확인하지 못하면 하네스는 폰 키를 보존한다 → 보드 0 / 폰 1 → 이후 모든 실행이
+`DENIED_SECURITY` + 폰 본딩으로 차단(폰 쪽은 BT 재시작 뒤 `No key available to encrypt the link`). 하네스를 고쳤다:
+- 시작: `DENIED_SECURITY` 이면 암호화 없이도 응답하는 `IT:BOND_STATUS` 로 보드 본딩 수를 확인, 0 이고 폰에만 본딩이 있으면
+  폰 키를 지우고 진행.
+- 정리: ACK 대기가 실패하면 재연결해 `IT:BOND_STATUS` 로 확인, 0 이면 폰 키도 정리. ACK 유실 자체는 테스트 실패로 남긴다.
+- 본딩 테스트에 `events`/수신(`rx=`) 로그 추가.
+검증: 루프 4 의 1회차(폰-only 잔존에서 시작) pass, 5회차 실패 뒤 폰 0 / 보드 0(RTT `LOCAL|BOND|count=0`) 확인.
+
+**간헐 `NUS service was not discovered`.** 이번 전체 구간(am instrument 20회 + 재설치 스위트 8회)에서 0회. 원인 미상 유지.

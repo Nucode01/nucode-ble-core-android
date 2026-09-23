@@ -14,6 +14,8 @@ import androidx.test.uiautomator.Until
 import java.util.UUID
 import java.util.regex.Pattern
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -68,6 +70,9 @@ class BleHardwareIntegrationTest {
     private lateinit var client: BleClient
     private var activeSession: BleSession? = null
 
+    /** runBlocking 자식이 아닌 보조 로거용 — 테스트가 중간에 던져도 매달리지 않고 [tearDown] 에서 정리된다. */
+    private val logScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     @Before
     fun setUp() {
         assumeTrue(
@@ -95,6 +100,7 @@ class BleHardwareIntegrationTest {
                 withTimeout(10_000) { activeSession?.disconnect() }
             }
         }
+        logScope.cancel()
         client.close()
     }
 
@@ -297,24 +303,40 @@ class BleHardwareIntegrationTest {
         val peripheralId = discoverPeripheral()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val testBondController = AndroidBondTestController(context)
+        // 수신 진단(GATT_PAYLOAD_OBSERVED)과 하네스 수신(rx=)을 함께 남겨, notification 유실이
+        // 라이브러리 전/후 어디서 났는지 로그로 가를 수 있게 한다.
+        logScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            client.events.collect { Log.i(TAG, "event=$it") }
+        }
 
         var suspectedBoardResidue = false
-        val (initialResetStatus, initialResetMessage) = openSubscribedSession(peripheralId).useSession { probe ->
-            probe.session.writeCommand(probe.nus.rx, "IT:BOND_RESET")
-            val message = probe.messages.awaitMessage { it.startsWith("IT|RESULT|test=BOND_RESET|status=") }
-            val status = message.parseFields().required("status")
-            if (status == "ACCEPTED") {
-                withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
-                    probe.session.connectionState.first { it is ConnectionState.Disconnected }
+        val (initialResetStatus, initialResetMessage, boardBondCount) =
+            openSubscribedSession(peripheralId).useSession { probe ->
+                probe.session.writeCommand(probe.nus.rx, "IT:BOND_RESET")
+                val message = probe.messages.awaitMessage { it.startsWith("IT|RESULT|test=BOND_RESET|status=") }
+                val status = message.parseFields().required("status")
+                if (status == "ACCEPTED") {
+                    withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                        probe.session.connectionState.first { it is ConnectionState.Disconnected }
+                    }
                 }
+                // BOND_STATUS 는 암호화 없이도 응답한다 — 거부된 경우 보드 본딩 수를 직접 확인한다.
+                val count = if (status == "DENIED_SECURITY") {
+                    readBondStatus(probe.session, probe.nus.rx, probe.messages).requiredLong("count")
+                } else {
+                    null
+                }
+                Triple(status, message, count)
             }
-            status to message
-        }
         when (initialResetStatus) {
             "ACCEPTED" -> Unit
             "DENIED_SECURITY" -> {
                 // 비파괴 조회 — 여기서 폰 키를 지우면 "폰 없음/보드 있음"이라는 복구 불가 상태를 하네스가 만든다.
-                if (!testBondController.hasBond(peripheralId)) {
+                if (testBondController.hasBond(peripheralId) && boardBondCount == 0L) {
+                    // 보드는 비어 있고 폰 키만 남은 상태(이전 실행의 정리 단계가 보드 삭제를 확인하지 못한 경우).
+                    // 폰 키만 지우면 되므로 아래 removeBond 로 복구하고 진행한다.
+                    Log.w(TAG, "stale phone bond with empty board ($initialResetMessage); removing phone key")
+                } else if (!testBondController.hasBond(peripheralId)) {
                     // 펌웨어가 "본딩 없음" 상태에서도 DENIED_SECURITY 를 돌려주는지는 확인되지 않았다.
                     // 그래서 여기서 단정하지 않고, 아래 첫 본딩 시도가 실패할 때만 보드 잔존으로 진단한다
                     // (보드에 stale 본딩이 있으면 폰이 BONDING 에 진입하지 못한다 — 관측된 증상).
@@ -428,6 +450,21 @@ class BleHardwareIntegrationTest {
                         }
                     }
                 }.exceptionOrNull()?.let(cleanupFailures::add)
+                if (!boardClearedInCleanup) {
+                    // ACK 를 못 받아도 보드가 실제로 지웠을 수 있다 — 암호화 없이도 되는 BOND_STATUS 로 확인한다.
+                    // 실패 자체는 cleanupFailures 에 남긴다(유실을 숨기지 않는다). 확인되면 폰 키 정리만 진행한다.
+                    runCatching {
+                        withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+                            client.session(peripheralId).connectionState.first { it is ConnectionState.Disconnected }
+                        }
+                        openSubscribedSession(peripheralId).useSession { verify ->
+                            readBondStatus(verify.session, verify.nus.rx, verify.messages).requiredLong("count")
+                        }
+                    }.onSuccess { count ->
+                        Log.w(TAG, "cleanup ACK missing; board bond count after reset = $count")
+                        boardClearedInCleanup = count == 0L
+                    }.exceptionOrNull()?.let(cleanupFailures::add)
+                }
             }
             // 폰 키는 보드 쪽이 비었다고 확인될 때만 지운다. 불확실하면 보존해야 다음 실행이
             // 암호화 링크로 보드를 지울 수 있다 — 여기서 지우면 수동 복구(BOARD_BOND_RESIDUE)가 필요해진다.
@@ -570,7 +607,11 @@ class BleHardwareIntegrationTest {
             awaitReady(connectedSession)
             val nus = connectedSession.nusCharacteristics()
             notificationJob = launch(start = CoroutineStart.UNDISPATCHED) {
-                connectedSession.notifications(nus.tx).collect { messages.send(it.decodeToString().trim()) }
+                connectedSession.notifications(nus.tx).collect {
+                    val text = it.decodeToString().trim()
+                    if (!text.startsWith("IT|NTFY|")) Log.i(TAG, "rx=$text")
+                    messages.send(text)
+                }
             }
             connectedSession.subscribe(nus.tx)
             messages.awaitSequence()

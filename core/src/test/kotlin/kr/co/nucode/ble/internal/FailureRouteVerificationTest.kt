@@ -3,22 +3,25 @@ package kr.co.nucode.ble.internal
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 
 /**
- * 규칙이 보호하는 route(SyncCommand·AsyncResource·Observation)가 전부 그 전달 채널을 단언하는 테스트 메서드에
- * 연결됐는지 강제한다(plan `failure-delivery-guards/v1` 목표 1).
- * 연결은 "그 테스트가 이 route 의 채널을 단언한다"는 작성자 주장이다 — 기계 확인은 메서드 존재와
- * 테스트 소스의 코드 문자열 등장까지이고, 단언의 의미는 review 가 확인한다.
+ * 카탈로그의 모든 route(AsyncInfo 포함)가 전부 그 전달 채널을 단언하는 테스트 메서드에
+ * 연결됐는지 강제한다(plan `failure-delivery-guards/v1` 목표 1, `platform-harness/v1` 목표 3).
+ * 연결은 "그 테스트가 이 route 의 채널을 단언한다"는 작성자 주장이다 — 기계 확인은 @Test 이고 @Ignore 아닌
+ * 메서드 존재와 그 메서드 본문의 코드 문자열 등장까지이고, 단언의 의미는 review 가 확인한다.
  */
 class FailureRouteVerificationTest {
 
     @Test
     fun `필수 route 집합과 검증 연결 키 집합이 같다`() {
         val required = FailureCatalog.specs.flatMap { spec ->
-            spec.routes.filter { it.kind in REQUIRED_KINDS }.map { "${spec.code} | ${it.context}" }
+            spec.routes.map { "${spec.code} | ${it.context}" }
         }.toSortedSet()
-        val exempt = UNVERIFIABLE_ROUTES.keys
+        val exempt = UNVERIFIABLE_ROUTES.keys + CATALOG_MISMATCHES_FOR_STAGE2.keys
+        val exemptOverlap = UNVERIFIABLE_ROUTES.keys.intersect(CATALOG_MISMATCHES_FOR_STAGE2.keys)
+        assertTrue("두 예외 목록에 동시에 있음: $exemptOverlap", exemptOverlap.isEmpty())
         val overlap = ROUTE_VERIFIED_BY.keys.intersect(exempt)
         assertTrue("연결과 예외 목록에 동시에 있음: $overlap", overlap.isEmpty())
 
@@ -31,30 +34,60 @@ class FailureRouteVerificationTest {
     }
 
     @Test
-    fun `각 연결은 테스트 클래스패스의 실제 메서드를 가리킨다`() {
+    fun `각 연결은 테스트 클래스패스의 실행되는 @Test 메서드를 가리킨다`() {
         val broken = ROUTE_VERIFIED_BY.mapNotNull { (route, target) ->
             val (fqcn, method) = split(target) ?: return@mapNotNull "$route -> $target (형식은 fqcn#method)"
             val type = runCatching { Class.forName(fqcn) }.getOrNull()
                 ?: return@mapNotNull "$route -> 클래스 없음: $fqcn"
-            if (type.declaredMethods.none { it.name == method }) "$route -> 메서드 없음: $target" else null
+            val found = type.declaredMethods.firstOrNull { it.name == method }
+            when {
+                found == null -> "$route -> 메서드 없음: $target"
+                !found.isAnnotationPresent(Test::class.java) -> "$route -> @Test 아님: $target"
+                found.isAnnotationPresent(Ignore::class.java) -> "$route -> @Ignore 메서드: $target"
+                type.isAnnotationPresent(Ignore::class.java) -> "$route -> @Ignore 클래스: $fqcn"
+                else -> null
+            }
         }
         assertTrue("가리키는 테스트가 없는 연결:\n${broken.joinToString("\n")}", broken.isEmpty())
     }
 
-    /** 보조 검사(거짓 연결 방지) — 연결된 테스트 클래스의 소스에 route 의 코드 문자열이 등장해야 한다. */
+    /**
+     * 보조 검사(거짓 연결 방지) — 연결된 테스트 메서드의 본문에 route 의 코드 문자열이 등장해야 한다.
+     * 같은 파일의 다른 테스트에만 있는 코드로는 통과하지 않는다.
+     */
     @Test
-    fun `연결된 테스트 소스에 route 코드 문자열이 등장한다`() {
+    fun `연결된 테스트 메서드 본문에 route 코드 문자열이 등장한다`() {
         val missing = ROUTE_VERIFIED_BY.mapNotNull { (route, target) ->
             val code = route.substringBefore(" | ")
-            val fqcn = split(target)?.first ?: return@mapNotNull "$route -> 형식 오류: $target"
+            val (fqcn, method) = split(target) ?: return@mapNotNull "$route -> 형식 오류: $target"
             val source = File("src/test/kotlin/${fqcn.replace('.', '/')}.kt")
+            if (!source.isFile) return@mapNotNull "$route -> 소스 없음: ${source.path}"
+            val body = methodBody(source.readLines(), method)
+                ?: return@mapNotNull "$route -> ${source.name} 에서 fun $method 선언을 찾지 못함"
+            // 본문 추출이 다른 메서드까지 삼켰으면(식 본문·닫는 줄 모양이 다른 경우) 그 결과로는 판정하지 않는다.
+            val overrun = body.lines().drop(1).firstOrNull { OTHER_DECLARATION.containsMatchIn(it) || it.trim().startsWith("@Test") }
             when {
-                !source.isFile -> "$route -> 소스 없음: ${source.path}"
-                "\"$code\"" !in source.readText() -> "$route -> ${source.name} 에 \"$code\" 없음"
+                overrun != null -> "$route -> $method 본문 추출이 다른 선언까지 넘어감: ${overrun.trim()}"
+                "\"$code\"" !in body -> "$route -> $method 본문에 \"$code\" 없음"
                 else -> null
             }
         }
         assertTrue("코드 문자열이 없는 연결:\n${missing.joinToString("\n")}", missing.isEmpty())
+    }
+
+    /**
+     * [method] 선언 줄(`fun \`이름\`` 또는 `fun 이름`)부터 같은 들여쓰기의 닫는 `}` 까지를 본문으로 본다.
+     * 닫는 줄을 못 찾으면 다음 `@Test` 앞(없으면 파일 끝)까지로 잘라 낸다.
+     */
+    private fun methodBody(lines: List<String>, method: String): String? {
+        val declaration = Regex("""^(\s*)(?:[\w@]+\s+)*fun\s+(?:`\Q$method\E`|\Q$method\E)\s*\(""")
+        val start = lines.indexOfFirst { declaration.containsMatchIn(it) }
+        if (start < 0) return null
+        val indent = declaration.find(lines[start])!!.groupValues[1]
+        val rest = lines.drop(start + 1)
+        val close = rest.indexOfFirst { it.trimEnd() == "$indent}" }
+        val end = if (close >= 0) close else rest.indexOfFirst { it.trim().startsWith("@Test") }.let { if (it < 0) rest.size else it }
+        return (listOf(lines[start]) + rest.take(end + 1)).joinToString("\n")
     }
 
     private fun split(target: String): Pair<String, String>? {
@@ -63,14 +96,15 @@ class FailureRouteVerificationTest {
     }
 
     private companion object {
-        val REQUIRED_KINDS = setOf(TriggerKind.SyncCommand, TriggerKind.AsyncResource, TriggerKind.Observation)
-
+        /** 본문 안에서 발견되면 추출이 경계를 넘은 것으로 보는 다른 `fun` 선언. */
+        val OTHER_DECLARATION = Regex("""^\s*(?:[\w@]+\s+)*fun\s""")
         const val ADAPTER = "kr.co.nucode.ble.AdapterStateTransitionTest"
         const val WIRING = "kr.co.nucode.ble.BleCoreWiringTest"
         const val DELIVERY = "kr.co.nucode.ble.FailureRouteDeliveryTest"
         const val ACTIVE = "kr.co.nucode.ble.ActiveSubscriptionsTest"
         const val SCAN = "kr.co.nucode.ble.ScanContractTest"
         const val RECONNECT_STATE = "kr.co.nucode.ble.ReconnectStateContractTest"
+        const val INFO = "kr.co.nucode.ble.FailureRouteInfoDeliveryTest"
 
         /** "CODE | context" → "fqcn#JVM 메서드 이름". */
         val ROUTE_VERIFIED_BY: Map<String, String> = mapOf(
@@ -174,9 +208,64 @@ class FailureRouteVerificationTest {
                 "$DELIVERY#session command with unregistered id throws UNKNOWN_DEVICE",
             "UNKNOWN_DEVICE | connect command (invalid address)" to
                 "$DELIVERY#connect invalid address UNKNOWN_DEVICE throws and terminalizes state",
+            // ── AsyncInfo(Event) ──
+            "CHARACTERISTIC_NOT_FOUND | unsubscribe command" to
+                "$INFO#unsubscribe unresolved target emits CHARACTERISTIC_NOT_FOUND Diagnostic",
+            "GATT_OPERATION_START_FAILED | unsubscribe command" to
+                "$INFO#unsubscribe CCCD start rejection emits GATT_OPERATION_START_FAILED Diagnostic",
+            "GATT_STATUS_FAILED | unsubscribe command" to
+                "$INFO#unsubscribe CCCD status failure emits GATT_STATUS_FAILED Diagnostic",
+            "OPERATION_INVALIDATED | unsubscribe command" to
+                "$INFO#unsubscribe pending invalidated by disconnect emits OPERATION_INVALIDATED Diagnostic",
+            "OPERATION_TIMEOUT | unsubscribe command" to
+                "$INFO#unsubscribe CCCD ack timeout emits OPERATION_TIMEOUT Diagnostic and Disconnected Failed",
+            "PERMISSION_DENIED | unsubscribe command" to
+                "$INFO#unsubscribe CCCD SecurityException emits PERMISSION_DENIED Diagnostic and Disconnected Failed",
+            "CLEANUP_FAILURE | close cleanup" to
+                "$INFO#close cleanup driver failure emits CLEANUP_FAILURE Diagnostic",
+            "DISCONNECT_CLEANUP_TIMEOUT | link lifecycle (disconnect cleanup deadline)" to
+                "$INFO#disconnect cleanup deadline emits DISCONNECT_CLEANUP_TIMEOUT Diagnostic",
+            "DISCONNECT_START_FAILED | disconnect command" to
+                "$INFO#disconnect command start failure emits DISCONNECT_START_FAILED Diagnostic",
+            "DISCONNECT_START_FAILED | internal cleanup (timeout/discovery/link/permission)" to
+                "$INFO#internal cleanup start failure emits DISCONNECT_START_FAILED Diagnostic",
+            "CONFIGURATION_FAILED | link lifecycle (MTU status, fallback)" to
+                "$INFO#MTU status failure emits CONFIGURATION_FAILED Diagnostic and falls back to Ready",
+            "GATT_OPERATION_START_FAILED | link lifecycle (requestMtu start, fallback)" to
+                "$INFO#requestMtu start rejection emits GATT_OPERATION_START_FAILED Diagnostic and falls back to Ready",
+            "DUPLICATE_CHARACTERISTIC_REFERENCE | link lifecycle (service discovery result)" to
+                "$INFO#duplicate characteristic in discovery result emits DUPLICATE_CHARACTERISTIC_REFERENCE Diagnostic",
+            "LINK_FAILED | late non-terminal link status callback" to
+                "$INFO#late non-terminal link status failure emits LINK_FAILED Diagnostic without changing state",
+            "GATT_OPERATION_CALLBACK_MISMATCH | GATT callback routing" to
+                "$INFO#read callback for other characteristic emits GATT_OPERATION_CALLBACK_MISMATCH Diagnostic",
+            "GATT_OPERATION_DUPLICATE_CALLBACK | GATT callback routing" to
+                "$INFO#read callback without pending operation emits GATT_OPERATION_DUPLICATE_CALLBACK Diagnostic",
+            "SCANNER_UNAVAILABLE | connect rediscovery scan (fallback)" to
+                "$INFO#rediscovery without scanner emits SCANNER_UNAVAILABLE Diagnostic and falls back to connect",
+            "PERMISSION_DENIED | connect rediscovery scan (fallback)" to
+                "$INFO#rediscovery scan permission denial emits PERMISSION_DENIED Diagnostic and falls back to connect",
+            "SCAN_RUNTIME_FAILED | connect rediscovery scan (fallback)" to
+                "$INFO#rediscovery scan runtime failure emits SCAN_RUNTIME_FAILED Diagnostic and falls back to connect",
+            "SCAN_START_FAILED | connect rediscovery scan (fallback)" to
+                "$INFO#rediscovery scan start failure emits SCAN_START_FAILED Diagnostic and falls back to connect",
+            "RECONNECT_ATTEMPT | reconnect attempt (official policy)" to
+                "$INFO#official policy reconnect attempt publishes Recovering and RECONNECT_ATTEMPT Diagnostic",
+            "RECONNECT_ATTEMPT | reconnect attempt (legacy policy)" to
+                "$INFO#legacy policy reconnect attempt emits RECONNECT_ATTEMPT Diagnostic",
         )
 
         /** 기존 fixture 로 발생시킬 수 없어(main seam 추가 금지) 연결하지 못한 route → 사유. 비어 있어야 정상. */
         val UNVERIFIABLE_ROUTES: Map<String, String> = emptyMap()
+
+        /**
+         * 카탈로그 `current` 가 코드가 실제로 내는 채널과 다른 route → 사유. 이 단계는 main·카탈로그를 고치지 않으므로
+         * 연결 대신 여기 고정하고, 2단계가 코드 또는 카탈로그를 고쳐 이 목록을 비운다.
+         */
+        val CATALOG_MISMATCHES_FOR_STAGE2: Map<String, String> = mapOf(
+            "NOT_CONNECTED | unsubscribe command" to
+                "gatt 가 null 이면 GattOperationEngine.unsubscribe 가 Diagnostic 없이 조용히 반환하고, exactIdentity 의 " +
+                "NOT_CONNECTED 는 gatt != null 분기에서만 불려 도달하지 않는다 — 카탈로그의 Event 전달이 실제로 없다",
+        )
     }
 }

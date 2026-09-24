@@ -1,0 +1,519 @@
+package kr.co.nucode.ble
+
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothProfile
+import java.util.UUID
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.charRef
+import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattCallbackSource
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattOperationTarget
+import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.platform.android.AndroidPeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.session.Session
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * plan `platform-harness/v1` task 4 — AsyncInfo route(자원 상태를 끝내지 않는 정보성 실패)의 전달 채널을
+ * 공개 경계(BleRuntime)에서 고정한다. 각 테스트는 Event 채널(그 코드의 Diagnostic)을 단언하고,
+ * 카탈로그 `current` 에 State 가 있는 route 는 connectionState 도 단언한다.
+ * fixture 는 [FailureRouteDeliveryTest] 의 모양을 따른다.
+ * [kr.co.nucode.ble.internal.FailureRouteVerificationTest] 가 route → 테스트 메서드 연결을 강제한다.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class FailureRouteInfoDeliveryTest {
+
+    private class Driver : NoopGattDriver() {
+        var disconnectFailure: Exception? = null
+        var closeFailure: Exception? = null
+        var mtuStarts: Boolean = true
+        var descriptorFailure: Exception? = null
+        var descriptorStarts: Boolean = true
+
+        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+            disconnectFailure?.let { throw it }
+        }
+
+        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+            closeFailure?.let { throw it }
+        }
+
+        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = mtuStarts
+
+        override fun writeDescriptor(
+            deviceId: PeripheralId,
+            gatt: BluetoothGatt?,
+            descriptor: BluetoothGattDescriptor,
+            value: ByteArray,
+        ): Boolean {
+            descriptorFailure?.let { throw it }
+            return descriptorStarts
+        }
+
+        override fun readCharacteristic(
+            deviceId: PeripheralId,
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic,
+        ): Boolean = true
+
+        fun connection(deviceId: PeripheralId, generation: Long, status: Int, newState: Int) = emit(
+            GattDriverEvent.ConnectionStateChanged(deviceId, SOURCE, status, newState, generation),
+        )
+
+        fun services(
+            deviceId: PeripheralId,
+            generation: Long,
+            status: Int,
+            services: List<GattServiceSnapshot> = emptyList(),
+        ) = emit(GattDriverEvent.ServicesDiscovered(deviceId, SOURCE, status, services, generation))
+
+        fun mtu(deviceId: PeripheralId, generation: Long, status: Int = BluetoothGatt.GATT_SUCCESS) = emit(
+            GattDriverEvent.MtuChanged(deviceId, SOURCE, 247, status, generation),
+        )
+
+        fun read(deviceId: PeripheralId, ref: CharacteristicRef, status: Int) = emit(
+            GattDriverEvent.CharacteristicRead(
+                deviceId = deviceId,
+                source = SOURCE,
+                characteristic = snapshot(ref),
+                value = byteArrayOf(1),
+                status = status,
+            ),
+        )
+
+        fun cccd(deviceId: PeripheralId, ref: CharacteristicRef, status: Int) = emit(
+            GattDriverEvent.DescriptorWrite(
+                deviceId = deviceId,
+                source = SOURCE,
+                status = status,
+                attributeIdentity = GattDescriptorIdentity(GattCharacteristicIdentity.from(ref), CCCD_UUID),
+            ),
+        )
+    }
+
+    private class Fixture(
+        val core: BleRuntime,
+        val driver: Driver,
+        val id: PeripheralId,
+        val events: MutableList<BleEvent>,
+    ) {
+        val session: Session get() = core.registry.get(id)!!
+        val generation: Long get() = session.connectionCoordinator.generation
+        val state: ConnectionState get() = session.connectionState.value
+
+        fun diagnostics(code: String): List<BleFailure> =
+            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure }.filter { it.code.value == code }
+
+        fun diagnosticCodes(): List<String> =
+            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
+    }
+
+    private fun TestScope.fixture(rediscovery: PeripheralRediscovery? = null): Fixture {
+        val driver = Driver()
+        val core = BleRuntime(
+            config = BleConfig(
+                dispatcher = StandardTestDispatcher(testScheduler),
+                operationTimeoutMillis = OPERATION_TIMEOUT,
+                linkTimeoutMillis = STAGE_TIMEOUT,
+                discoveryTimeoutMillis = STAGE_TIMEOUT,
+                configurationTimeoutMillis = STAGE_TIMEOUT,
+                disconnectCleanupTimeoutMillis = CLEANUP_TIMEOUT,
+                rediscoveryTimeoutMillis = STAGE_TIMEOUT,
+            ),
+            adapter = { null },
+            gattDriver = driver,
+            gattOperationTargetResolver = RESOLVER,
+            rediscovery = rediscovery,
+            adapterState = { AdapterState.Ready },
+        )
+        val events = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(events) }
+        runCurrent()
+        return Fixture(core, driver, PeripheralId("AA:BB:CC:DD:EE:D2"), events)
+    }
+
+    private suspend fun TestScope.connectToDiscovering(f: Fixture, official: BleReconnectPolicy? = null) {
+        if (official == null) {
+            f.core.connect(f.id, ConnectOptions())
+        } else {
+            f.core.connectOfficial(f.id, BleConnectOptions(reconnectPolicy = official))
+        }
+        runCurrent()
+        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        runCurrent()
+        assertEquals(ConnectionState.DiscoveringServices, f.state)
+    }
+
+    private suspend fun TestScope.connectToConfiguring(f: Fixture, official: BleReconnectPolicy? = null) {
+        connectToDiscovering(f, official)
+        f.driver.services(f.id, f.generation, BluetoothGatt.GATT_SUCCESS)
+        runCurrent()
+        assertEquals(ConnectionState.Configuring, f.state)
+    }
+
+    private suspend fun TestScope.connectToReady(f: Fixture, official: BleReconnectPolicy? = null) {
+        connectToConfiguring(f, official)
+        f.driver.mtu(f.id, f.generation)
+        runCurrent()
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    /** unsubscribe 를 background 에서 시작해 CCCD write 가 pending 인 상태로 둔다(unsubscribe 는 throw 하지 않는다). */
+    private fun TestScope.startUnsubscribe(f: Fixture, ref: CharacteristicRef = READ_REF) {
+        backgroundScope.launch { runCatching { f.core.unsubscribe(f.id, ref) } }
+        runCurrent()
+    }
+
+    /** cleanup deadline 까지 흘려 Disconnecting 을 Disconnected 로 끝낸다(fake disconnect 는 콜백이 없다). */
+    private fun TestScope.finishCleanup() {
+        advanceTimeBy(CLEANUP_TIMEOUT + 1)
+        runCurrent()
+    }
+
+    private fun failedCode(state: ConnectionState): String? =
+        ((state as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
+
+    private fun assertUnsubscribeDiagnostic(f: Fixture, code: String) {
+        assertTrue(
+            "unsubscribe 로 귀속된 $code Diagnostic 이 없다: ${f.diagnosticCodes()}",
+            f.diagnostics(code).any { it.context.operationKind == OperationKind.Unsubscribe },
+        )
+    }
+
+    // ── unsubscribe 명령(D8 best-effort — throw 없이 Event) ────────────────────────
+
+    @Test
+    fun `unsubscribe unresolved target emits CHARACTERISTIC_NOT_FOUND Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+
+        f.core.unsubscribe(f.id, MISSING_REF)
+        runCurrent()
+
+        assertUnsubscribeDiagnostic(f, "CHARACTERISTIC_NOT_FOUND")
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `unsubscribe CCCD start rejection emits GATT_OPERATION_START_FAILED Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        f.driver.descriptorStarts = false
+
+        f.core.unsubscribe(f.id, READ_REF)
+        runCurrent()
+
+        assertUnsubscribeDiagnostic(f, "GATT_OPERATION_START_FAILED")
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `unsubscribe CCCD status failure emits GATT_STATUS_FAILED Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        startUnsubscribe(f)
+
+        f.driver.cccd(f.id, READ_REF, 133)
+        runCurrent()
+
+        assertUnsubscribeDiagnostic(f, "GATT_STATUS_FAILED")
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `unsubscribe pending invalidated by disconnect emits OPERATION_INVALIDATED Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        startUnsubscribe(f)
+
+        f.core.disconnect(f.id)
+        runCurrent()
+
+        assertUnsubscribeDiagnostic(f, "OPERATION_INVALIDATED")
+    }
+
+    @Test
+    fun `unsubscribe CCCD ack timeout emits OPERATION_TIMEOUT Diagnostic and Disconnected Failed`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        startUnsubscribe(f)
+
+        advanceTimeBy(OPERATION_TIMEOUT + 1)
+        runCurrent()
+
+        assertUnsubscribeDiagnostic(f, "OPERATION_TIMEOUT")
+        assertEquals("OPERATION_TIMEOUT", failedCode(f.state))
+    }
+
+    @Test
+    fun `unsubscribe CCCD SecurityException emits PERMISSION_DENIED Diagnostic and Disconnected Failed`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        f.driver.descriptorFailure = SecurityException()
+
+        f.core.unsubscribe(f.id, READ_REF)
+        runCurrent()
+        finishCleanup()
+
+        assertUnsubscribeDiagnostic(f, "PERMISSION_DENIED")
+        assertEquals("PERMISSION_DENIED", failedCode(f.state))
+    }
+
+    // ── close / disconnect 정리 ──────────────────────────────────────────────
+
+    @Test
+    fun `close cleanup driver failure emits CLEANUP_FAILURE Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        f.driver.closeFailure = IllegalStateException("close failed")
+
+        f.core.close()
+        runCurrent()
+        f.core.awaitClosed()
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("CLEANUP_FAILURE").isNotEmpty())
+    }
+
+    @Test
+    fun `disconnect cleanup deadline emits DISCONNECT_CLEANUP_TIMEOUT Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+
+        f.core.disconnect(f.id)
+        runCurrent()
+        finishCleanup()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("DISCONNECT_CLEANUP_TIMEOUT").isNotEmpty())
+    }
+
+    @Test
+    fun `disconnect command start failure emits DISCONNECT_START_FAILED Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        f.driver.disconnectFailure = IllegalStateException("disconnect failed")
+
+        f.core.disconnect(f.id)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("DISCONNECT_START_FAILED").isNotEmpty())
+    }
+
+    @Test
+    fun `internal cleanup start failure emits DISCONNECT_START_FAILED Diagnostic`() = runTest {
+        val f = fixture()
+        f.driver.disconnectFailure = IllegalStateException("disconnect failed")
+        f.core.connect(f.id, ConnectOptions())
+        runCurrent()
+
+        advanceTimeBy(STAGE_TIMEOUT + 1)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("DISCONNECT_START_FAILED").isNotEmpty())
+        assertEquals("LINK_TIMEOUT", failedCode(f.state))
+    }
+
+    // ── link lifecycle 정보성 ─────────────────────────────────────────────────
+
+    @Test
+    fun `MTU status failure emits CONFIGURATION_FAILED Diagnostic and falls back to Ready`() = runTest {
+        val f = fixture()
+        connectToConfiguring(f)
+
+        f.driver.mtu(f.id, f.generation, status = 133)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("CONFIGURATION_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `requestMtu start rejection emits GATT_OPERATION_START_FAILED Diagnostic and falls back to Ready`() = runTest {
+        val f = fixture()
+        f.driver.mtuStarts = false
+        connectToDiscovering(f)
+
+        f.driver.services(f.id, f.generation, BluetoothGatt.GATT_SUCCESS)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("GATT_OPERATION_START_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `duplicate characteristic in discovery result emits DUPLICATE_CHARACTERISTIC_REFERENCE Diagnostic`() = runTest {
+        val f = fixture()
+        connectToDiscovering(f)
+        val characteristic = snapshot(READ_REF)
+        val service = GattServiceSnapshot(READ_REF.service.uuid.value, listOf(characteristic, characteristic))
+
+        f.driver.services(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, listOf(service))
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("DUPLICATE_CHARACTERISTIC_REFERENCE").isNotEmpty())
+        assertEquals(ConnectionState.Configuring, f.state)
+    }
+
+    @Test
+    fun `late non-terminal link status failure emits LINK_FAILED Diagnostic without changing state`() = runTest {
+        val f = fixture()
+        connectToDiscovering(f)
+
+        f.driver.connection(f.id, f.generation, 133, BluetoothProfile.STATE_CONNECTED)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("LINK_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.DiscoveringServices, f.state)
+    }
+
+    // ── GATT callback 라우팅 ─────────────────────────────────────────────────
+
+    @Test
+    fun `read callback for other characteristic emits GATT_OPERATION_CALLBACK_MISMATCH Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+        backgroundScope.launch { runCatching { f.core.read(f.id, READ_REF) } }
+        runCurrent()
+
+        f.driver.read(f.id, OTHER_REF, BluetoothGatt.GATT_SUCCESS)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("GATT_OPERATION_CALLBACK_MISMATCH").isNotEmpty())
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    @Test
+    fun `read callback without pending operation emits GATT_OPERATION_DUPLICATE_CALLBACK Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+
+        f.driver.read(f.id, READ_REF, BluetoothGatt.GATT_SUCCESS)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("GATT_OPERATION_DUPLICATE_CALLBACK").isNotEmpty())
+        assertEquals(ConnectionState.Ready, f.state)
+    }
+
+    // ── connect 재발견 스캔 폴백(직접 연결로 진행) ─────────────────────────────────
+
+    private suspend fun TestScope.connectWithRediscovery(rediscovery: PeripheralRediscovery): Fixture {
+        val f = fixture(rediscovery = rediscovery)
+        f.core.connect(f.id, ConnectOptions())
+        runCurrent()
+        return f
+    }
+
+    @Test
+    fun `rediscovery without scanner emits SCANNER_UNAVAILABLE Diagnostic and falls back to connect`() = runTest {
+        val f = connectWithRediscovery(AndroidPeripheralRediscovery { null })
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCANNER_UNAVAILABLE").isNotEmpty())
+        assertEquals(ConnectionState.Connecting, f.state)
+    }
+
+    /**
+     * 아래 세 재발견 실패는 AndroidPeripheralRediscovery 가 BluetoothLeScanner(JVM 에서 만들 수 없음)에서 얻는다 —
+     * 같은 FailureMapper 값을 rediscovery seam 이 돌려줘 lifecycle 의 폴백 전달만 검증한다.
+     */
+    @Test
+    fun `rediscovery scan permission denial emits PERMISSION_DENIED Diagnostic and falls back to connect`() = runTest {
+        val failure = FailureMapper.permissionDenied(phase = FailurePhase.Scan, operation = AndroidApiOperation.StartScan)
+        val f = connectWithRediscovery { _, _ -> RediscoveryOutcome.Unavailable(failure) }
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("PERMISSION_DENIED").isNotEmpty())
+        assertEquals(ConnectionState.Connecting, f.state)
+    }
+
+    @Test
+    fun `rediscovery scan runtime failure emits SCAN_RUNTIME_FAILED Diagnostic and falls back to connect`() = runTest {
+        val f = connectWithRediscovery { _, _ -> RediscoveryOutcome.Unavailable(FailureMapper.scanRuntimeFailed(2)) }
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCAN_RUNTIME_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.Connecting, f.state)
+    }
+
+    @Test
+    fun `rediscovery scan start failure emits SCAN_START_FAILED Diagnostic and falls back to connect`() = runTest {
+        val f = connectWithRediscovery { _, _ -> RediscoveryOutcome.Unavailable(FailureMapper.scanStartFailed()) }
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCAN_START_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.Connecting, f.state)
+    }
+
+    // ── 재연결 시도 알림 ──────────────────────────────────────────────────────
+
+    @Test
+    fun `official policy reconnect attempt publishes Recovering and RECONNECT_ATTEMPT Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f, official = BleReconnectPolicy.ExponentialBackoff(3, 10, 10))
+
+        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("RECONNECT_ATTEMPT").isNotEmpty())
+        val recovering = f.state as? ConnectionState.Recovering
+        assertTrue("Recovering 이 아니다: ${f.state}", recovering != null)
+        assertEquals("RECONNECT_ATTEMPT", recovering!!.lastFailure.code.value)
+    }
+
+    @Test
+    fun `legacy policy reconnect attempt emits RECONNECT_ATTEMPT Diagnostic`() = runTest {
+        val f = fixture()
+        connectToReady(f)
+
+        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("RECONNECT_ATTEMPT").isNotEmpty())
+        assertTrue("legacy 정책은 Recovering 을 내지 않는다: ${f.state}", f.state !is ConnectionState.Recovering)
+    }
+
+    private companion object {
+        const val OPERATION_TIMEOUT = 100L
+        const val STAGE_TIMEOUT = 100L
+        const val CLEANUP_TIMEOUT = 50L
+        val SOURCE = GattCallbackSource { true }
+        val SERVICE_UUID: UUID = UUID.randomUUID()
+        val READ_REF: CharacteristicRef = charRef(SERVICE_UUID, UUID.randomUUID())
+        val OTHER_REF: CharacteristicRef = charRef(SERVICE_UUID, UUID.randomUUID())
+        val MISSING_REF: CharacteristicRef = charRef(SERVICE_UUID, UUID.randomUUID())
+        val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        val RESOLVER = GattOperationTargetResolver { _, ref ->
+            if (ref == MISSING_REF) return@GattOperationTargetResolver null
+            GattOperationTarget(
+                characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
+                identity = GattCharacteristicIdentity.from(ref),
+                propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, 0),
+            )
+        }
+
+        fun snapshot(ref: CharacteristicRef) = GattCharacteristicSnapshot(
+            serviceUuid = ref.service.uuid.value,
+            charUuid = ref.uuid.value,
+            instanceIndex = ref.instanceIndex,
+            propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
+        )
+    }
+}

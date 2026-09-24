@@ -509,6 +509,7 @@ class BleCoreWiringTest {
         runCurrent()
 
         assertTrue(read.isCancelled)
+        assertFailureCode("OPERATION_INVALIDATED", queued.await())
         assertPoisonedAndLateCallbackIsolated(
             fixture = fixture,
             queued = queued,

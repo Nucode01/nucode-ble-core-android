@@ -87,6 +87,7 @@ class PayloadObservationRoutingTest {
         driver.notify(id, 9)
 
         assertTrue(latch.await(2, TimeUnit.SECONDS))
+        assertTrue(synchronized(logged) { logged.any { it.failure.code.value == "GATT_PAYLOAD_OBSERVED" } })
         client.close()
         // 값 정책도 observe 경로로 적용된다 — 기본 옵션(Unknown sensitivity)은 원문 대신 digest.
         val values = synchronized(logged) { logged.first { it.failure.code == observed } }.values

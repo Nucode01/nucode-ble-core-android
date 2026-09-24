@@ -18,6 +18,7 @@ internal data class FailureSpec(val code: String, val routes: List<Route>)
  * 전달 규칙:
  * - SyncCommand(공개 명령 호출 중 확정되고 명령 목적을 좌절시키는 실패) → {Throw}. 이벤트 동반은 허용하되 필수 아님.
  *   명령 목적을 이미 달성한 뒤의 원격 정리 실패(unsubscribe CCCD, disconnect 시작 실패)는 AsyncInfo 다(설계 D8).
+ *   단 unsubscribe 의 OPERATION_TIMEOUT·PERMISSION_DENIED 는 연결을 종결시켜 State 를 바꾸므로 AsyncResource 다(terminal-cause v2 결정 3).
  * - AsyncResource(명령 밖에서 생겨 연결·스캔·구독 자원 상태를 바꾸는 실패) → {State, Event}
  * - AsyncInfo(자원 상태를 바꾸지 않는 정보성, 또는 정리 강제 종결처럼 목적(Disconnected)이 달성된 뒤의 정보) → {Event}
  * - Observation(페이로드 관측) → {LoggerOnly}
@@ -40,7 +41,7 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endRetryPending(재연결 대기 중 세션도 회복 종료)"),
             ),
         ),
         FailureSpec(
@@ -158,6 +159,7 @@ internal object FailureCatalog {
             "LINK_FAILED",
             listOf(
                 Route("link lifecycle (link status callback)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
+                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange, GattConnectionLifecycle.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다 — 재연결 예산 소진이면 State 는 이 LINK_FAILED 를 감싼 RECONNECT_EXHAUSTED/GIVE_UP 이고 소진 Diagnostic 이 LINK_FAILED Diagnostic 뒤에 따른다)"),
                 Route("late non-terminal link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
             ),
         ),
@@ -177,7 +179,6 @@ internal object FailureCatalog {
             "NOT_CONNECTED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:exactIdentity"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:restoreSubscriptionsBeforeReady, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
@@ -200,7 +201,7 @@ internal object FailureCatalog {
             listOf(
                 Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattOperationEngine.kt:awaitAfterStart, GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
                 Route("read/write/subscribe command (still queued)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:awaitAfterStart"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure, GattOperationEngine.kt:poisonStartedOperation"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure, GattOperationEngine.kt:poisonStartedOperation"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
             ),
         ),
@@ -217,11 +218,11 @@ internal object FailureCatalog {
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattConnectionLifecycle.kt:beginCleanup"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:emitUnsubscribeFailure"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endRetryPending(재연결 대기 중 세션도 회복 종료)"),
             ),
         ),
         FailureSpec(
@@ -234,7 +235,7 @@ internal object FailureCatalog {
         FailureSpec(
             "RECONNECT_ATTEMPT_TIMEOUT",
             listOf(
-                Route("reconnect attempt", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:reconnect(prepareDisconnect(Failed)+publishState) — ReconnectStateContractTest"),
+                Route("reconnect attempt", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:reconnect(attempt timeoutJob → terminate), GattConnectionLifecycle.kt:terminate — ReconnectStateContractTest"),
             ),
         ),
         FailureSpec(
@@ -246,13 +247,13 @@ internal object FailureCatalog {
         FailureSpec(
             "RECONNECT_EXHAUSTED",
             listOf(
-                Route("reconnect attempt (official policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:scheduleReconnect(prepareDisconnect(Failed)+publishState) — ReconnectStateContractTest"),
+                Route("reconnect attempt (official policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:exhaustedFailure, GattConnectionLifecycle.kt:finalizeTerminalCause(게시 전 소진 고정 + emitDiagnostic, retryability Never) — ReconnectStateContractTest"),
             ),
         ),
         FailureSpec(
             "RECONNECT_GIVE_UP",
             listOf(
-                Route("reconnect attempt (legacy policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:scheduleReconnect(prepareDisconnect(Failed)+publishState) — ReconnectStateContractTest"),
+                Route("reconnect attempt (legacy policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:exhaustedFailure, GattConnectionLifecycle.kt:finalizeTerminalCause(게시 전 소진 고정 + emitDiagnostic, retryability Never) — ReconnectStateContractTest"),
             ),
         ),
         FailureSpec(

@@ -12,6 +12,7 @@ import kr.co.nucode.ble.internal.session.ConnectionLifecycleSnapshot
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
 import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -154,7 +155,7 @@ class ConnectionCoordinatorTest {
         assertTrue(
             coordinator.beginCleanup(
                 targetGeneration = generation,
-                reason = TerminalCleanupReason.UserRequested,
+                cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
                 scope = this,
                 disconnectCleanupTimeoutMillis = 50,
                 onTimeout = timedOut::add,
@@ -167,7 +168,7 @@ class ConnectionCoordinatorTest {
         assertFalse(
             coordinator.beginCleanup(
                 targetGeneration = generation,
-                reason = TerminalCleanupReason.LinkStatusFailure,
+                cause = TerminalCause(TerminalCleanupReason.LinkStatusFailure, null),
                 scope = this,
                 disconnectCleanupTimeoutMillis = 10,
                 onTimeout = timedOut::add,
@@ -176,8 +177,8 @@ class ConnectionCoordinatorTest {
         assertSame(cleanupDeadline, coordinator.activeDeadline)
         assertEquals(TerminalCleanupReason.UserRequested, coordinator.terminalCleanupReason)
 
-        assertTrue(coordinator.completeCleanup(generation))
-        assertFalse(coordinator.completeCleanup(generation))
+        assertTrue(coordinator.completeCleanup(generation, PLATFORM_FALLBACK))
+        assertFalse(coordinator.completeCleanup(generation, PLATFORM_FALLBACK))
         assertEquals(ConnectionStage.Disconnected, coordinator.stage)
         assertEquals(TerminalCleanupReason.UserRequested, coordinator.terminalCleanupReason)
         assertNull(coordinator.activeDeadline)
@@ -216,12 +217,12 @@ class ConnectionCoordinatorTest {
         assertTrue(
             coordinator.beginCleanup(
                 targetGeneration = generation,
-                reason = TerminalCleanupReason.UserRequested,
+                cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
                 scope = this,
                 disconnectCleanupTimeoutMillis = 25,
                 onTimeout = { deadline ->
                     assertEquals(TerminalCleanupReason.DisconnectCleanupTimeout, deadline.timeoutReason)
-                    coordinator.completeCleanup(deadline.generation)
+                    coordinator.completeCleanup(deadline.generation, PLATFORM_FALLBACK)
                 },
             ),
         )
@@ -240,7 +241,7 @@ class ConnectionCoordinatorTest {
         val timedOut = mutableListOf<ConnectionStageDeadline>()
         val generation = coordinator.beginConnection(this, 50, timedOut::add)
 
-        assertTrue(coordinator.completeCleanup(generation, TerminalCleanupReason.ClientClosed))
+        assertTrue(coordinator.completeCleanup(generation, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
         assertFalse(
             coordinator.transition(
                 callbackGeneration = generation,
@@ -266,7 +267,7 @@ class ConnectionCoordinatorTest {
         assertTrue(
             coordinator.completeCleanup(
                 firstGeneration,
-                TerminalCleanupReason.PlatformDisconnected,
+                PLATFORM_FALLBACK,
             ),
         )
 
@@ -316,3 +317,5 @@ class ConnectionCoordinatorTest {
         }
     }
 }
+
+private val PLATFORM_FALLBACK = TerminalCause(TerminalCleanupReason.PlatformDisconnected, null)

@@ -20,6 +20,7 @@ import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCause
 
 /**
  * JVM unit tests cannot construct a usable [BluetoothGatt] service graph. This package-internal
@@ -97,6 +98,8 @@ internal class GattBridge(
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
     private val connectSequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
+    /** 재연결 소진 선판정 질의 — lifecycle 로 그대로 넘긴다([GattConnectionLifecycle] KDoc). */
+    private val reconnectExhaustion: (Session, BleFailure?) -> BleFailure? = { _, _ -> null },
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -129,6 +132,7 @@ internal class GattBridge(
         rediscovery,
         linkCacheWarm,
         sequence = connectSequence,
+        reconnectExhaustion = reconnectExhaustion,
         operations = object : GattOperationHooks {
             override fun invalidateAll(session: Session, failure: BleFailure) =
                 operations.invalidateAll(session, failure)
@@ -166,6 +170,10 @@ internal class GattBridge(
     }
 
     // ── lifecycle 위임 ────────────────────────────────────────────────────────
+
+    /** lifecycle 종결 API — Reconnector·BleRuntime 은 상태를 직접 쓰지 않고 이것으로 종료한다. */
+    fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean =
+        lifecycle.terminate(session, generation, cause)
 
     /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
     internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? = lifecycle.beginRetainedReconnect(deviceId)

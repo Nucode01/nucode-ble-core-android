@@ -15,6 +15,7 @@ import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import org.junit.Assert.fail
@@ -31,12 +32,17 @@ class PlatformScenarioTest {
     private data class Outcome(
         val userDisconnected: Boolean = false,
         val descriptorWritesAfterReconnect: Int? = null,
+        /** 시나리오 안에서 close() 한 시점의 상태 기록 길이(I8). */
+        val closedAt: Int? = null,
+        /** 시나리오가 기대하는 최종 상태(불변식과 별개인 시나리오 기대값). null 이면 검사 안 함. */
+        val expectedLast: ConnectionState? = null,
     )
 
     private class Scenario(
         val name: String,
         val variant: String,
         val reconnect: BleReconnectPolicy = BleReconnectPolicy.Disabled,
+        val legacy: ReconnectPolicy = ReconnectPolicy(),
         val body: kotlinx.coroutines.test.TestScope.(Harness) -> Outcome,
     )
 
@@ -90,6 +96,15 @@ class PlatformScenarioTest {
     /** 첫 재연결 시작이 나갈 때까지 진행(상한 있음). */
     private fun awaitRetainedConnects(h: Harness, count: Int) =
         h.waitUntil("retainedConnect $count 회") { h.fake.calls.count { it == "retainedConnect" } >= count }
+
+    private val clientClosed = ConnectionState.Disconnected(BleDisconnectReason.ClientClosed)
+
+    /** 시나리오 안에서 close() 하고 그 시점을 기록한다(I8 — close 뒤 상태를 본다). */
+    private fun closeInScenario(h: Harness): Int {
+        val at = h.states(id).size
+        h.close()
+        return at
+    }
 
     private fun scenarios(): List<Scenario> = buildList {
         // S 연결 → Ready
@@ -259,6 +274,74 @@ class PlatformScenarioTest {
             h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0)
             Outcome()
         })
+        // S close — 시나리오 안에서 close 하고 그 뒤 상태를 본다(I8). 종결되지 않았거나 재연결 대기 중이면 ClientClosed.
+        add(Scenario("close", "while Ready") { h ->
+            h.connectToReady(id)
+            Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
+        })
+        add(Scenario("close", "while Connecting") { h ->
+            h.fake.onConnect = CallbackVariant.Missing
+            h.connect(id)
+            Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
+        })
+        add(Scenario("close", "while Disconnecting (user disconnect pending)") { h ->
+            h.connectToReady(id)
+            h.fake.onDisconnect = CallbackVariant.Missing
+            h.disconnect(id)
+            if (h.session(id).connectionState.value != ConnectionState.Disconnecting) fail("전제 실패: Disconnecting 아님 ${h.states(id)}")
+            Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
+        })
+        add(Scenario("close", "while Recovering (backoff)", backoff) { h ->
+            h.connectToReady(id)
+            h.fake.linkLoss(id, 8)
+            runCurrent()
+            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+            Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
+        })
+        add(Scenario("close", "after failed terminal (no retry)") { h ->
+            h.connectToReady(id)
+            h.fake.linkLoss(id, 8)
+            h.advancePastAllDeadlines()
+            val failed = h.session(id).connectionState.value
+            if (failed !is ConnectionState.Disconnected) fail("전제 실패: 종결되지 않음 ${h.states(id)}")
+            Outcome(closedAt = closeInScenario(h), expectedLast = failed)
+        })
+        // S 재연결 백오프 대기 중 어댑터 off — 회복이 끝나 ADAPTER_UNAVAILABLE 종착, 예약된 재연결은 취소.
+        add(Scenario("adapter off during reconnect backoff", policyName(backoff), backoff) { h ->
+            h.connectToReady(id)
+            h.fake.linkLoss(id, 8)
+            runCurrent()
+            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+            val retainedBefore = h.fake.calls.count { it == "retainedConnect" }
+            h.fake.setAdapter(AdapterState.PoweredOff)
+            h.advancePastAllDeadlines()
+            if (h.fake.calls.count { it == "retainedConnect" } != retainedBefore) fail("adapter off 뒤 재연결 시작 calls=${h.fake.calls}")
+            val last = h.session(id).connectionState.value
+            val code = ((last as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
+            if (code != "ADAPTER_UNAVAILABLE") fail("adapter off 가 회복을 끝내지 않음: ${h.states(id)}")
+            Outcome(expectedLast = last)
+        })
+        // S 사용자 해제 진행 중(Disconnecting) 어댑터 off — 먼저 고정된 Requested 유지, handle 은 닫힌다.
+        add(Scenario("adapter off during Disconnecting", "onDisconnect=Missing") { h ->
+            h.connectToReady(id)
+            h.fake.onDisconnect = CallbackVariant.Missing
+            h.disconnect(id)
+            val handle = h.fake.epoch
+            h.fake.setAdapter(AdapterState.PoweredOff)
+            h.advancePastAllDeadlines()
+            if (h.fake.epoch == handle) fail("adapter off 가 handle 을 닫지 않음 calls=${h.fake.calls}")
+            Outcome(userDisconnected = true, expectedLast = ConnectionState.Disconnected(BleDisconnectReason.Requested))
+        })
+        // S legacy 정책(런타임 ReconnectPolicy) 재연결 소진 — GIVE_UP 종착 한 번(I3).
+        add(Scenario("reconnect attempt", "legacy exhaustion(133 always)", legacy = ReconnectPolicy(maxAttempts = 1, baseDelayMillis = 50, maxDelayMillis = 50)) { h ->
+            h.connectLegacyToReady(id)
+            h.fake.reconnectFailStatus = 133
+            h.fake.linkLoss(id, 8)
+            h.advancePastAllDeadlines()
+            val code = ((h.session(id).connectionState.value as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
+            if (code != "RECONNECT_GIVE_UP") fail("legacy 소진이 GIVE_UP 이 아님: ${h.states(id)}")
+            Outcome()
+        })
     }
 
     private fun serviceSnapshot() = GattServiceSnapshot(
@@ -277,9 +360,10 @@ class PlatformScenarioTest {
     fun `시나리오 x 변형의 불변식 위반 집합은 고정 기준선과 같다`() {
         val observed = sortedSetOf<String>()
         val table = StringBuilder()
+        val unmet = mutableListOf<String>()
         for (s in scenarios()) {
             runTest {
-                val h = harness(config, s.reconnect)
+                val h = harness(config, s.reconnect, s.legacy)
                 h.session(id)
                 val outcome = s.body(this, h)
                 h.advancePastAllDeadlines()
@@ -291,7 +375,12 @@ class PlatformScenarioTest {
                     userDisconnected = outcome.userDisconnected,
                     pastAllDeadlines = true,
                     descriptorWritesAfterReconnect = outcome.descriptorWritesAfterReconnect,
+                    closedAt = outcome.closedAt,
                 )
+                val last = h.states(id).last()
+                if (outcome.expectedLast != null && outcome.expectedLast != last) {
+                    unmet += "${s.name} | ${s.variant}: expected ${short(outcome.expectedLast)} got ${short(last)}"
+                }
                 val violations = checkConnectionInvariants(history)
                 violations.forEach { observed += "${s.name} | ${s.variant} | ${it.id}" }
                 table.append("  ${s.name} | ${s.variant} -> ${short(h.states(id).last())}  [${h.states(id).joinToString(" > ") { short(it) }}]")
@@ -301,6 +390,7 @@ class PlatformScenarioTest {
             }
         }
         assertViolationsPinned(KNOWN_INVARIANT_VIOLATIONS, observed, "최종 상태 표:\n$table")
+        if (unmet.isNotEmpty()) fail("시나리오 기대 최종 상태 불일치:\n${unmet.joinToString("\n")}\n최종 상태 표:\n$table")
     }
 
     companion object {
@@ -310,36 +400,8 @@ class PlatformScenarioTest {
          * 형식: "<시나리오> | <변형> | <불변식>".
          */
         val KNOWN_INVARIANT_VIOLATIONS: Set<String> = setOf(
-            // 정리 해제 콜백(status 0 STATE_DISCONNECTED)이 오면 성공 분기가 원인을 지우고 Disconnected(Initial) 을 낸다.
-            // 콜백이 Missing 이면 deadline 이 원인 코드로 끝내 위반이 없다.
-            "discovery timeout | onDiscover=Missing onDisconnect=Arrive(0) | I1",
-            // 사용자 해제가 Disconnected(Initial) 로 끝난다(늦은 콜백과 무관 — 출처가 닫힌 handle 이든 현재든 같다).
-            "late STATE_DISCONNECTED | after user disconnect ended (current handle) | I1",
-            "late STATE_DISCONNECTED | after user disconnect ended (current handle) | I2",
-            "late STATE_DISCONNECTED | after user disconnect ended (stale handle) | I1",
-            "late STATE_DISCONNECTED | after user disconnect ended (stale handle) | I2",
-            "late STATE_DISCONNECTED | during reconnect backoff | I1",
-            "link timeout | onConnect=Missing onDisconnect=Arrive(0) | I1",
-            "mtu missing | onMtu=Missing onDisconnect=Arrive(0) | I1",
-            // 소진 시 Disconnected(LINK_FAILED) 발행 뒤 Disconnected(RECONNECT_EXHAUSTED) 를 다시 발행한다.
-            "reconnect attempt | exhaustion(133 always) | I3",
-            "reconnect attempt | onReconnect=Missing | I1",
-            "reconnect attempt | onReconnect=Missing | I3",
-            "reconnect attempt | start rejected | I1",
-            "reconnect attempt | start rejected | I3",
-            // 재연결 콜백이 시작 반환 전에 처리되는 경합 — 두 번째 시도가 Disconnecting > Disconnected(Initial) 로 끝난다.
-            "reconnect race | onReconnect=ArriveBeforeStartReturns fail(133) always | I1",
-            "reconnect race | onReconnect=ArriveBeforeStartReturns fail(133) always | I3",
-            "subscribe→disconnect→connect | all Arrive | I1",
+            // 사용자 해제 뒤 새 connect 가 이전 구독을 복원한다(CCCD write·active 남음) — 이 plan 범위 밖.
             "subscribe→disconnect→connect | all Arrive | I7",
-            "user disconnect | onDisconnect=Arrive(0) | I1",
-            "user disconnect | onDisconnect=Arrive(0) | I2",
-            "user disconnect | onDisconnect=Duplicate(0) | I1",
-            "user disconnect | onDisconnect=Duplicate(0) | I2",
-            "user disconnect | onDisconnect=Late(30,0) | I1",
-            "user disconnect | onDisconnect=Late(30,0) | I2",
-            "user disconnect | onDisconnect=Missing | I1",
-            "user disconnect | onDisconnect=Missing | I2",
         )
     }
 }

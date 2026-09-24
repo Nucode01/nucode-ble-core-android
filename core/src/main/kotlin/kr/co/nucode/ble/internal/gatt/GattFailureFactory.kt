@@ -258,6 +258,13 @@ internal object GattFailureFactory {
         context = connectionContext(session),
     )
 
+    /** 원인 없이 끝난 플랫폼 해제(결정 1) — status 0 을 허용한다. */
+    fun unattributedLinkDisconnect(session: Session, status: Int): BleFailure =
+        FailureMapper.unattributedLinkDisconnect(
+            statusCode = status,
+            context = connectionContext(session),
+        )
+
     fun serviceDiscoveryStatusFailed(session: Session, status: Int): BleFailure = FailureMapper.gattStatusFailed(
         statusCode = status,
         phase = FailurePhase.DiscoverServices,

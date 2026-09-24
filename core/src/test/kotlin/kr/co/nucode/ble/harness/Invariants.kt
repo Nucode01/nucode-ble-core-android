@@ -26,11 +26,13 @@ internal data class ConnectionHistory(
     val pastAllDeadlines: Boolean,
     /** I7 시나리오 메타: 사용자 해제 뒤 두 번째 connect 에서 CCCD write 가 몇 번 나갔는가. null 이면 I7 대상 아님. */
     val descriptorWritesAfterReconnect: Int? = null,
+    /** I8 시나리오 메타: 시나리오 안에서 `close()` 를 부른 시점의 [states] 길이. null 이면 I8 대상 아님. */
+    val closedAt: Int? = null,
 )
 
-/** 연결 불변식 I1·I2·I3·I4·I6·I7 을 모두 검사한다(I5 는 스캔 — task 3). */
+/** 연결 불변식 I1·I2·I3·I4·I6·I7·I8 을 모두 검사한다(I5 는 스캔 — task 3). */
 internal fun checkConnectionInvariants(h: ConnectionHistory): List<InvariantViolation> =
-    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h))
+    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h), checkI8(h))
 
 /** I1 첫 연결 시도 이후 `Disconnected(Initial)` 게시 없음. */
 internal fun checkI1(h: ConnectionHistory): InvariantViolation? {
@@ -92,6 +94,19 @@ internal fun checkI7(h: ConnectionHistory): InvariantViolation? {
     val active = h.actives.lastOrNull().orEmpty()
     if (writes == 0 && active.isEmpty()) return null
     return InvariantViolation("I7", "cccdWrites=$writes active=${active.size}")
+}
+
+/**
+ * I8 `close()` 뒤 최종 상태는 Disconnected(Recovering·Connecting·Disconnecting 등 중간 상태에 멈춤 금지)이고,
+ * close 이후 종료 상태 게시는 많아야 한 번이다. 닫힌 런타임은 이벤트 버스를 닫으므로 connectionState 로 본다.
+ */
+internal fun checkI8(h: ConnectionHistory): InvariantViolation? {
+    val closedAt = h.closedAt ?: return null
+    val last = h.states.lastOrNull()
+    if (last !is ConnectionState.Disconnected) return InvariantViolation("I8", "after close last=$last")
+    val terminalsAfterClose = h.states.drop(closedAt).count { it is ConnectionState.Disconnected }
+    if (terminalsAfterClose > 1) return InvariantViolation("I8", "terminal publishes after close=$terminalsAfterClose")
+    return null
 }
 
 /**

@@ -19,9 +19,7 @@ class FailureRouteVerificationTest {
         val required = FailureCatalog.specs.flatMap { spec ->
             spec.routes.map { "${spec.code} | ${it.context}" }
         }.toSortedSet()
-        val exempt = UNVERIFIABLE_ROUTES.keys + CATALOG_MISMATCHES_FOR_STAGE2.keys
-        val exemptOverlap = UNVERIFIABLE_ROUTES.keys.intersect(CATALOG_MISMATCHES_FOR_STAGE2.keys)
-        assertTrue("두 예외 목록에 동시에 있음: $exemptOverlap", exemptOverlap.isEmpty())
+        val exempt = UNVERIFIABLE_ROUTES.keys
         val overlap = ROUTE_VERIFIED_BY.keys.intersect(exempt)
         assertTrue("연결과 예외 목록에 동시에 있음: $overlap", overlap.isEmpty())
 
@@ -104,6 +102,7 @@ class FailureRouteVerificationTest {
         const val ACTIVE = "kr.co.nucode.ble.ActiveSubscriptionsTest"
         const val SCAN = "kr.co.nucode.ble.ScanContractTest"
         const val RECONNECT_STATE = "kr.co.nucode.ble.ReconnectStateContractTest"
+        const val TERMINAL_CAUSE = "kr.co.nucode.ble.internal.TerminalCauseLifecycleTest"
         const val INFO = "kr.co.nucode.ble.FailureRouteInfoDeliveryTest"
 
         /** "CODE | context" → "fqcn#JVM 메서드 이름". */
@@ -235,6 +234,8 @@ class FailureRouteVerificationTest {
                 "$INFO#requestMtu start rejection emits GATT_OPERATION_START_FAILED Diagnostic and falls back to Ready",
             "DUPLICATE_CHARACTERISTIC_REFERENCE | link lifecycle (service discovery result)" to
                 "$INFO#duplicate characteristic in discovery result emits DUPLICATE_CHARACTERISTIC_REFERENCE Diagnostic",
+            "LINK_FAILED | unattributed platform disconnect (status 0)" to
+                "$TERMINAL_CAUSE#Ready 중 원인 없는 status 0 해제는 Initial 이 아니라 LINK_FAILED statusCode 0",
             "LINK_FAILED | late non-terminal link status callback" to
                 "$INFO#late non-terminal link status failure emits LINK_FAILED Diagnostic without changing state",
             "GATT_OPERATION_CALLBACK_MISMATCH | GATT callback routing" to
@@ -257,15 +258,5 @@ class FailureRouteVerificationTest {
 
         /** 기존 fixture 로 발생시킬 수 없어(main seam 추가 금지) 연결하지 못한 route → 사유. 비어 있어야 정상. */
         val UNVERIFIABLE_ROUTES: Map<String, String> = emptyMap()
-
-        /**
-         * 카탈로그 `current` 가 코드가 실제로 내는 채널과 다른 route → 사유. 이 단계는 main·카탈로그를 고치지 않으므로
-         * 연결 대신 여기 고정하고, 2단계가 코드 또는 카탈로그를 고쳐 이 목록을 비운다.
-         */
-        val CATALOG_MISMATCHES_FOR_STAGE2: Map<String, String> = mapOf(
-            "NOT_CONNECTED | unsubscribe command" to
-                "gatt 가 null 이면 GattOperationEngine.unsubscribe 가 Diagnostic 없이 조용히 반환하고, exactIdentity 의 " +
-                "NOT_CONNECTED 는 gatt != null 분기에서만 불려 도달하지 않는다 — 카탈로그의 Event 전달이 실제로 없다",
-        )
     }
 }

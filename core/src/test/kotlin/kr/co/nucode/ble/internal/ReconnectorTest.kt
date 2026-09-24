@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -21,6 +22,10 @@ import kr.co.nucode.ble.internal.connection.Reconnector
 import kr.co.nucode.ble.internal.connection.canRetry
 import kr.co.nucode.ble.internal.connection.computeBackoffDelayMillis
 import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.gatt.GattConnectionLifecycle
+import kr.co.nucode.ble.internal.gatt.GattOperationHooks
+import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
@@ -79,6 +84,7 @@ class ReconnectorTest {
         val emitted = mutableListOf<BleEvent>()
         val reconnector = Reconnector(registry, { emitted.add(it) }, this, ConnectSequenceHooks.None)
         reconnector.policy = ReconnectPolicy(maxAttempts = 3, baseDelayMillis = 100L, maxDelayMillis = 1_000L)
+        reconnector.wireLifecycle(registry, { emitted.add(it) }, this, ConnectSequenceHooks.None)
 
         // 1회차 시도
         reconnector.scheduleReconnect(deviceId, linkFailure(deviceId, 133))
@@ -123,7 +129,8 @@ class ReconnectorTest {
             attemptDiagnostics.map { (it.failure.platformDetail as PlatformDetail.Android).statusCode },
         )
 
-        // 4회차 시도 : maxAttempts(3) 도달로 포기 Diagnostic 방출, 더 이상 attempt 하지 않는다
+        // 3회차 시도의 종결에서 lifecycle 이 게시 전에 소진을 판정해 포기 Diagnostic 을 한 번 낸다
+        // (terminal-cause v2 소진 선판정). 이후 요청은 suppressReconnect 로 더 attempt 하지 않는다.
         reconnector.scheduleReconnect(deviceId, linkFailure(deviceId, 133))
         advanceUntilIdle()
 
@@ -156,6 +163,7 @@ class ReconnectorTest {
                 maxDelayMillis = 100,
             )
         }
+        reconnector.wireLifecycle(registry, { emitted += it }, this, reconnectOnDisconnectedStage(registry) { reconnector })
 
         reconnector.scheduleReconnect(deviceId)
         advanceTimeBy(100)
@@ -206,6 +214,7 @@ class ReconnectorTest {
             scope = this,
             sequence = reconnectOnDisconnectedStage(registry) { reconnector },
         )
+        reconnector.wireLifecycle(registry, { emitted += it }, this, reconnectOnDisconnectedStage(registry) { reconnector })
 
         reconnector.scheduleReconnect(deviceId)
 
@@ -224,8 +233,10 @@ class ReconnectorTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:03")
         val session = registry.getOrCreate(deviceId)
         val emitted = mutableListOf<BleEvent>()
+        // maxAttempts=2: 첫 시도의 시작 실패가 소진이 아니어야 그 실패 자체가 종결 원인으로 남는다.
         val reconnector = Reconnector(registry, emitted::add, this, ConnectSequenceHooks.None).also {
-            it.policy = ReconnectPolicy(maxAttempts = 1, baseDelayMillis = 10, maxDelayMillis = 10)
+            it.policy = ReconnectPolicy(maxAttempts = 2, baseDelayMillis = 10, maxDelayMillis = 10)
+            it.wireLifecycle(registry, emitted::add, this, ConnectSequenceHooks.None)
         }
 
         reconnector.scheduleReconnect(deviceId)
@@ -253,6 +264,7 @@ class ReconnectorTest {
         }
         val emitted = mutableListOf<BleEvent>()
         val reconnector = Reconnector(registry, emitted::add, this, ConnectSequenceHooks.None)
+        reconnector.wireLifecycle(registry, emitted::add, this, ConnectSequenceHooks.None)
 
         reconnector.scheduleReconnect(deviceId, linkFailure(deviceId, 133))
 
@@ -276,6 +288,39 @@ class ReconnectorTest {
                 .count { it.failure.code.value == "RECONNECT_EXHAUSTED" },
         )
         assertEquals(1, session.retryCount)
+    }
+
+    /**
+     * 프로덕션 조립(BleRuntime)처럼 종결을 lifecycle 로 보내고, lifecycle 의 소진 선판정 질의를
+     * 이 reconnector 로 건다.
+     */
+    private fun Reconnector.wireLifecycle(
+        registry: SessionRegistry,
+        emit: (BleEvent) -> Unit,
+        scope: CoroutineScope,
+        sequence: ConnectSequenceHooks,
+    ) {
+        val reconnector = this
+        val lifecycle = GattConnectionLifecycle(
+            registry = registry,
+            emit = emit,
+            scope = scope,
+            driver = NoopGattDriver(),
+            readinessTimeouts = ConnectionReadinessTimeouts(
+                linkMillis = 15_000,
+                discoveryMillis = 10_000,
+                configurationMillis = 10_000,
+            ),
+            rediscovery = null,
+            linkCacheWarm = null,
+            operations = object : GattOperationHooks {
+                override fun invalidateAll(session: Session, failure: BleFailure) = Unit
+                override fun beginGenerationIfPoisoned(session: Session) = Unit
+            },
+            sequence = sequence,
+            reconnectExhaustion = { session, cause -> reconnector.exhaustedFailure(session, cause) },
+        )
+        terminate = lifecycle::terminate
     }
 
     private fun linkFailure(deviceId: PeripheralId, status: Int): BleFailure = FailureMapper.gattStatusFailed(

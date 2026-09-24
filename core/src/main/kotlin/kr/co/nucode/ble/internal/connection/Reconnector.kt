@@ -8,7 +8,6 @@ import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleReconnectPolicy
-import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureMapper
@@ -21,6 +20,7 @@ import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
@@ -104,6 +104,45 @@ internal class Reconnector(
     var startRetainedConnect: (Session) -> Boolean = { session -> session.gatt?.connect() ?: false }
 
     /**
+     * lifecycle 종결 API(`GattConnectionLifecycle.terminate`) — 조립부가 함수 참조로 건다.
+     * Reconnector 는 종료 원인·공개 상태를 직접 쓰지 않는다(plan terminal-cause v2 목표 4).
+     * 미배선이면 첫 종결에서 바로 드러나도록 lateinit 이다.
+     */
+    lateinit var terminate: (Session, Long, TerminalCause) -> Boolean
+
+    /** 예산과 무관하게 이번 종결 뒤 재연결을 하지 않는 조건(사용자 해제·autoConnect·Never·이미 예약). */
+    private fun retryBlocked(session: Session, cause: BleFailure?): Boolean =
+        session.suppressReconnect ||
+            session.autoConnect ||
+            cause?.retryability == Retryability.Never ||
+            session.reconnectJob != null
+
+    private fun budgetOf(session: Session): ReconnectPolicy =
+        session.effectiveReconnectPolicy.toReconnectPolicyOrNull() ?: policy
+
+    /**
+     * 순수 질의 — 지금 [cause] 로 Disconnected 가 게시되면 [scheduleReconnect] 가 재시도를 예약하는가.
+     * 소진 선판정(lifecycle)과 예약(scheduleReconnect)이 같은 판정을 쓰게 하는 단일 기준이다.
+     */
+    fun willRetry(session: Session, cause: BleFailure?): Boolean =
+        !retryBlocked(session, cause) && canRetry(session.retryCount, budgetOf(session))
+
+    /**
+     * 순수 질의 — 재시도가 없는 이유가 **예산 소진**일 때만 소진 실패(공식 RECONNECT_EXHAUSTED,
+     * legacy RECONNECT_GIVE_UP)를 돌려준다. 원 원인의 context·platformDetail 을 감싸고
+     * retryability 는 Never 다(plan 결정 2). 재시도함·suppress·Never·autoConnect 면 null.
+     */
+    fun exhaustedFailure(session: Session, cause: BleFailure?): BleFailure? {
+        if (retryBlocked(session, cause) || willRetry(session, cause)) return null
+        val official = session.effectiveReconnectPolicy is BleReconnectPolicy.ExponentialBackoff
+        return reconnectFailure(
+            if (official) "RECONNECT_EXHAUSTED" else "RECONNECT_GIVE_UP",
+            session,
+            cause,
+        ).copy(retryability = Retryability.Never)
+    }
+
+    /**
      * 끊김을 감지한 쪽이 재연결을 요청할 때 부른다. [cause]는 원본 failure를 그대로
      * 보존해 재연결 diagnostic의 allowlisted platform detail과 correlation에 이어 붙인다.
      *
@@ -120,40 +159,16 @@ internal class Reconnector(
         val session = registry.get(deviceId) ?: return
         // 배타(plan v3): autoConnect 연결의 재연결 소유권은 플랫폼이다 — 코어가 겹으로
         // 예약하면 give-up Diagnostic 이 거짓이 된다(플랫폼 대기는 계속 살아 있으므로).
-        if (session.suppressReconnect || session.autoConnect) return
-        if (cause?.retryability == Retryability.Never) return
         // 중복 방지: 예약은 기기당 하나. LAZY job은 start() 전 동기 event 방출 구간에서
-        // isActive가 false이므로, 손잡이의 존재 자체를 예약 중인 상태로 취급한다.
-        if (session.reconnectJob != null) return
+        // isActive가 false이므로, 손잡이의 존재 자체를 예약 중인 상태로 취급한다(retryBlocked).
+        //
+        // 예산 소진은 여기서 판정·게시하지 않는다 — lifecycle 이 종결 게시 전에 [exhaustedFailure]
+        // 로 원인을 소진으로 고정하고 suppressReconnect 를 세운다(이중 게시 제거, plan terminal-cause
+        // v2 §접근). 여기서는 같은 질의 [willRetry] 가 false 면 예약하지 않을 뿐이다.
+        if (!willRetry(session, cause)) return
         val attempt = session.retryCount
-        val effectivePolicy = session.effectiveReconnectPolicy
-        val reconnectPolicy = effectivePolicy.toReconnectPolicyOrNull() ?: policy
-        val official = effectivePolicy is BleReconnectPolicy.ExponentialBackoff
-
-        if (!canRetry(attempt, reconnectPolicy)) {
-            val failure = reconnectFailure(
-                if (official) "RECONNECT_EXHAUSTED" else "RECONNECT_GIVE_UP",
-                session,
-                cause,
-            )
-            emit(
-                BleEvent.Diagnostic(
-                    severity = Severity.Warning,
-                    failure = failure,
-                ),
-            )
-            // give-up 시 gatt 정리(plan E) — 재사용 목적으로 열어둔 핸들의 마지막 주인이
-            // 포기하는 지점이다. 안 닫으면 프로세스당 ~32 클라이언트 슬롯이 샌다.
-            session.gatt?.close()
-            session.gatt = null
-            // 포기는 공개 상태의 종착이다 — Disconnected(Failed(소진 failure)) 로 다시 발행한다.
-            // suppressReconnect 를 먼저 세워 이 발행이 ConnectSequence.onStatePublished 의
-            // Disconnected 분기로 scheduleReconnect 에 재진입하지 않게 한다(이후 Recovering 없음).
-            session.suppressReconnect = true
-            session.prepareDisconnect(DisconnectReason.Failed(failure))
-            publishState(session)
-            return
-        }
+        val reconnectPolicy = budgetOf(session)
+        val official = session.effectiveReconnectPolicy is BleReconnectPolicy.ExponentialBackoff
 
         val delayMillis = computeBackoffDelayMillis(attempt, reconnectPolicy)
         session.retryCount = attempt + 1
@@ -235,12 +250,7 @@ internal class Reconnector(
             // 상태·스트림 종결)과 같은 패턴으로 닫는다 — 이 Disconnected emit 이
             // ConnectSequence.onStatePublished 를 타고 scheduleReconnect 로 가서, retryCount 가
             // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한).
-            session.prepareDisconnect(DisconnectReason.Failed(failure))
-            session.connectionCoordinator.completeCleanup(
-                generation,
-                TerminalCleanupReason.LinkStartRejected,
-            )
-            publishState(session)
+            terminate(session, generation, TerminalCause(TerminalCleanupReason.LinkStartRejected, failure))
             return
         }
 
@@ -269,15 +279,9 @@ internal class Reconnector(
             // `connect()` 로 재사용하므로 닫으면 이후 시도가 전부 시작 실패한다. 이 시도의 늦은
             // 콜백은 아래 completeCleanup 뒤 generation 가드(handleConnectionStateChange)가 버린다.
             session.gatt?.disconnect()
-            session.terminalLifecycleCause = failure
-            // 이 Disconnected 발행이 ConnectSequence.onStatePublished 를 타고 scheduleReconnect 에
-            // 이 failure 를 원인으로 넘긴다.
-            session.prepareDisconnect(DisconnectReason.Failed(failure))
-            session.connectionCoordinator.completeCleanup(
-                generation,
-                TerminalCleanupReason.LinkTimeout,
-            )
-            publishState(session)
+            // lifecycle 종결 API 로 끝낸다 — 그 Disconnected 발행이 ConnectSequence.onStatePublished 를
+            // 타고 scheduleReconnect 에 이 failure 를 원인으로 넘긴다(소진이면 lifecycle 이 먼저 판정).
+            terminate(session, generation, TerminalCause(TerminalCleanupReason.LinkTimeout, failure))
         }
     }
 

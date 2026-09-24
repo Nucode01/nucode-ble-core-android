@@ -305,6 +305,34 @@ internal object FailureMapper {
     }
 
     /**
+     * Maps a platform disconnect that arrived with no latched terminal cause (결정 1). Unlike
+     * [gattStatusFailed], [statusCode] may be GATT_SUCCESS(0): the link ended without any
+     * attributed failure. Retryability follows link status failures ([Retryability.Unknown]
+     * for non-security statuses).
+     */
+    fun unattributedLinkDisconnect(
+        statusCode: Int,
+        context: FailureContext = FailureContext(),
+    ): BleFailure {
+        require(statusCode >= 0) {
+            "synthetic status must not be exposed as Android platform detail"
+        }
+        return failure(
+            category = "connection",
+            code = "LINK_FAILED",
+            phase = FailurePhase.Link,
+            retryability = retryabilityForGattStatus(statusCode),
+            context = context,
+            platformDetail = androidDetail(
+                domain = "android.bluetooth.gatt.connection",
+                statusCode = statusCode,
+                operation = AndroidApiOperation.OnConnectionStateChange,
+                symbolicName = symbolicNameForGattStatus(statusCode),
+            ),
+        )
+    }
+
+    /**
      * Maps a local start rejection. Synthetic legacy values such as -1 are intentionally absent:
      * they were SDK sentinels, not Android status codes.
      */

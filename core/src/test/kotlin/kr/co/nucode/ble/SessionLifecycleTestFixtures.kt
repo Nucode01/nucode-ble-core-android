@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 private val lifecycleFixtureScope = CoroutineScope(Dispatchers.Unconfined)
@@ -12,14 +13,22 @@ private val lifecycleFixtureScope = CoroutineScope(Dispatchers.Unconfined)
 internal fun Session.setStateForTest(target: ConnectionState) {
     require(target !is ConnectionState.Recovering) { "Recovering is a transient projection; not supported by setStateForTest" }
     val coordinator = connectionCoordinator
-    if (coordinator.stage != ConnectionStage.Disconnected) {
-        prepareDisconnect((target as? ConnectionState.Disconnected)?.reason?.toInternalForTest() ?: DisconnectReason.Initial)
-        coordinator.completeCleanup(coordinator.generation, TerminalCleanupReason.PlatformDisconnected)
-    }
-
     if (target is ConnectionState.Disconnected) {
-        prepareDisconnect(target.reason.toInternalForTest())
+        if (connectionState.value == target) return
+        // 공개 이유는 coordinator 가 고정한 원인의 파생뿐이다 — 원하는 이유를 원인으로 고정해 종결한다.
+        if (target.reason == BleDisconnectReason.ClientClosed && coordinator.closeIdle()) return
+        require(target.reason != BleDisconnectReason.Initial) { "Initial is only valid before the first attempt" }
+        if (coordinator.stage == ConnectionStage.Disconnected) {
+            coordinator.beginConnection(lifecycleFixtureScope, Long.MAX_VALUE) {}
+        }
+        coordinator.completeCleanup(coordinator.generation, target.reason.toTerminalCauseForTest())
         return
+    }
+    if (coordinator.stage != ConnectionStage.Disconnected) {
+        coordinator.completeCleanup(
+            coordinator.generation,
+            TerminalCause(TerminalCleanupReason.PlatformDisconnected, null),
+        )
     }
 
     val generation = coordinator.beginConnection(
@@ -60,16 +69,16 @@ internal fun Session.setStateForTest(target: ConnectionState) {
     check(target is ConnectionState.Disconnecting)
     coordinator.beginCleanup(
         targetGeneration = generation,
-        reason = TerminalCleanupReason.UserRequested,
+        cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
         scope = lifecycleFixtureScope,
         disconnectCleanupTimeoutMillis = Long.MAX_VALUE,
         onTimeout = {},
     )
 }
 
-private fun BleDisconnectReason.toInternalForTest(): DisconnectReason = when (this) {
-    BleDisconnectReason.Initial -> DisconnectReason.Initial
-    BleDisconnectReason.Requested -> DisconnectReason.Requested
-    BleDisconnectReason.ClientClosed -> DisconnectReason.ClientClosed
-    is BleDisconnectReason.Failed -> DisconnectReason.Failed(failure)
+private fun BleDisconnectReason.toTerminalCauseForTest(): TerminalCause = when (this) {
+    BleDisconnectReason.Initial -> error("Initial has no terminal cause")
+    BleDisconnectReason.Requested -> TerminalCause(TerminalCleanupReason.UserRequested, null)
+    BleDisconnectReason.ClientClosed -> TerminalCause(TerminalCleanupReason.ClientClosed, null)
+    is BleDisconnectReason.Failed -> TerminalCause(TerminalCleanupReason.PlatformDisconnected, failure)
 }

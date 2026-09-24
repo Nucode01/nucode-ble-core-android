@@ -22,6 +22,7 @@ import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
+import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.fail
 
@@ -99,6 +100,14 @@ internal class Harness(
         return session.connectionState.value
     }
 
+    /** legacy 런타임 connect(effective 정책 없음 → 런타임 [ReconnectPolicy] 사용)를 걸고 Ready 까지 진행. */
+    fun connectLegacyToReady(id: PeripheralId): ConnectionState {
+        session(id)
+        testScope.launch { core.connect(id) }
+        waitUntil("legacy connect 가 Ready 에 도달") { session(id).connectionState.value == ConnectionState.Ready }
+        return session(id).connectionState.value
+    }
+
     /**
      * 공개 connect → 스크립트대로 콜백 → Ready 까지 진행. 10ms 씩 최대 [MAX_WAIT_STEPS] 번 진행해도
      * Ready 가 아니면 테스트를 실패시킨다(불변식 판정과 별개인 시나리오 전제).
@@ -165,6 +174,8 @@ internal sealed interface TimelinePoint {
 internal fun TestScope.harness(
     config: BleConfig = BleConfig(),
     reconnect: BleReconnectPolicy = BleReconnectPolicy.Disabled,
+    /** legacy connect([Harness.connectLegacyToReady])가 쓰는 런타임 재연결 정책. */
+    legacyReconnect: ReconnectPolicy = ReconnectPolicy(),
 ): Harness {
     val dispatcher = StandardTestDispatcher(testScheduler)
     // fake 콜백 scope — Harness.close() 가 취소한다.
@@ -173,6 +184,7 @@ internal fun TestScope.harness(
     val core = BleRuntime(
         config = config.copy(dispatcher = dispatcher),
         adapter = { null },
+        reconnectPolicy = legacyReconnect,
         gattDriver = fake,
         gattOperationTargetResolver = fake.resolver,
         adapterState = fake.adapterProbe,

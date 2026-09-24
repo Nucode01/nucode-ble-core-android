@@ -37,6 +37,7 @@ import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,21 +59,21 @@ class GattLifecycleCharacterizationTest {
         assertTrue(
             session.connectionCoordinator.completeCleanup(
                 firstGeneration,
-                TerminalCleanupReason.UserRequested,
-            ) { session.prepareDisconnect(DisconnectReason.Requested) },
+                TerminalCause(TerminalCleanupReason.UserRequested, null),
+            ),
         )
         val secondGeneration = session.connectionCoordinator.beginConnection(this, 15_000) {}
         assertTrue(
             session.connectionCoordinator.completeCleanup(
                 secondGeneration,
-                TerminalCleanupReason.ClientClosed,
-            ) { session.prepareDisconnect(DisconnectReason.ClientClosed) },
+                TerminalCause(TerminalCleanupReason.ClientClosed, null),
+            ),
         )
 
         val rejected = session.connectionCoordinator.completeCleanup(
             firstGeneration,
-            TerminalCleanupReason.PlatformDisconnected,
-        ) { session.prepareDisconnect(DisconnectReason.Initial) }
+            TerminalCause(TerminalCleanupReason.PlatformDisconnected, null),
+        )
 
         assertFalse(rejected)
         assertEquals(
@@ -451,7 +452,7 @@ class GattLifecycleCharacterizationTest {
         assertEquals(40L, session.connectionCoordinator.activeDeadline?.timeoutMillis)
         session.connectionCoordinator.completeCleanup(
             session.connectionCoordinator.generation,
-            TerminalCleanupReason.ClientClosed,
+            TerminalCause(TerminalCleanupReason.ClientClosed, null),
         )
     }
 
@@ -731,7 +732,7 @@ class GattLifecycleCharacterizationTest {
         assertFalse(session.suppressReconnect)
         assertTrue(driver.commands.isEmpty())
         assertEquals(3, observed.filterIsInstance<BleEvent.Diagnostic>().size)
-        session.connectionCoordinator.completeCleanup(generation, TerminalCleanupReason.ClientClosed)
+        session.connectionCoordinator.completeCleanup(generation, TerminalCause(TerminalCleanupReason.ClientClosed, null))
     }
 
     @Test

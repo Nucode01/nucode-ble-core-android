@@ -16,6 +16,7 @@ import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.GattOperationScheduler
 
 /**
@@ -51,9 +52,17 @@ internal class Session(val deviceId: PeripheralId) {
     )
     internal val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    /** 마지막 terminal reason. [prepareDisconnect] 만 기록한다. */
-    var disconnectReason: DisconnectReason = DisconnectReason.Initial
-        private set
+    /**
+     * 마지막 terminal reason — [connectionCoordinator] 가 고정한 [TerminalCause] 의 읽기 전용 파생.
+     * 쓰기 경로는 없다(plan terminal-cause v2 불변식 ②). 연결 시도 전(generation 0)만 Initial 이다.
+     */
+    val disconnectReason: DisconnectReason
+        get() = connectionCoordinator.terminalCause.toDisconnectReason(
+            generationStarted = connectionCoordinator.generation > 0L,
+            // lifecycle 이 종결 완료 전에 원인 없는 해제를 status 를 담은 실패로 고정하므로 여기엔
+            // 도달하지 않는다. 방어적 기본값만 둔다(status 미상 = 0).
+            unattributedFailure = { GattFailureFactory.unattributedLinkDisconnect(this, status = 0) },
+        )
 
     /** Coordinator stage 의 읽기 전용 view. 내부 판단의 유일한 연결 단계다. */
     val stage: ConnectionStage
@@ -84,14 +93,6 @@ internal class Session(val deviceId: PeripheralId) {
      */
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
 
-    /** Terminal reason must be recorded before the coordinator publishes Disconnected. */
-    fun prepareDisconnect(reason: DisconnectReason) {
-        disconnectReason = reason
-        if (connectionCoordinator.stage == ConnectionStage.Disconnected) {
-            publishStage(ConnectionStage.Disconnected)
-        }
-    }
-
     private fun publishStage(stage: ConnectionStage) {
         // 링크를 떠나는 순간 CCCD 활성 집합도 끝난다 — 다음 generation 의 beginGeneration 까지 기다리면
         // 끊긴 동안 activeSubscriptions 가 꺼진 구독을 켜진 것으로 보여준다. 구독 의도(desired)는 유지한다.
@@ -102,10 +103,11 @@ internal class Session(val deviceId: PeripheralId) {
     }
 
     /**
-     * 현재 connection generation을 terminal cleanup으로 보낸 typed failure. coordinator는
-     * lifecycle 분류만 보존하므로 stable failure 값은 Session이 함께 소유한다.
+     * 현재 connection generation을 terminal cleanup으로 보낸 typed failure — coordinator 가 고정한
+     * [TerminalCause.failure] 의 읽기 전용 view.
      */
-    var terminalLifecycleCause: BleFailure? = null
+    val terminalLifecycleCause: BleFailure?
+        get() = connectionCoordinator.terminalCause?.failure
 
     /**
      * 플랫폼 연결 핸들. 코어 안에만 산다 — 연결의 소유자가 코어라는 설계 §2 의 근거가
@@ -155,6 +157,14 @@ internal class Session(val deviceId: PeripheralId) {
      * 예약을 **취소**할 수 있다 — 실행 시점 가드만으로는 이미 큐에 든 시도를 못 막는다.
      */
     var reconnectJob: Job? = null
+
+    /**
+     * 재연결을 기다리는 중인가 — 예약된 reconnect job 이 있거나 공개 상태가 [ConnectionState.Recovering].
+     * coordinator 는 Disconnected 지만 앱 관점에서는 아직 종착이 아니다. 이 판정을 쓰는 곳은
+     * client close 와 어댑터 꺼짐 스윕 둘뿐이다(ConnectionCoordinator.supersedeRetryPending).
+     */
+    val isRetryPending: Boolean
+        get() = reconnectJob != null || connectionState.value is ConnectionState.Recovering
 
     /**
      * 예약된 configuring-phase subscription restore `coreScope.launch` 손잡이,
@@ -253,4 +263,24 @@ private fun DisconnectReason.toPublicDisconnectReason(): BleDisconnectReason = w
     DisconnectReason.Requested -> BleDisconnectReason.Requested
     DisconnectReason.ClientClosed -> BleDisconnectReason.ClientClosed
     is DisconnectReason.Failed -> BleDisconnectReason.Failed(failure)
+}
+
+/**
+ * latch된 종결 원인에서 내부 [DisconnectReason]을 파생한다(순수 함수, 아직 공개 경로에 연결되지 않음).
+ *
+ * 원인 없이 종결된 시작된 generation은 LINK_FAILED 실패로 본다. 그 [BleFailure]는 platform
+ * statusCode 등 session 문맥이 필요하므로 호출자가 [unattributedFailure]로 넘긴다(필요할 때만 생성).
+ */
+internal fun TerminalCause?.toDisconnectReason(
+    generationStarted: Boolean,
+    unattributedFailure: () -> BleFailure,
+): DisconnectReason {
+    val failure = this?.failure
+    return when {
+        failure != null -> DisconnectReason.Failed(failure)
+        this?.reason == TerminalCleanupReason.UserRequested -> DisconnectReason.Requested
+        this?.reason == TerminalCleanupReason.ClientClosed -> DisconnectReason.ClientClosed
+        generationStarted -> DisconnectReason.Failed(unattributedFailure())
+        else -> DisconnectReason.Initial
+    }
 }

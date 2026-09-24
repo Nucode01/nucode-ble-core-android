@@ -54,6 +54,7 @@ import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
@@ -422,6 +423,8 @@ internal class BleRuntime private constructor(
         rediscovery = rediscovery,
         linkCacheWarm = { deviceId -> deviceId in warmAddresses },
         connectSequence = connectSequence,
+        // 소진 선판정 질의 — reconnector 는 아래에서 조립되므로 호출 시점에 평가되는 람다로 넘긴다.
+        reconnectExhaustion = { session, cause -> reconnector.exhaustedFailure(session, cause) },
     )
     private val operationQueue = OperationQueue(
         registry = registry,
@@ -439,6 +442,7 @@ internal class BleRuntime private constructor(
         // 여기서 config 값을 주입한다.
         reconnector.policy = reconnectPolicy
         reconnector.beginReconnectLifecycle = gattBridge::beginRetainedReconnect
+        reconnector.terminate = gattBridge::terminate
     }
 
     // ── 배선 ③ 연결 시퀀스 오케스트레이션 ────────────────────────────────────────
@@ -606,7 +610,10 @@ internal class BleRuntime private constructor(
             emit(diagnostic(Severity.Warning, scanFailure))
         }
         for (session in registry.all()) {
-            if (session.stage == ConnectionStage.Disconnected) continue // 이미 끝난 세션은 조용히
+            // 이미 끝난 세션은 조용히(원인 유지). 단 재연결 대기 중(Recovering·예약된 reconnect job)이면
+            // 앱 관점에서 아직 종착이 아니다 — 어댑터 원인으로 회복을 끝낸다(lifecycle 이 close 와 같은
+            // 경로로 재게시, ConnectionCoordinator.supersedeRetryPending).
+            if (session.stage == ConnectionStage.Disconnected && !session.isRetryPending) continue
             session.suppressReconnect = true
             session.reconnectJob?.cancel(); session.reconnectJob = null
             // resubscribeJob 정리(plan B) — reconnectJob 과 같은 취소 지점 3곳 중 하나.
@@ -615,20 +622,16 @@ internal class BleRuntime private constructor(
             val failure = FailureMapper.fromAdapterState(cause).copy(
                 context = session.lifecycleFailureContext(),
             )
-            session.prepareDisconnect(DisconnectReason.Failed(failure))
-            session.connectionCoordinator.completeCleanup(
-                session.connectionCoordinator.generation,
-                kr.co.nucode.ble.internal.session.TerminalCleanupReason.AdapterUnavailable,
-            )
-            gattBridge.close(session)
-            // mtu/chunkSize 무효화(plan G) — GattBridge.handleConnectionStateChange 의
-            // STATE_DISCONNECTED 정리와 대칭이다. 스윕도 세션을 Disconnected 로 보내므로
-            // 협상 값이 이전 링크의 것으로 남으면 안 된다(재연결 후 협상 전 write 가
-            // 낡은 chunkSize 로 나가는 경로 차단).
-            session.mtu = null
-            session.chunkSize = null
             emit(diagnostic(Severity.Warning, failure))
-            publishState(session)
+            // lifecycle 종결 API 로 끝낸다 — 원인 고정·handle close(suppressReconnect)·mtu/chunkSize
+            // 무효화(plan G)·게시를 lifecycle 완료 경로가 한 번에 한다. 이미 사용자 해제가 진행 중
+            // (Disconnecting)이면 먼저 고정된 Requested 가 남는다(first wins — 사용자가 끊기를 요청했다).
+            val reason = if (cause is AdapterState.Unauthorized) {
+                TerminalCleanupReason.PermissionDenied
+            } else {
+                TerminalCleanupReason.AdapterUnavailable
+            }
+            gattBridge.terminate(session, session.connectionCoordinator.generation, TerminalCause(reason, failure))
         }
     }
 
@@ -895,8 +898,14 @@ internal class BleRuntime private constructor(
                 // GattBridge.connect 에서 이미 false 로 리셋한다.
                 session.suppressReconnect = true
                 val failure = e.failure
-                session.prepareDisconnect(DisconnectReason.Failed(failure))
-                publishState(session)
+                // 보통은 lifecycle 이 throw 전에 이 generation 을 이미 종결(원인 고정)했으므로 게시만
+                // 남는다. 아직 열려 있으면 lifecycle 종결 API 가 고정·게시까지 한다.
+                val terminated = gattBridge.terminate(
+                    session,
+                    session.connectionCoordinator.generation,
+                    TerminalCause(TerminalCleanupReason.LinkStartRejected, failure),
+                )
+                if (!terminated) publishState(session)
                 throw BleException(failure)
             }
         }
@@ -1133,11 +1142,8 @@ internal class BleRuntime private constructor(
                 session.resubscribeJob?.cancel()
                 session.reconnectJob?.cancel()
                 session.timeoutJob?.cancel()
-                session.prepareDisconnect(DisconnectReason.ClientClosed)
-                session.connectionCoordinator.completeCleanup(
-                    session.connectionCoordinator.generation,
-                    kr.co.nucode.ble.internal.session.TerminalCleanupReason.ClientClosed,
-                )
+                // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 소진 선판정은
+                // ClientClosed 를 거부하고(latchExhaustion), 재연결 대기 중 세션도 ClientClosed 로 끝난다.
                 gattBridge.close(session)
             }.onFailure { t -> if (firstFailure == null) firstFailure = t }
         }

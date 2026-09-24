@@ -26,6 +26,9 @@ import org.junit.Test
 /**
  * plan failure-delivery-fixes v1 task 4 — 재연결 포기는 공개 상태의 종착(Disconnected(Failed))이어야
  * 하고, disconnect() 는 취소된 호출자에서도 정리를 시작해야 한다.
+ *
+ * plan terminal-cause v2 이후 소진은 lifecycle 종결 **전에** 판정돼 coordinator 가 소진 실패를 원인으로
+ * 고정하고 Disconnected 를 한 번만 게시한다(이전의 "원 실패 게시 → give-up 재게시" 이중 게시는 없다).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReconnectStateContractTest {
@@ -54,9 +57,31 @@ class ReconnectStateContractTest {
     private fun failedCode(state: ConnectionState?): String? =
         ((state as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
 
+    /**
+     * 재연결 generation 의 링크가 [status] 로 끊겼다는 플랫폼 콜백 — 소진 선판정은 lifecycle 종결에서
+     * 일어나므로 합성 Disconnected 발행이 아니라 실제 종결 경로로 들어간다.
+     */
+    private fun TestScope.dropReconnectLink(
+        driver: NoopGattDriver,
+        session: kr.co.nucode.ble.internal.session.Session,
+        status: Int = 133,
+    ) {
+        val generation = session.connectionCoordinator.beginReconnect(backgroundScope, 120_000) {}
+        driver.emit(
+            GattDriverEvent.ConnectionStateChanged(
+                deviceId = session.deviceId,
+                source = GattCallbackSource { true },
+                status = status,
+                newState = android.bluetooth.BluetoothProfile.STATE_DISCONNECTED,
+                connectionGeneration = generation,
+            ),
+        )
+    }
+
     @Test
     fun `공식 ExponentialBackoff 소진 시 최종 상태는 Disconnected Failed RECONNECT_EXHAUSTED다`() = runTest {
-        val core = newCore()
+        val driver = NoopGattDriver()
+        val core = newCore(gattDriver = driver)
         val id = PeripheralId("AA:BB:CC:DD:EE:A1")
         val session = core.registry.getOrCreate(id).apply {
             effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
@@ -71,8 +96,7 @@ class ReconnectStateContractTest {
         backgroundScope.launch { core.events.toList(acc) }
         runCurrent()
 
-        session.setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Failed(linkFailure())))
-        core.publishState(session)
+        dropReconnectLink(driver, session)
         advanceUntilIdle()
         runCurrent() // backgroundScope 수집자가 마지막 방출까지 받게 한다
 
@@ -93,21 +117,55 @@ class ReconnectStateContractTest {
 
     @Test
     fun `legacy 정책 포기 시 최종 상태는 Disconnected Failed RECONNECT_GIVE_UP이다`() = runTest {
-        val core = newCore(reconnectPolicy = ReconnectPolicy(maxAttempts = 0))
+        val driver = NoopGattDriver()
+        val core = newCore(reconnectPolicy = ReconnectPolicy(maxAttempts = 0), gattDriver = driver)
         val id = PeripheralId("AA:BB:CC:DD:EE:A2")
         val session = core.registry.getOrCreate(id).apply { suppressReconnect = false }
         val acc = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(acc) }
         runCurrent()
 
-        session.setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        core.publishState(session)
+        dropReconnectLink(driver, session)
         advanceUntilIdle()
         runCurrent() // backgroundScope 수집자가 마지막 방출까지 받게 한다
 
         assertEquals("RECONNECT_GIVE_UP", failedCode(session.connectionState.value))
         assertTrue(acc.filterIsInstance<BleEvent.Diagnostic>().any { it.failure.code.value == "RECONNECT_GIVE_UP" })
         assertTrue(acc.none { it is BleEvent.ConnStateChanged && it.state is ConnectionState.Connecting })
+    }
+
+    @Test
+    fun `소진은 종결 게시 전에 판정돼 Disconnected를 한 번만 게시하고 retryability는 Never다`() = runTest {
+        val driver = NoopGattDriver()
+        val core = newCore(gattDriver = driver)
+        val id = PeripheralId("AA:BB:CC:DD:EE:A4")
+        val session = core.registry.getOrCreate(id).apply {
+            effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
+                maxAttempts = 1,
+                initialDelayMillis = 25,
+                maxDelayMillis = 25,
+            )
+            retryCount = 1
+            suppressReconnect = false
+        }
+        val acc = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(acc) }
+        runCurrent()
+
+        dropReconnectLink(driver, session, status = 133)
+        advanceUntilIdle()
+        runCurrent()
+
+        val disconnected = acc.filterIsInstance<BleEvent.ConnStateChanged>()
+            .map { it.state }
+            .filterIsInstance<ConnectionState.Disconnected>()
+        assertEquals("종결 게시는 한 번이어야 한다: $disconnected", 1, disconnected.size)
+        val failure = (disconnected.single().reason as BleDisconnectReason.Failed).failure
+        assertEquals("RECONNECT_EXHAUSTED", failure.code.value)
+        assertEquals(Retryability.Never, failure.retryability)
+        // 원 원인(링크 status 133)의 platformDetail 을 감싼다.
+        assertEquals(133, (failure.platformDetail as PlatformDetail.Android).statusCode)
+        assertTrue(acc.none { it is BleEvent.ConnStateChanged && it.state is ConnectionState.Recovering })
     }
 
     @Test
@@ -221,10 +279,14 @@ class ReconnectStateContractTest {
         runCurrent()
 
         assertEquals("RECONNECT_EXHAUSTED", failedCode(f.session.connectionState.value))
+        // 두 시도 모두 timeout 이지만, 마지막 시도의 종결은 게시 전에 소진으로 판정돼 한 번만
+        // (RECONNECT_EXHAUSTED 로) 게시된다 — timeout 사실은 Diagnostic 에 두 번 남는다.
         assertEquals(
             2,
-            f.states.count { failedCode(it) == "RECONNECT_ATTEMPT_TIMEOUT" },
+            f.acc.filterIsInstance<BleEvent.Diagnostic>().count { it.failure.code.value == "RECONNECT_ATTEMPT_TIMEOUT" },
         )
+        assertEquals(1, f.states.count { failedCode(it) == "RECONNECT_ATTEMPT_TIMEOUT" })
+        assertEquals(1, f.states.count { failedCode(it) == "RECONNECT_EXHAUSTED" })
         assertEquals(ConnectionStage.Disconnected, f.session.stage)
     }
 

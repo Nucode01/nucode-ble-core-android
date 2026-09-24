@@ -46,6 +46,7 @@ import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -267,9 +268,13 @@ class BleCoreWiringTest {
         runCurrent()
 
         val diagnostics = acc.filterIsInstance<BleEvent.Diagnostic>()
-        assertTrue(
-            "maxAttempts=0 주입이 닿았으면 RECONNECT_GIVE_UP 이 즉시 나와야 한다: $diagnostics",
-            diagnostics.any { it.code == "RECONNECT_GIVE_UP" },
+        // 포기 게시는 lifecycle 종결의 소진 선판정이 한다(terminal-cause v2) — 합성 Disconnected 발행은
+        // 종결이 아니므로 여기서는 주입된 예산이 소진 판정 질의에 닿았는지를 본다.
+        val session = requireNotNull(core.registry.get(id))
+        assertEquals(
+            "maxAttempts=0 주입이 닿았으면 재시도 없이 RECONNECT_GIVE_UP 으로 판정돼야 한다",
+            "RECONNECT_GIVE_UP",
+            core.reconnector.exhaustedFailure(session, null)?.code?.value,
         )
         assertTrue(
             "기본 정책(maxAttempts=5)이 쓰였다면 나왔을 RECONNECT_ATTEMPT 가 없어야 한다: $diagnostics",
@@ -1047,7 +1052,11 @@ class BleCoreWiringTest {
         backgroundScope.launch { core.events.toList(acc) }
         runCurrent()
 
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
+        // 원인 없는 플랫폼 해제는 첫 시도 이후 Initial 이 아니라 LINK_FAILED 로 파생된다(결정 1).
+        core.publishStateAs(
+            id,
+            ConnectionState.Disconnected(BleDisconnectReason.Failed(FailureMapper.unattributedLinkDisconnect(statusCode = 0))),
+        )
         advanceUntilIdle(); runCurrent()
 
         assertTrue(
@@ -1565,7 +1574,7 @@ class BleCoreWiringTest {
 
         session.connectionCoordinator.beginCleanup(
             targetGeneration = generation,
-            reason = TerminalCleanupReason.UserRequested,
+            cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
             scope = this,
             disconnectCleanupTimeoutMillis = 100,
             onTimeout = {},

@@ -33,8 +33,7 @@ class HarnessSmokeTest {
         val disconnecting = states.indexOfFirst { it is ConnectionState.Disconnecting }
         assertTrue(states.toString(), connecting in 0 until ready && ready < disconnecting)
         assertTrue(h.fake.calls.toString(), h.fake.calls.containsAll(listOf("connect", "discover", "mtu", "disconnect")))
-        // 알려진 결함: 2단계에서 Requested 로 바뀌어야 함
-        assertEquals(ConnectionState.Disconnected(BleDisconnectReason.Initial), states.last())
+        assertEquals(ConnectionState.Disconnected(BleDisconnectReason.Requested), states.last())
     }
 
     @Test

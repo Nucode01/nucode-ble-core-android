@@ -788,12 +788,10 @@ class GattLifecycleCharacterizationTest {
         )
         val resubscribeJob = Job()
         val reconnectJob = Job()
-        val timeoutJob = Job()
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
             setStateForTest(ConnectionState.Ready)
             this.resubscribeJob = resubscribeJob
             this.reconnectJob = reconnectJob
-            this.timeoutJob = timeoutJob
         }
         val identity = GattCharacteristicIdentity.from(
             charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
@@ -814,7 +812,6 @@ class GattLifecycleCharacterizationTest {
 
         assertTrue(resubscribeJob.isCancelled)
         assertTrue(reconnectJob.isCancelled)
-        assertTrue(timeoutJob.isCancelled)
         assertTrue(scheduledPending.completion.isCompleted)
         assertTrue(scheduledQueued.completion.isCompleted)
         assertTrue(session.gattOperationScheduler.isPoisoned)

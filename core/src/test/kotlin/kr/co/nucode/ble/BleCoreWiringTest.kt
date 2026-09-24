@@ -1192,7 +1192,7 @@ class BleCoreWiringTest {
     }
 
     /**
-     * plan F — `close()`가 scheduler pending/queued와 resubscribeJob/reconnectJob/timeoutJob을
+     * plan F — `close()`가 scheduler pending/queued와 resubscribeJob/reconnectJob을
      * 전부 종결하는지 확인한다(D1 close 테스트 확장). 여기서는
      * `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜 `Dispatchers.Default`
      * 기반 인스턴스를 별도로 만든다 — `close()` 는 이 디스패처 위에 정리를 예약하고 즉시
@@ -1205,11 +1205,9 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         val resubscribeJob = kotlinx.coroutines.Job()
         val reconnectJob = kotlinx.coroutines.Job()
-        val timeoutJob = kotlinx.coroutines.Job()
         val session = core.registry.getOrCreate(id).apply {
             this.resubscribeJob = resubscribeJob
             this.reconnectJob = reconnectJob
-            this.timeoutJob = timeoutJob
         }
         val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
@@ -1227,7 +1225,6 @@ class BleCoreWiringTest {
         assertTrue("scheduler queued가 종결돼야 한다(plan F)", queued.completion.isCompleted)
         assertTrue("resubscribeJob이 취소돼야 한다(plan F)", resubscribeJob.isCancelled)
         assertTrue("reconnectJob이 취소돼야 한다(plan F)", reconnectJob.isCancelled)
-        assertTrue("timeoutJob이 취소돼야 한다(plan F)", timeoutJob.isCancelled)
     }
 
     /**

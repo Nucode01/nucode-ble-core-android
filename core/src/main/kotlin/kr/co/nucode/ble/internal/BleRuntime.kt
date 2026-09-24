@@ -430,7 +430,6 @@ internal class BleRuntime private constructor(
     private val operationQueue = OperationQueue(
         registry = registry,
         emit = ::emit,
-        writeChunk = gattBridge::writeChunk,
         ackTimeoutMillis = config.operationTimeoutMillis,
         writeCommand = gattBridge::writeCommand,
     )
@@ -619,7 +618,6 @@ internal class BleRuntime private constructor(
             session.reconnectJob?.cancel(); session.reconnectJob = null
             // resubscribeJob 정리(plan B) — reconnectJob 과 같은 취소 지점 3곳 중 하나.
             session.resubscribeJob?.cancel(); session.resubscribeJob = null
-            session.timeoutJob?.cancel(); session.timeoutJob = null
             val failure = FailureMapper.fromAdapterState(cause).copy(
                 context = session.lifecycleFailureContext(),
             )
@@ -1153,7 +1151,6 @@ internal class BleRuntime private constructor(
                 // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
                 session.resubscribeJob?.cancel()
                 session.reconnectJob?.cancel()
-                session.timeoutJob?.cancel()
                 // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 소진 선판정은
                 // ClientClosed 를 거부하고(latchExhaustion), 재연결 대기 중 세션도 ClientClosed 로 끝난다.
                 gattBridge.close(session)

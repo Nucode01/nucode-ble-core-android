@@ -36,6 +36,7 @@ import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperation
 import kr.co.nucode.ble.internal.gatt.GattOperationKind
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.gatt.GattWriteCommandFailure
 import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.gatt.ScheduledGattOperation
 import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
@@ -271,7 +272,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = events::add,
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 100,
             writeCommand = bridge::writeCommand,
         )
@@ -326,7 +326,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = events::add,
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
@@ -711,15 +710,13 @@ class GattDriverSeamTest {
             characteristicIdentity,
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
         )
-        val characteristic = BluetoothGattCharacteristic(charRef.uuid.value, 0, 0)
-
         val write = async {
-            bridge.writeChunk(
+            bridge.writeCommand(
                 session,
-                characteristic,
                 charRef,
-                byteArrayOf(1),
+                listOf(byteArrayOf(1)),
                 kr.co.nucode.ble.internal.WriteType.WithResponse,
+                5_000,
             )
         }
         runCurrent()
@@ -746,7 +743,7 @@ class GattDriverSeamTest {
             listOf(GattOperationKind.WriteWithResponse, GattOperationKind.Subscribe),
             starts,
         )
-        assertEquals(BluetoothGatt.GATT_SUCCESS, write.await())
+        assertEquals(listOf(BluetoothGatt.GATT_SUCCESS), write.await())
         assertFalse(subscribe.isCompleted)
 
         driver.emitDescriptorWrite(descriptorIdentity)
@@ -797,19 +794,20 @@ class GattDriverSeamTest {
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val characteristicIdentity = GattCharacteristicIdentity.from(charRef)
         val blocker = async {
-            bridge.writeChunk(
+            // blocker 는 이 테스트의 대상이 아니다 — ACK 대기가 검증 구간(1초) 안에 끝나지 않게
+            // 넉넉한 timeout 으로 예약한다.
+            bridge.writeCommand(
                 session,
-                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
                 charRef,
-                byteArrayOf(0),
+                listOf(byteArrayOf(0)),
                 WriteType.WithResponse,
+                60_000,
             )
         }
         runCurrent()
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 100,
             writeCommand = bridge::writeCommand,
         )
@@ -863,19 +861,20 @@ class GattDriverSeamTest {
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val identity = GattCharacteristicIdentity.from(charRef)
         val blocker = async {
-            bridge.writeChunk(
+            // blocker 는 이 테스트의 대상이 아니다 — ACK 대기가 검증 구간(1초) 안에 끝나지 않게
+            // 넉넉한 timeout 으로 예약한다.
+            bridge.writeCommand(
                 session,
-                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
                 charRef,
-                byteArrayOf(0),
+                listOf(byteArrayOf(0)),
                 WriteType.WithResponse,
+                60_000,
             )
         }
         runCurrent()
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
@@ -910,14 +909,18 @@ class GattDriverSeamTest {
         )
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         val identity = GattCharacteristicIdentity.from(charRef)
+        // writeCommand 는 종결된 청크를 예외로 알린다 — async 안에서 받아 두어야 테스트
+        // scope 가 그 예외로 함께 취소되지 않는다.
         val blocker = async {
-            bridge.writeChunk(
-                session,
-                BluetoothGattCharacteristic(charRef.uuid.value, 0, 0),
-                charRef,
-                byteArrayOf(0),
-                WriteType.WithResponse,
-            )
+            runCatching {
+                bridge.writeCommand(
+                    session,
+                    charRef,
+                    listOf(byteArrayOf(0)),
+                    WriteType.WithResponse,
+                    60_000,
+                )
+            }
         }
         runCurrent()
         val subscribe = async { bridge.subscribe(deviceId, charRef) }
@@ -934,7 +937,9 @@ class GattDriverSeamTest {
         // drain은 pending blocker도 회수했으므로 직접 종결해 테스트 코루틴을 남기지 않는다.
         drained.pending!!.completion.cancel()
         runCurrent()
-        assertEquals(BluetoothGatt.GATT_FAILURE, blocker.await())
+        val blockerFailure = blocker.await().exceptionOrNull()
+        assertTrue(blockerFailure is GattWriteCommandFailure)
+        assertEquals(0, (blockerFailure as GattWriteCommandFailure).chunkIndex)
         driver.emitCharacteristicWrite(identity)
     }
 
@@ -962,7 +967,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
@@ -1032,7 +1036,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
@@ -1088,7 +1091,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )
@@ -1150,7 +1152,6 @@ class GattDriverSeamTest {
         val queue = OperationQueue(
             registry = registry,
             emit = {},
-            writeChunk = bridge::writeChunk,
             ackTimeoutMillis = 5_000,
             writeCommand = bridge::writeCommand,
         )

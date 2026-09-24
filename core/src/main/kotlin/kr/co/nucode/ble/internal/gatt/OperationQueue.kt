@@ -1,11 +1,8 @@
 package kr.co.nucode.ble.internal.gatt
 
-import android.bluetooth.BluetoothGattCharacteristic
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
@@ -23,12 +20,13 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 /**
  * write 직렬화 + 청킹(설계 §6 구성요소, §5 WriteResult, plan §잠재에러 chunkSize).
  *
- * 청크 하나를 실제로 내보내고 ack 를 기다리는 일은 [writeChunk] 람다가 한다 — BleRuntime
- * 조립부가 GattBridge 의 suspend 함수(`GattBridge.writeChunk`)를 그대로 넘겨준다
+ * 청크 묶음을 실제로 내보내고 ack 를 기다리는 일은 [writeCommand] 람다가 한다 — BleRuntime
+ * 조립부가 GattBridge 의 suspend 함수(`GattBridge.writeCommand`)를 그대로 넘겨준다
  * (plan §접근 ②). 이 파일은 GattBridge 타입을 import 하지 않는다 — 워커 간 직접 참조
  * 금지 원칙(설계 §1 원인②) 때문에, 두 워커를 잇는 건 오직 BleRuntime 조립 라인뿐이다.
- * 이 클래스가 [writeChunk] 에 대해 아는 전부는 "청크 하나를 주면 [ackTimeoutMillis] 안에
- * GATT status (Int) 가 와야 한다"는 계약이다.
+ * 이 클래스가 [writeCommand] 에 대해 아는 전부는 "청크 목록을 주면 청크마다
+ * [ackTimeoutMillis] 안에 GATT status (Int) 가 와야 하고, 실패 청크는
+ * [GattWriteCommandFailure] 로 알린다"는 계약이다.
  *
  * [ackTimeoutMillis] 는 write 청크 하나의 ack(onCharacteristicWrite) 대기 상한이다(plan
  * blecore-app-tunables 결정③ — 구 상수 `WRITE_ACK_TIMEOUT_MS` 대체). `BleRuntime` 조립부가
@@ -38,21 +36,14 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 internal class OperationQueue(
     private val registry: SessionRegistry,
     private val emit: (BleEvent) -> Unit,
-    private val writeChunk: suspend (
-        Session,
-        BluetoothGattCharacteristic,
-        CharacteristicRef,
-        ByteArray,
-        WriteType,
-    ) -> Int,
     private val ackTimeoutMillis: Long,
-    private val writeCommand: (suspend (
+    private val writeCommand: suspend (
         Session,
         CharacteristicRef,
         List<ByteArray>,
         WriteType,
         Long,
-    ) -> List<Int>)? = null,
+    ) -> List<Int>,
 ) {
 
     /**
@@ -98,87 +89,31 @@ internal class OperationQueue(
             }
             val total = chunks.size
 
-            // Production GATT 경로는 public write의 모든 청크를 한 번에 scheduler에 예약한다.
-            // 청크마다 enqueue/await를 반복하면 첫 청크 callback 직후 이미 대기 중인 CCCD가
-            // 두 번째 청크보다 먼저 시작해 한 command가 중간에서 갈라진다. 테스트용 legacy
-            // writeChunk seam은 순수 청킹/결과 매핑 테스트를 위해 그대로 둔다.
-            writeCommand?.let { execute ->
-                val statuses = try {
-                    execute(session, charRef, chunks, writeType, ackTimeoutMillis)
-                } catch (e: GattWriteCommandFailure) {
-                    return@run failedWrite(e.failure, writeType, chunks, e.chunkIndex)
-                } catch (e: CancellationException) {
-                    currentCoroutineContext().ensureActive()
-                    return@run failedWrite(
-                        GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
-                        writeType, chunks, 0,
-                    )
-                }
-
-                for ((index, status) in statuses.withIndex()) {
-                    if (status != GATT_SUCCESS) {
-                        return@run failedWrite(
-                            GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
-                            writeType, chunks, index,
-                        )
-                    }
-                }
-                check(statuses.size == total) {
-                    "write command 결과 수(${statuses.size})가 청크 수($total)와 다르다"
-                }
-                return@run WriteResult.Completed(total)
+            // public write의 모든 청크를 한 번에 scheduler에 예약한다. 청크마다
+            // enqueue/await를 반복하면 첫 청크 callback 직후 이미 대기 중인 CCCD가
+            // 두 번째 청크보다 먼저 시작해 한 command가 중간에서 갈라진다.
+            val statuses = try {
+                writeCommand(session, charRef, chunks, writeType, ackTimeoutMillis)
+            } catch (e: GattWriteCommandFailure) {
+                return@run failedWrite(e.failure, writeType, chunks, e.chunkIndex)
+            } catch (e: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                return@run failedWrite(
+                    GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
+                    writeType, chunks, 0,
+                )
             }
 
-            for ((index, chunk) in chunks.withIndex()) {
-                // 매 청크마다 다시 resolve 한다 — 루프 밖에서 한 번만 resolve 하지 않는다.
-                // 서비스 재탐색(discoverServices)이 오가면 BluetoothGattCharacteristic
-                // 인스턴스 자체가 갈리므로, 앞 청크에서 얻은 인스턴스를 뒤 청크에 그대로
-                // 쓰면 낡은 인스턴스에 write 하게 된다.
-                val char = session.resolve(charRef)
-                    ?: return@run failedWrite(
-                        GattFailureFactory.characteristicNotFound(session, writeKind(writeType)),
-                        writeType, chunks, index,
-                    )
-
-                val status = try {
-                    withTimeout(ackTimeoutMillis) {
-                        writeChunk(
-                            session,
-                            char,
-                            charRef,
-                            chunk,
-                            writeType,
-                        )
-                    }
-                } catch (e: TimeoutCancellationException) {
-                    // GattBridge가 scheduler의 queued/pending 항목을 회수한 뒤 이 예외를
-                    // 다시 던진다. generation poison은 후속 lifecycle task의 책임이다.
-                    return@run failedWrite(
-                        GattFailureFactory.writeTimeout(session, writeKind(writeType)),
-                        writeType, chunks, index,
-                    )
-                } catch (e: CancellationException) {
-                    // lifecycle 정리가 scheduler completion을 취소한 경우 await()가
-                    // CancellationException을 던진다. 이걸 그대로 위로 흘리면 write()를 부른
-                    // 코루틴 자체가 취소된 것처럼 조용히 죽는다. ensureActive()로
-                    // "내 코루틴이 취소된 것"과 "기기가 끊긴 것"을 가른다 — 전자면 그대로
-                    // 재던져 정상적인 취소 전파를 지키고, 후자만 Failed 로 보고한다.
-                    currentCoroutineContext().ensureActive()
-                    return@run failedWrite(
-                        GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
-                        writeType, chunks, index,
-                    )
-                }
-
+            for ((index, status) in statuses.withIndex()) {
                 if (status != GATT_SUCCESS) {
-                    // 청크 0 을 보내기 전에 실패했으면 false, 하나라도 나갔으면 true.
-                    // 설계 §5: 부분 전달을 로그로 흘리면 기기가 불완전한 명령을 받은 상태를
-                    // 아무도 모르게 된다 — 이 값이 이 파일의 존재 이유다.
                     return@run failedWrite(
                         GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
                         writeType, chunks, index,
                     )
                 }
+            }
+            check(statuses.size == total) {
+                "write command 결과 수(${statuses.size})가 청크 수($total)와 다르다"
             }
             WriteResult.Completed(total)
         }

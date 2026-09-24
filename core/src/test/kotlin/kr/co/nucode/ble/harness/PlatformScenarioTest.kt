@@ -539,6 +539,31 @@ class PlatformScenarioTest {
         h.close()
     }
 
+    /**
+     * Recovering 중 플랫폼이 같은 handle 로 스스로 재연결(STATE_CONNECTED)해도 새 generation 에서 구독이 복원된다.
+     * 라이브러리 재연결이 먼저 나가지 않도록 백오프를 길게 둔다.
+     */
+    @Test
+    fun `Recovering 중 플랫폼 자발 재연결 뒤 구독이 복원된다`() = runTest {
+        val h = harness(config, BleReconnectPolicy.ExponentialBackoff(2, 1000, 2000))
+        h.connectToReady(id)
+        subscribeOrFail(h)
+        h.fake.linkLoss(id, 8)
+        runCurrent()
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+        val descriptorsBefore = h.fake.calls.count { it == "descriptor" }
+        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
+        runCurrent()
+        h.waitUntil("플랫폼 재연결이 Ready 에 도달") { h.session(id).connectionState.value == ConnectionState.Ready }
+        runCurrent()
+        val descriptorsAfter = h.fake.calls.count { it == "descriptor" } - descriptorsBefore
+        if (descriptorsAfter == 0) fail("재연결 뒤 CCCD write 없음 calls=${h.fake.calls}")
+        if (ref !in h.session(id).activeSubscriptions.value) {
+            fail("재연결 뒤 activeSubscriptions 에 $ref 없음: ${h.session(id).activeSubscriptions.value} states=${h.states(id)}")
+        }
+        h.close()
+    }
+
     @Test
     fun `시나리오 x 변형의 불변식 위반 집합은 고정 기준선과 같다`() {
         val observed = sortedSetOf<String>()

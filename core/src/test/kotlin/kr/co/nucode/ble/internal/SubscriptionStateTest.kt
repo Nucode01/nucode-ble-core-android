@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import java.io.File
 import java.util.UUID
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleReconnectPolicy
@@ -99,5 +100,15 @@ class SubscriptionStateTest {
         session.setStateForTest(ConnectionState.Connecting)
 
         assertEquals(ConnectionState.Connecting, session.connectionState.value)
+    }
+
+    @Test
+    fun `구독 generation 시작은 Session publishStage 에만 있다`() {
+        val offenders = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { it.readText().contains("subscriptionState.beginGeneration(") }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/session/Session.kt"), offenders)
     }
 }

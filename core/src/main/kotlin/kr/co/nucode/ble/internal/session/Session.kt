@@ -94,9 +94,14 @@ internal class Session(val deviceId: PeripheralId) {
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
 
     private fun publishStage(stage: ConnectionStage) {
-        // 링크를 떠나는 순간 CCCD 활성 집합도 끝난다 — 다음 generation 의 beginGeneration 까지 기다리면
+        // CCCD 활성 집합의 generation 경계는 stage 이벤트 하나가 정한다(호출자별 beginGeneration 금지).
+        // Connecting = 새 generation 시작 — Disconnected 에서만 beginAttempt 가 generation 을 올린 뒤 들어오므로
+        // 어떤 경로(명시 connect·라이브러리 재연결·플랫폼 자발 재연결)든 여기서 새 generation 이 열린다.
+        // Disconnecting/Disconnected = 링크를 떠나는 순간 활성 집합도 끝난다 — 다음 generation 까지 기다리면
         // 끊긴 동안 activeSubscriptions 가 꺼진 구독을 켜진 것으로 보여준다. 구독 의도(desired)는 유지한다.
-        if (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected) {
+        if (stage == ConnectionStage.Connecting) {
+            subscriptionState.beginGeneration(connectionCoordinator.generation)
+        } else if (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected) {
             subscriptionState.clearActive()
         }
         _connectionState.value = stage.toPublicConnectionState(disconnectReason)
@@ -127,11 +132,6 @@ internal class Session(val deviceId: PeripheralId) {
     /** 재연결 시도 횟수. Reconnector(plan task 5)가 읽고 쓴다. */
     var retryCount: Int = 0
 
-    /**
-     * 기존 GattBridge/Reconnector 연결 타임아웃 취소용 job. 새 lifecycle stage deadline은
-     * [connectionCoordinator]가 소유하며, 이 필드는 후속 수직 이관이 끝날 때까지 유지한다.
-     */
-    var timeoutJob: Job? = null
 
     /**
      * 코어가 되붙이면 안 되는 상태 — ① 사용자가 disconnect() 를 불렀다 ② connect

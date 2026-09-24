@@ -194,14 +194,6 @@ internal class GattBridge(
 
     suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.unsubscribe(deviceId, charRef)
 
-    suspend fun writeChunk(
-        session: Session,
-        characteristic: BluetoothGattCharacteristic,
-        charRef: CharacteristicRef,
-        bytes: ByteArray,
-        writeType: WriteType,
-    ): Int = operations.writeChunk(session, characteristic, charRef, bytes, writeType)
-
     suspend fun writeCommand(
         session: Session,
         charRef: CharacteristicRef,

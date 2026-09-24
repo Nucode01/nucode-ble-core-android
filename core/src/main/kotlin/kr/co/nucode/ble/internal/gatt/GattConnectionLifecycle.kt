@@ -152,8 +152,6 @@ internal class GattConnectionLifecycle(
         session.reconnectJob = null
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
-        session.timeoutJob?.cancel()
-        session.timeoutJob = null
         publishState(session)
         try {
             driver.disconnect(session.deviceId, session.gatt)
@@ -265,8 +263,6 @@ internal class GattConnectionLifecycle(
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
-        session.timeoutJob?.cancel()
-        session.timeoutJob = null
         session.mtu = null
         session.chunkSize = null
         if (session.suppressReconnect) closeHandle(session)
@@ -371,8 +367,6 @@ internal class GattConnectionLifecycle(
                     )
                     if (!accepted) return
                     operations.beginGenerationIfPoisoned(session)
-                    session.timeoutJob?.cancel()
-                    session.timeoutJob = null
                     publishState(session)
                 }
 
@@ -575,7 +569,6 @@ internal class GattConnectionLifecycle(
             linkTimeoutMillis = options.timeoutMillis ?: readinessTimeouts.linkMillis,
             onTimeout = { onLifecycleDeadline(deviceId, it) },
         )
-        session.subscriptionState.beginGeneration(connectionGeneration)
         publishState(session)
 
         // 이전 connection generation의 waiter를 먼저 끝낸 뒤에만 새 generation을 연다.
@@ -590,8 +583,6 @@ internal class GattConnectionLifecycle(
         // GATT 클라이언트 상한(~32)을 소모해 결국 connectGatt 자체가 실패하기 시작한다.
         // BleRuntime.connect 의 상태 가드가 Connecting/Connected 를 이미 걸렀으므로,
         // 여기 도달한 기존 핸들은 전부 죽은(Disconnected) 것이다.
-        session.timeoutJob?.cancel()
-        session.timeoutJob = null
         session.gatt?.let { driver.close(deviceId, it) }
         session.gatt = null
         // D2/D6 — 이 재설정은 connectGatt 직전이어야 한다. 이전 시도가 사용자 disconnect()
@@ -744,7 +735,6 @@ internal class GattConnectionLifecycle(
         session.reconnectJob = null
         session.resubscribeJob?.cancel() // plan B — 사용자 해제 의도에 진행 중 재구독이 남으면 안 된다.
         session.resubscribeJob = null
-        session.timeoutJob?.cancel()
         driver.disconnect(deviceId, session.gatt)
     }
 
@@ -897,8 +887,6 @@ internal class GattConnectionLifecycle(
         )
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
-        session.timeoutJob?.cancel()
-        session.timeoutJob = null
         val oldGatt = session.gatt
         driver.disconnect(session.deviceId, oldGatt)
         driver.close(session.deviceId, oldGatt)

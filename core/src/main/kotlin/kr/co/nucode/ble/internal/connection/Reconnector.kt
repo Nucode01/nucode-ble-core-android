@@ -224,7 +224,6 @@ internal class Reconnector(
         // Generation must be incremented before touching the retained GATT handle so callbacks
         // cannot mutate a preceding lifecycle.
         val generation = beginReconnectLifecycle(deviceId) ?: return
-        session.subscriptionState.beginGeneration(generation)
         publishState(session)
 
         // 플랫폼 시작은 false 외에 예외로도 실패한다 — driver 가 권한 회수를 BleException(PERMISSION_DENIED)

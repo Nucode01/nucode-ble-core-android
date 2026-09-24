@@ -307,9 +307,6 @@ internal class GattOperationEngine(
     // ── 변환 유틸 ────────────────────────────────────────────────────────────
 
     /** [WriteType.Auto] 를 characteristic 의 실제 properties 로 해석해 플랫폼 write 타입 상수로 바꾼다. */
-    private fun writeTypeInt(characteristic: BluetoothGattCharacteristic, writeType: WriteType): Int =
-        writeTypeInt(characteristic.properties, writeType)
-
     private fun writeTypeInt(propertyMask: Int, writeType: WriteType): Int =
         when (writeType) {
             WriteType.WithResponse -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -468,61 +465,6 @@ internal class GattOperationEngine(
                 context = failure.context.copy(operationKind = OperationKind.Unsubscribe),
             ),
         )
-    }
-
-    /**
-     * write 청크 하나를 실제로 내보내고 ack 를 기다린다. OperationQueue(task 3)가 write
-     * 직렬화 루프 안에서 이 함수를 람다로 받아 부른다(plan §접근 ②) — GattBridge 가
-     * OperationQueue 를 참조하지 않는다(워커 간 참조 금지, plan §접근 ②).
-     *
-     * 타임아웃은 여기서 걸지 않는다 — 청크 단위 타임아웃 정책은 호출자(OperationQueue)의
-     * 몫이다. 여기서도 걸면 같은 정책이 두 곳에 흩어진다.
-     */
-    suspend fun writeChunk(
-        session: Session,
-        characteristic: BluetoothGattCharacteristic,
-        charRef: CharacteristicRef,
-        bytes: ByteArray,
-        writeType: WriteType,
-    ): Int {
-        val resolvedType = if (operationStarter != null) {
-            testWriteType(session, charRef, writeType)
-        } else {
-            writeTypeInt(characteristic, writeType)
-        }
-        val attributeIdentity = if (operationStarter != null) {
-            GattCharacteristicIdentity.from(charRef)
-        } else {
-            try {
-                exactIdentity(session, characteristic, charRef)
-            } catch (_: BleException) {
-                return BluetoothGatt.GATT_FAILURE
-            }
-        }
-        val operation = if (resolvedType == BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
-            GattOperation.WriteWithResponse(
-                generation = session.gattOperationScheduler.currentGeneration,
-                attributeIdentity = attributeIdentity,
-                chunk = bytes,
-            )
-        } else {
-            GattOperation.WriteWithoutResponse(
-                generation = session.gattOperationScheduler.currentGeneration,
-                attributeIdentity = attributeIdentity,
-                chunk = bytes,
-            )
-        }
-        val scheduled = session.gattOperationScheduler.enqueue(operation)
-        startNextOperation(session)
-
-        return try {
-            awaitScheduled(session, scheduled)
-            BluetoothGatt.GATT_SUCCESS
-        } catch (e: BleException) {
-            (e.failure.platformDetail as? PlatformDetail.Android)?.statusCode ?: BluetoothGatt.GATT_FAILURE
-        } catch (_: Exception) {
-            BluetoothGatt.GATT_FAILURE
-        }
     }
 
     /**

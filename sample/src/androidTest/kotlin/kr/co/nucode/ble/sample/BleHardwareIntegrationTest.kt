@@ -36,6 +36,7 @@ import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleLogger
 import kr.co.nucode.ble.BleConnectOptions
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
@@ -51,6 +52,7 @@ import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.android.AndroidBleClientFactory
 import kr.co.nucode.ble.android.AndroidBondController
 import kr.co.nucode.ble.android.AndroidBondResult
@@ -335,6 +337,66 @@ class BleHardwareIntegrationTest {
         withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
             session.connectionState.first { it is ConnectionState.Disconnected }
         }
+    }
+
+    /** 스캔 중 다른 요청으로 startScan 하면 SCAN_ALREADY_RUNNING 으로 거부되고 기존 스캔은 그대로 유지된다. */
+    @Test(timeout = 60_000)
+    fun startScanWithDifferentRequestWhileScanningThrowsScanAlreadyRunning() = runBlocking<Unit> {
+        awaitAdapterReady()
+        val requestA = ScanRequest(
+            filter = BleScanFilter(serviceUuids = listOf(NUS_SERVICE)),
+            options = BleScanOptions(BleScanMode.LowLatency),
+        )
+        val requestB = ScanRequest(
+            filter = BleScanFilter(namePrefix = PERIPHERAL_NAME),
+            options = BleScanOptions(BleScanMode.LowLatency),
+        )
+        client.startScan(requestA)
+        try {
+            assertEquals(ScanState.Scanning(requestA), client.scanState.value)
+
+            val thrown = runCatching { client.startScan(requestB) }.exceptionOrNull()
+            assertEquals(
+                "different request must be rejected: $thrown",
+                "SCAN_ALREADY_RUNNING",
+                (thrown as? BleException)?.failure?.code?.value,
+            )
+            // 거부된 요청은 진행 중인 스캔을 바꾸지 않는다.
+            assertEquals(ScanState.Scanning(requestA), client.scanState.value)
+        } finally {
+            client.stopScan()
+        }
+        withTimeout(SCAN_TIMEOUT_MILLIS) {
+            client.scanState.first { it is ScanState.Idle }
+        }
+        assertEquals(ScanState.Idle(null), client.scanState.value)
+    }
+
+    /**
+     * activeSubscriptions 는 현재 연결에서 CCCD 가 켜진 집합이라 disconnect 뒤 비고,
+     * `SessionSnapshot.subscriptions` 는 의도(intent)라 사용자 disconnect 뒤에도 남는다.
+     */
+    @Test(timeout = 90_000)
+    fun activeSubscriptionsTracksNotifySubscriptionAcrossDisconnect() = runBlocking<Unit> {
+        awaitAdapterReady()
+        val peripheralId = discoverPeripheral()
+        val session = client.connect(peripheralId).also { activeSession = it }
+        awaitReady(session)
+        val nus = session.nusCharacteristics()
+
+        session.subscribe(nus.tx)
+        assertTrue(
+            "activeSubscriptions must contain NUS TX: ${session.activeSubscriptions.value}",
+            nus.tx in session.activeSubscriptions.value,
+        )
+
+        session.disconnect()
+        withTimeout(DISCONNECT_TIMEOUT_MILLIS) {
+            session.connectionState.first { it is ConnectionState.Disconnected }
+        }
+        assertEquals(emptySet<CharacteristicRef>(), session.activeSubscriptions.value)
+        val intent = client.snapshot().sessions.single { it.peripheralId == peripheralId }.subscriptions
+        assertTrue("subscription intent must survive user disconnect: $intent", nus.tx in intent)
     }
 
     @Test(timeout = 180_000)

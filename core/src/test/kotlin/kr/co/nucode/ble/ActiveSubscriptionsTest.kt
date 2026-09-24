@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
@@ -129,6 +130,7 @@ class ActiveSubscriptionsTest {
 
         assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
         assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "GATT_OPERATION_START_FAILED" in f.restoreFailureEventCodes())
         f.assertInvariant()
     }
 
@@ -149,9 +151,106 @@ class ActiveSubscriptionsTest {
         f.assertInvariant()
     }
 
-    private fun TestScope.fixture(): Fixture {
+    // ── 복원 실패 route: State(activeSubscriptions 또는 connectionState) + Event ──
+
+    @Test
+    fun `restore CCCD status failure GATT_STATUS_FAILED keeps ref out of active with event`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+
+        f.settleMtu(this)
+        f.driver.emitDescriptor(f.deviceId, f.ref, status = 133)
+        runCurrent()
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "GATT_STATUS_FAILED" in f.restoreFailureEventCodes())
+        f.assertInvariant()
+    }
+
+    @Test
+    fun `restore unresolved target CHARACTERISTIC_NOT_FOUND keeps ref out of active with event`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+        f.driver.resolvable = false
+
+        f.settleMtu(this)
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "CHARACTERISTIC_NOT_FOUND" in f.restoreFailureEventCodes())
+        f.assertInvariant()
+    }
+
+    @Test
+    fun `restore non-BleException INTERNAL_TRANSPORT_ERROR keeps ref out of active with event`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+        f.driver.resolveFailure = IllegalStateException("resolver broke")
+
+        f.settleMtu(this)
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "INTERNAL_TRANSPORT_ERROR" in f.restoreFailureEventCodes())
+        f.assertInvariant()
+    }
+
+    /** resolver 없는 조립에서 discovered target 은 있으나 gatt 핸들이 없으면 복원이 NOT_CONNECTED 로 끝난다. */
+    @Test
+    fun `restore without platform handle NOT_CONNECTED keeps ref out of active with event`() = runTest {
+        val f = fixture(resolver = false)
+        f.session.updateDiscovered(mapOf(f.ref to BluetoothGattCharacteristic(f.ref.uuid.value, 0, 0)))
+        f.session.subscriptionState.addDesired(f.ref)
+        f.reachConfiguring(this)
+
+        f.settleMtu(this)
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "NOT_CONNECTED" in f.restoreFailureEventCodes())
+        f.assertInvariant()
+    }
+
+    @Test
+    fun `restore CCCD ack timeout OPERATION_TIMEOUT publishes Disconnected Failed with event`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+
+        f.settleMtu(this)
+        advanceTimeBy(BleConfig().operationTimeoutMillis + 1)
+        runCurrent()
+
+        val states = f.events.filterIsInstance<BleEvent.ConnStateChanged>().map { it.state }
+        assertTrue(states.toString(), states.any { failedCode(it) == "OPERATION_TIMEOUT" })
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "OPERATION_TIMEOUT" in f.restoreFailureEventCodes())
+    }
+
+    @Test
+    fun `restore CCCD SecurityException PERMISSION_DENIED publishes Disconnected Failed with event`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+        f.driver.descriptorFailure = SecurityException()
+
+        f.settleMtu(this)
+        advanceTimeBy(BleConfig().disconnectCleanupTimeoutMillis + 1) // cleanup ack 대기를 끝낸다
+        runCurrent()
+
+        val states = f.events.filterIsInstance<BleEvent.ConnStateChanged>().map { it.state }
+        assertTrue(states.toString(), states.any { failedCode(it) == "PERMISSION_DENIED" })
+        assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
+        assertTrue(f.restoreFailureEventCodes().toString(), "PERMISSION_DENIED" in f.restoreFailureEventCodes())
+    }
+
+    private fun failedCode(state: ConnectionState): String? =
+        ((state as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
+
+    private fun TestScope.fixture(resolver: Boolean = true): Fixture {
         val driver = FakeDriver()
-        val resolver = GattOperationTargetResolver { _, ref ->
+        val targetResolver = GattOperationTargetResolver { _, ref ->
+            driver.resolveFailure?.let { throw it }
+            if (!driver.resolvable) return@GattOperationTargetResolver null
             GattOperationTarget(
                 characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
                 identity = GattCharacteristicIdentity.from(ref),
@@ -163,7 +262,7 @@ class ActiveSubscriptionsTest {
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
             adapter = { null },
             gattDriver = driver,
-            gattOperationTargetResolver = resolver,
+            gattOperationTargetResolver = if (resolver) targetResolver else null,
             adapterState = { AdapterState.Ready },
         )
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:A5")
@@ -172,8 +271,13 @@ class ActiveSubscriptionsTest {
         val bleSession = client.session(deviceId)
         val events = mutableListOf<BleEvent>()
         backgroundScope.launch { core.events.toList(events) }
+        val officialEvents = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(officialEvents) }
         runCurrent()
-        return Fixture(core, client, bleSession, session, driver, deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()))
+        return Fixture(
+            core, client, bleSession, session, driver, deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()),
+            events, officialEvents,
+        )
     }
 
     private class Fixture(
@@ -184,7 +288,24 @@ class ActiveSubscriptionsTest {
         val driver: FakeDriver,
         val deviceId: PeripheralId,
         val ref: CharacteristicRef,
+        val events: List<BleEvent>,
+        val officialEvents: List<BleClientEvent>,
     ) {
+        /** 복원 실패의 Event 채널 — Diagnostic 또는 SubscriptionRestoreFailed 로 나간 코드. */
+        fun restoreFailureEventCodes(): List<String> =
+            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value } +
+                officialEvents.filterIsInstance<OfficialBleClientEvent.SubscriptionRestoreFailed>()
+                    .map { it.failure.code.value }
+
+        /** Ready 에서 구독한 뒤 링크를 잃고 새 generation 의 Configuring 까지 세운다 — 복원 직전 상태. */
+        suspend fun reachRestore(scope: TestScope) {
+            connectToReady(scope)
+            subscribe(scope, ref)
+            driver.emitLinkLoss(deviceId, session.connectionCoordinator.generation)
+            scope.runCurrent()
+            reachConfiguring(scope)
+            assertEquals(emptySet<CharacteristicRef>(), bleSession.activeSubscriptions.value)
+        }
         suspend fun intent(): Set<CharacteristicRef> =
             client.snapshot().sessions.single { it.peripheralId == deviceId }.subscriptions
 
@@ -242,6 +363,9 @@ class ActiveSubscriptionsTest {
 
     private class FakeDriver : NoopGattDriver() {
         var descriptorStarts: Boolean = true
+        var resolvable: Boolean = true
+        var resolveFailure: Exception? = null
+        var descriptorFailure: Exception? = null
 
         override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
 
@@ -259,7 +383,10 @@ class ActiveSubscriptionsTest {
             gatt: BluetoothGatt?,
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
-        ): Boolean = descriptorStarts
+        ): Boolean {
+            descriptorFailure?.let { throw it }
+            return descriptorStarts
+        }
 
         fun emitLinkLoss(deviceId: PeripheralId, generation: Long) {
             emit(
@@ -273,12 +400,12 @@ class ActiveSubscriptionsTest {
             )
         }
 
-        fun emitDescriptor(deviceId: PeripheralId, ref: CharacteristicRef) {
+        fun emitDescriptor(deviceId: PeripheralId, ref: CharacteristicRef, status: Int = BluetoothGatt.GATT_SUCCESS) {
             emit(
                 GattDriverEvent.DescriptorWrite(
                     deviceId = deviceId,
                     source = CURRENT_SOURCE,
-                    status = BluetoothGatt.GATT_SUCCESS,
+                    status = status,
                     attributeIdentity = GattDescriptorIdentity(
                         characteristic = GattCharacteristicIdentity.from(ref),
                         descriptorUuid = CCCD_UUID,

@@ -44,6 +44,16 @@ class ScanContractTest {
         retryability = Retryability.Unknown,
     )
 
+    private fun TestScope.collectEvents(core: BleRuntime): List<BleEvent> {
+        val events = mutableListOf<BleEvent>()
+        backgroundScope.launch { core.events.toList(events) }
+        runCurrent()
+        return events
+    }
+
+    private fun List<BleEvent>.diagnosticCodes(): List<String> =
+        filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
+
     @Test
     fun `a 다른 요청으로 재시작하면 SCAN_ALREADY_RUNNING 을 던지고 상태와 Diagnostic 은 유지된다`() = runTest {
         val core = newCore()
@@ -61,10 +71,13 @@ class ScanContractTest {
     @Test
     fun `b 플랫폼 시작 실패는 그 실패를 던지고 Scanning 이 되지 않는다`() = runTest {
         val core = newCore()
+        val events = collectEvents(core)
         core.scanner.startOverride = { _, _ -> failure("SCAN_START_FAILED") }
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
+        runCurrent()
         assertEquals("SCAN_START_FAILED", (thrown as? BleException)?.failure?.code?.value)
         assertEquals(ScanState.Idle(null), core.scanState.value)
+        assertTrue(events.diagnosticCodes().toString(), "SCAN_START_FAILED" in events.diagnosticCodes())
     }
 
     @Test
@@ -89,23 +102,28 @@ class ScanContractTest {
     @Test
     fun `e 런타임 실패는 Idle(lastFailure) 로 전이한다`() = runTest {
         val core = newCore()
+        val events = collectEvents(core)
         core.startScan(first)
         core.scanner.handleFailure(failure("SCAN_RUNTIME_FAILED"))
+        runCurrent()
         val state = core.scanState.value as ScanState.Idle
         assertEquals("SCAN_RUNTIME_FAILED", state.lastFailure?.code?.value)
         assertFalse(core.officialSnapshot().isScanning)
+        assertTrue(events.diagnosticCodes().toString(), "SCAN_RUNTIME_FAILED" in events.diagnosticCodes())
     }
 
     @Test
     fun `f 스캔 중 어댑터가 꺼지면 Idle(SCAN_STOPPED_BY_ADAPTER)`() = runTest {
         val probe = ProbeHolder(AdapterState.Ready)
         val core = newCore(probe)
+        val events = collectEvents(core)
         core.startScan(first)
         probe.state = AdapterState.PoweredOff
         core.refreshAdapterState()
         runCurrent()
         val state = core.scanState.value as ScanState.Idle
         assertEquals("SCAN_STOPPED_BY_ADAPTER", state.lastFailure?.code?.value)
+        assertTrue(events.diagnosticCodes().toString(), "SCAN_STOPPED_BY_ADAPTER" in events.diagnosticCodes())
     }
 
     @Test
@@ -120,5 +138,30 @@ class ScanContractTest {
         assertTrue(job.isCancelled)
         assertEquals(ScanState.Idle(null), core.scanState.value)
         assertFalse(core.officialSnapshot().isScanning)
+    }
+
+    @Test
+    fun `h 플랫폼 스캐너가 없으면 SCANNER_UNAVAILABLE 을 던지고 Diagnostic 을 낸다`() = runTest {
+        val core = newCore()
+        val events = collectEvents(core)
+        core.scanner.startOverride = null
+        val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
+        runCurrent()
+        assertEquals("SCANNER_UNAVAILABLE", (thrown as? BleException)?.failure?.code?.value)
+        assertEquals(ScanState.Idle(null), core.scanState.value)
+        assertTrue(events.diagnosticCodes().toString(), "SCANNER_UNAVAILABLE" in events.diagnosticCodes())
+    }
+
+    /** AndroidScanner 의 SecurityException 변환은 JVM 에서 만들 수 없어 같은 코드를 startOverride 로 싣는다. */
+    @Test
+    fun `i 스캔 시작 권한 거부는 PERMISSION_DENIED 를 던지고 Diagnostic 을 낸다`() = runTest {
+        val core = newCore()
+        val events = collectEvents(core)
+        core.scanner.startOverride = { _, _ -> failure("PERMISSION_DENIED") }
+        val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
+        runCurrent()
+        assertEquals("PERMISSION_DENIED", (thrown as? BleException)?.failure?.code?.value)
+        assertEquals(ScanState.Idle(null), core.scanState.value)
+        assertTrue(events.diagnosticCodes().toString(), "PERMISSION_DENIED" in events.diagnosticCodes())
     }
 }

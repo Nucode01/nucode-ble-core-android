@@ -38,6 +38,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 - `stopScan()`·`disconnect()` 가 이미 취소된 코루틴에서 불리면 정리를 실행하지 않고 취소 예외만 던지던 것을 고쳤다. 이제 정리를 끝까지 한 뒤 취소를 전파한다 — `finally { stopScan() }` 이 화면 이탈 시에도 스캔을 멈춘다.
 - 실패 전달 규칙을 내부 `FailureCatalog` 로 확정하고 `FailureCatalogTest` 가 강제한다: 공개 명령 중 확정된 실패는 던지고, 명령 밖 실패는 그 자원의 `StateFlow` 에 남는다. 모든 실패 코드가 등록돼야 하며 위반은 0 이어야 한다.
 - 도달 불가 실패 코드 `LIFECYCLE_TIMEOUT` 를 제거했다.
+- GATT 작업(재구독 포함) 중 권한이 회수돼 연결을 정리할 때 `PERMISSION_DENIED` Diagnostic 이 나가지 않던 것을 고쳤다(상태는 이전에도 `Disconnected(Failed(PERMISSION_DENIED))` 였다).
 - `BleClient.events` 에 GATT 페이로드마다 `Diagnostic(Info, GATT_PAYLOAD_OBSERVED)` 가 실리던 것을 없앴다 — 관측 진단은 이제 `BleConfig.logger` 로만 간다. 고빈도 notify·장문 write 중 이 진단이 `events` 버퍼를 채워 느린 소비자에게서 연결 이벤트가 버려질 수 있었다. `events` 로 이 코드를 받던 코드는 logger 로 옮겨야 한다.
 - `BleConfig(eventBufferCapacity)` 가 1 미만이면 이제 생성 시 `IllegalArgumentException` 을 던진다. 0 은 이전에
   받아들여졌지만 모든 스트림이 사실상 전량 유실되는 값이었다.

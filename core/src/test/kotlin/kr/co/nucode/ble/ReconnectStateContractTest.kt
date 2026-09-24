@@ -208,6 +208,10 @@ class ReconnectStateContractTest {
         assertEquals(2, nextRecovering!!.attempt)
         assertEquals("RECONNECT_ATTEMPT", nextRecovering.lastFailure.code.value)
         assertEquals(timeoutFailure.context, nextRecovering.lastFailure.context)
+        assertTrue(
+            "시도 timeout Diagnostic 이 없다",
+            f.acc.filterIsInstance<BleEvent.Diagnostic>().any { it.failure.code.value == "RECONNECT_ATTEMPT_TIMEOUT" },
+        )
     }
 
     @Test

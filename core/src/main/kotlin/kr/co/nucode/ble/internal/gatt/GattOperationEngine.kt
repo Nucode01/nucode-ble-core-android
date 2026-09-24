@@ -679,6 +679,8 @@ internal class GattOperationEngine(
             scheduled.completion.completeExceptionally(BleException(attributedFailure))
             abortRemainingWriteChunks(session, scheduled, attributedFailure)
             if (attributedFailure.code.value == "PERMISSION_DENIED") {
+                // 권한 상실은 세션 자원 실패다 — State(beginCleanup) 와 함께 Event 로도 알린다.
+                emitDiagnostic(Severity.Error, attributedFailure)
                 lifecycle.beginCleanup(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,

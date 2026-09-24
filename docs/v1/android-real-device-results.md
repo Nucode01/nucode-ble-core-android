@@ -458,3 +458,18 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 
 `advanceConnectSequence`(이벤트 재해석으로 절차 구동)를 `ConnectSequence` 직접 호출로 바꾸고 내부 `ConnState` 를 삭제한 뒤
 전체 스위트(5개) **5/5 pass** — 연결→서비스 발견→MTU→구독 복구→Ready, 재연결 복구, 본딩, BT off/on 스윕, 중복 disconnect, read.
+
+### 실패 전달 규칙 정비 — 실기기 미실행 (2026-09-23)
+
+하네스에 시나리오 2개를 추가했다. 기기 미연결로 컴파일(`:sample:compileDebugAndroidTestKotlin`)만 확인했다.
+
+- `startScanWithDifferentRequestWhileScanningThrowsScanAlreadyRunning`: 스캔 중 다른 요청의 `startScan` 이
+  `SCAN_ALREADY_RUNNING` 으로 거부되고 `scanState` 가 `Scanning(A)` 로 유지되는지, `stopScan` 뒤 `Idle(null)` 인지.
+- `activeSubscriptionsTracksNotifySubscriptionAcrossDisconnect`: NUS TX 구독 뒤 `activeSubscriptions` 에 들어가고,
+  disconnect 뒤 비며 `snapshot()` 의 구독 의도는 남는지.
+
+기존 5개 실기기 테스트도 이번 변경(`startScan` 예외, `scanState`, `activeSubscriptions`, 재연결 소진·시도 timeout 상태,
+`stopScan`/`disconnect` 취소 무관 실행) 이후 재실행이 필요하다.
+
+수동 절차(자동화 불가 — API 33+ 에서 앱이 어댑터를 끌 수 없음): 스캔 중 설정에서 블루투스 끄기 →
+`scanState` 가 `Idle(lastFailure.code == SCAN_STOPPED_BY_ADAPTER)` 인지 sample 로그로 확인. 결과: **미실행**.

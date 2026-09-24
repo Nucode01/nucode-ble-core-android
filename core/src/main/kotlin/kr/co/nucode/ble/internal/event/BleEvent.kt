@@ -11,7 +11,7 @@ import kr.co.nucode.ble.Severity
 
 /**
  * 코어 내부 신호. 내부 관측 탭(`_events`)과 공식 이벤트 투영의
- * 입력이다. 연결 절차는 이 이벤트로 구동되지 않는다(`ConnectSequence` 직접 호출). 공개 스트림이 아니다 — 공개 API 는 `scanResults`/`events`/세션별 `notifications`로
+ * 입력이다. 연결 절차는 이 이벤트로 구동되지 않는다(lifecycle 이 `LinkSetup` 직접 호출). 공개 스트림이 아니다 — 공개 API 는 `scanResults`/`events`/세션별 `notifications`로
  * 쪼개져 있다. [CharValue] 는 공용 버스에 실리지 않고 `NotificationHub` 로만 간다(plan J).
  */
 internal sealed interface BleEvent {

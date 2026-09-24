@@ -56,7 +56,7 @@ internal object FailureCatalog {
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:subscribe, GattOperationEngine.kt:startNextOperation, OperationQueue.kt:write"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe, GattOperationEngine.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:restoreSubscriptionsBeforeReady, BleRuntime.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, BleRuntime.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
         FailureSpec(
@@ -131,7 +131,7 @@ internal object FailureCatalog {
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:startNextOperation"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe, GattOperationEngine.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:restoreSubscriptionsBeforeReady, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
                 Route("link lifecycle (requestMtu start, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:requestMtu"),
             ),
         ),
@@ -146,13 +146,13 @@ internal object FailureCatalog {
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:completeUnitOperation, GattOperationEngine.kt:handleCharacteristicRead, OperationQueue.kt:write"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:restoreSubscriptionsBeforeReady, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
         FailureSpec(
             "INTERNAL_TRANSPORT_ERROR",
             listOf(
-                Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:failureFromInternalException, BleRuntime.kt:restoreSubscriptionsBeforeReady, SubscriptionState.kt:markActive(성공 시에만)"),
+                Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:failureFromInternalException, LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만)"),
             ),
         ),
         FailureSpec(
@@ -180,7 +180,7 @@ internal object FailureCatalog {
             "NOT_CONNECTED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:exactIdentity"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:restoreSubscriptionsBeforeReady, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
         FailureSpec(

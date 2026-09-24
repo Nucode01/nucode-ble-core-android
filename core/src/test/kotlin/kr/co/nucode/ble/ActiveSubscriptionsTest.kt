@@ -421,7 +421,8 @@ class ActiveSubscriptionsTest {
         /** lifecycle 의 MTU 발행 지점을 흉내 낸다 — 발행 후 `onMtuSettled`(재구독 → Ready). */
         fun settleMtu(scope: TestScope) {
             core.emit(BleEvent.MtuChanged(deviceId, 247, 244))
-            core.connectSequence.onMtuSettled(deviceId)
+            val session = core.registry.get(deviceId)!!
+            core.linkSetup.onMtuSettled(session, session.connectionCoordinator.generation)
             scope.runCurrent()
         }
 

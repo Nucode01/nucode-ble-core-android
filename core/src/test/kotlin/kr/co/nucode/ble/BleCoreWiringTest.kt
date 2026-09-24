@@ -58,11 +58,11 @@ import org.junit.Test
  * 회귀 테스트. [EventEmissionTest] 는 `MutableSharedFlow` 를 새로 만들어 코루틴 라이브러리
  * 자체를 검증했을 뿐 [BleCore] 배선을 건드리지 않았다 — 이 파일은 task 5 가 만든 internal
  * 테스트 seam(`BleRuntime(BleConfig, adapter)` 보조 생성자 + `emit` + `registry`)으로 실제
- * `ConnectSequence` 분기 · emit 순서 · dropped 카운터를 직접 두드린다.
+ * `LinkSetup` 분기 · emit 순서 · dropped 카운터를 직접 두드린다.
  *
  * `adapter = { null }` 이라 [kr.co.nucode.ble.internal.scan.Scanner]/[kr.co.nucode.ble.internal.gatt.GattBridge]
  * 의 실제 플랫폼 호출 경로는 이 테스트가 두드리는 명령(`emit`/`registry` 직접 조작)에서는
- * 애초에 진입하지 않는다 — 검증 대상은 `ConnectSequence` 자체이지 워커
+ * 애초에 진입하지 않는다 — 검증 대상은 `LinkSetup` 자체이지 워커
  * 배선이 아니다(plan §테스트가능성).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -145,7 +145,7 @@ class BleCoreWiringTest {
         )
     }
 
-    // ── B. ConnectSequence 분기 ────────────────────────────────────────────────
+    // ── B. LinkSetup 분기 ────────────────────────────────────────────────
 
     @Test
     fun `B1 Connected 상태에서 MtuChanged가 도착해도 Connected를 재방출하지 않는다`() = runTest {
@@ -186,7 +186,7 @@ class BleCoreWiringTest {
     // ── G. task3 배선 주입 테스트(plan blecore-app-tunables) ───────────────────────
 
     /**
-     * G2(plan 결정①) — `Session.requestedMtu` 가 `ConnectSequence.onServicesDiscovered`를 거쳐 `gattBridge.requestMtu` 에 그대로 전달되는지.
+     * G2(plan 결정①) — `Session.requestedMtu` 가 `LinkSetup.onServicesDiscovered`를 거쳐 `gattBridge.requestMtu` 에 그대로 전달되는지.
      * `session.gatt` 를 채우지 않아 `GattBridge.requestMtu` 호출 자체가 실패(started=false)
      * 하게 만든 뒤, 그 실패 Diagnostic 메시지에 실린 `requestMtu($mtu)` 문자열로 간접
      * 관측한다(GattBridge 는 실체라 인자를 직접 캡처할 수 없다 — plan task 3 §테스트 지시).
@@ -697,7 +697,7 @@ class BleCoreWiringTest {
 
     /**
      * D3-③ 구조 가드: 상태 이벤트 발행(`emit`)만으로는 restore 가 시작되지 않는다 — 연결 절차는
-     * `ConnectSequence` 직접 호출로만 진행된다. 발행만 된 stale Ready 이벤트는 desired intent를 바꾸지 않는다.
+     * lifecycle 의 `LinkSetup` 직접 호출로만 진행된다. 발행만 된 stale Ready 이벤트는 desired intent를 바꾸지 않는다.
      */
     @Test
     fun `D3③ 상태 이벤트 발행만으로는 restore 가 시작되지 않고 desired intent를 보존한다`() = runTest {
@@ -934,59 +934,8 @@ class BleCoreWiringTest {
     // (D6① KDoc 과 같은 근거) — 코드체인 리뷰로만 확인했다.
 
     /**
-     * post-Ready Connected 전이는 Configuring restore job을 대체하지 않는다.
-     */
-    @Test
-    fun `PL-B2 Connected 전이는 restore job을 대체하지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        val ref = charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
-        val session = core.registry.getOrCreate(id).apply {
-            setStateForTest(ConnectionState.Ready)
-            subscriptionState.addDesired(ref)
-        }
-
-        val firstJob = kotlinx.coroutines.Job()
-        session.resubscribeJob = firstJob
-
-        core.publishStateAs(id, ConnectionState.Ready)
-        runCurrent()
-        assertTrue("Connected는 restore job을 대체하면 안 된다", session.resubscribeJob === firstJob)
-        assertTrue("Connected는 restore job을 취소하면 안 된다", !firstJob.isCancelled)
-    }
-
-    /**
-     * plan B — 취소 지점 3곳 중 [kr.co.nucode.ble.internal.gatt.GattBridge.disconnect]. `session.gatt`
-     * 가 null 이어도(플랫폼 결합 없이) cancel 자체는 관측할 수 있다 — `session.gatt?.disconnect()`
-     * 가 `?.` 라 null 이면 조용히 no-op 이기 때문이다(D6① 과 같은 방식으로 GattBridge 를
-     * 직접 구성한다).
-     */
-    @Test
-    fun `PL-B3 GattBridge disconnect가 세션의 resubscribeJob을 취소한다`() {
-        val registry = kr.co.nucode.ble.internal.session.SessionRegistry()
-        val id = testDeviceId()
-        val session = registry.getOrCreate(id)
-        val resubscribeJob = kotlinx.coroutines.Job()
-        session.resubscribeJob = resubscribeJob
-
-        val bridge = kr.co.nucode.ble.internal.gatt.GattBridge(
-            registry = registry,
-            emit = {},
-            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()),
-            context = android.content.ContextWrapper(null),
-            adapter = { null },
-            ackTimeoutMillis = 5_000,
-        )
-
-        bridge.disconnect(id)
-
-        assertTrue("resubscribeJob이 취소돼야 한다(plan B)", resubscribeJob.isCancelled)
-        assertTrue("disconnect 후 session.resubscribeJob은 null이어야 한다", session.resubscribeJob == null)
-    }
-
-    /**
-     * plan F — `close()`가 scheduler pending/queued와 resubscribeJob을
-     * 전부 종결하는지 확인한다(D1 close 테스트 확장). 여기서는
+     * plan F — `close()`가 scheduler pending/queued를
+     * 전부 종결하는지(복원 job 취소는 SetupPhaseMatrixTest 가 실제 복원으로 본다) 확인한다(D1 close 테스트 확장). 여기서는
      * `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜 `Dispatchers.Default`
      * 기반 인스턴스를 별도로 만든다 — `close()` 는 이 디스패처 위에 정리를 예약하고 즉시
      * 반환하므로(plan `runtime-no-runblocking` task 2(B)), 단언 전에 `awaitClosed()` 로
@@ -996,10 +945,7 @@ class BleCoreWiringTest {
     fun `PL-F close 후 scheduler와 lifecycle job이 모두 종결된다`() = kotlinx.coroutines.runBlocking {
         val core = BleRuntime(config = BleConfig(), adapter = { null })
         val id = testDeviceId()
-        val resubscribeJob = kotlinx.coroutines.Job()
-        val session = core.registry.getOrCreate(id).apply {
-            this.resubscribeJob = resubscribeJob
-        }
+        val session = core.registry.getOrCreate(id)
         val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
             kr.co.nucode.ble.internal.gatt.GattOperation.Read(0, identity),
@@ -1014,7 +960,6 @@ class BleCoreWiringTest {
 
         assertTrue("scheduler pending이 종결돼야 한다(plan F)", pending.completion.isCompleted)
         assertTrue("scheduler queued가 종결돼야 한다(plan F)", queued.completion.isCompleted)
-        assertTrue("resubscribeJob이 취소돼야 한다(plan F)", resubscribeJob.isCancelled)
     }
 
     /**
@@ -1292,7 +1237,7 @@ class BleCoreWiringTest {
         backgroundScope.launch {
             core.events.collect { event ->
                 if (event == BleEvent.ConnStateChanged(id, ConnectionState.Ready)) {
-                    restoreJobAtReady = session.resubscribeJob
+                    restoreJobAtReady = core.linkSetup.restoreJob(session)
                 }
             }
         }
@@ -1316,7 +1261,7 @@ class BleCoreWiringTest {
         assertEquals(ConnectionState.Ready, session.connectionState.value)
         assertEquals(setOf(remaining), session.subscriptionState.activeSnapshot)
         assertNull("Ready observer must not see a completed restore handle", restoreJobAtReady)
-        assertNull(session.resubscribeJob)
+        assertNull(core.linkSetup.restoreJob(session))
     }
 
     @Test
@@ -1769,23 +1714,25 @@ private val BleEvent.Diagnostic.code: String
     get() = failure.code.value
 
 /**
- * 상태 발행 소유자(`publishState` 도우미)를 흉내 낸다 — 세션을 [state] 로 맞춘 뒤 발행하고
- * 연결 절차를 진행한다. emit 은 발행만 하므로 절차 분기는 이 경로로만 구동된다.
+ * 상태 발행 소유자(lifecycle `publishState`)를 흉내 낸다 — 세션을 [state] 로 맞춘 뒤 발행한다.
+ * 게시는 절차를 진행하지 않는다(다음 단계는 lifecycle 이 `LinkSetup` 에 직접 알린다).
  */
 private fun BleRuntime.publishStateAs(id: PeripheralId, state: ConnectionState) {
     val session = registry.get(id)!!
     if (session.connectionState.value != state) session.setStateForTest(state)
-    publishState(session)
+    emit(BleEvent.ConnStateChanged(id, session.connectionState.value))
 }
 
 /** lifecycle 의 MTU 발행 지점을 흉내 낸다 — 발행 후 `onMtuSettled`. */
 private fun BleRuntime.emitMtuSettled(id: PeripheralId, mtu: Int, chunkSize: Int) {
     emit(BleEvent.MtuChanged(id, mtu, chunkSize))
-    connectSequence.onMtuSettled(id)
+    val session = registry.get(id) ?: return
+    linkSetup.onMtuSettled(session, session.connectionCoordinator.generation)
 }
 
 /** lifecycle 의 서비스 발견 발행 지점을 흉내 낸다 — 발행 후 `onServicesDiscovered`. */
 private fun BleRuntime.emitServicesDiscovered(id: PeripheralId, services: List<GattService>) {
     emit(BleEvent.ServicesDiscovered(id, services))
-    connectSequence.onServicesDiscovered(id)
+    val session = registry.get(id) ?: return
+    linkSetup.onServicesDiscovered(session, session.connectionCoordinator.generation)
 }

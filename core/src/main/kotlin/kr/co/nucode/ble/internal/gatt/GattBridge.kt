@@ -11,8 +11,10 @@ import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.WriteType
-import kr.co.nucode.ble.internal.connection.ConnectSequenceHooks
+import kr.co.nucode.ble.internal.connection.LinkSetup
+import kr.co.nucode.ble.internal.connection.LinkSetupWiring
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
@@ -88,7 +90,7 @@ internal class GattBridge(
     private val diagnosticIngress: DiagnosticIngress = DiagnosticIngress.None,
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
-    private val connectSequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
+    private val linkSetupWiring: LinkSetupWiring? = null,
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -108,9 +110,15 @@ internal class GattBridge(
     /**
      * 두 절반은 서로를 hook 인터페이스로만 안다. 순환은 여기서 끊는다: [lifecycle]에 넘기는
      * forwarding 객체는 [operations]를 호출 시점에만 읽고, 두 ctor 모두 hook을 호출하지
-     * 않으며, `setEventSink`는 둘 다 만들어진 뒤 `init` 끝에서 건다.
+     * 않으며, `setEventSink`는 둘 다 만들어진 뒤 `init` 끝에서 건다. lifecycle↔[linkSetup] 도
+     * 같은 방식이다 — lifecycle 은 `{ linkSetup }` 람다로 호출 시점에만 읽고, [linkSetup] 은
+     * lifecycle 을 [kr.co.nucode.ble.internal.connection.LinkSteps] 로 받아 `init` 에서 만든다.
      */
     private lateinit var operations: GattOperationEngine
+
+    /** 붙은 뒤 절차. `internal` 인 이유 — 테스트 seam(BleRuntime 경유 절차 직접 구동·복원 job 관측). */
+    internal lateinit var linkSetup: LinkSetup
+        private set
 
     private val lifecycle = GattConnectionLifecycle(
         registry,
@@ -120,7 +128,7 @@ internal class GattBridge(
         readinessTimeouts,
         rediscovery,
         linkCacheWarm,
-        sequence = connectSequence,
+        linkSetup = { linkSetup },
         operations = object : GattOperationHooks {
             override fun invalidateAll(session: Session, failure: BleFailure) =
                 operations.invalidateAll(session, failure)
@@ -141,6 +149,13 @@ internal class GattBridge(
             operationTargetResolver = operationTargetResolver,
             diagnosticIngress = diagnosticIngress,
             lifecycle = lifecycle,
+        )
+        linkSetup = LinkSetup(
+            scope = scope,
+            steps = lifecycle,
+            restoreSubscription = { deviceId, ref -> operations.restoreSubscription(deviceId, ref) },
+            diagnostic = { failure -> emit(BleEvent.Diagnostic(Severity.Warning, failure)) },
+            wiring = linkSetupWiring,
         )
         driver.setEventSink(::handleEvent)
     }

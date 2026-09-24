@@ -761,10 +761,9 @@ class GattLifecycleCharacterizationTest {
             adapter = { null },
             gattDriver = driver,
         )
-        val resubscribeJob = Job()
+        // 복원 job 취소는 SetupPhaseMatrixTest 가 실제 복원(onDescriptorWrite 유실)으로 본다.
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
             setStateForTest(ConnectionState.Ready)
-            this.resubscribeJob = resubscribeJob
         }
         val identity = GattCharacteristicIdentity.from(
             charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
@@ -783,7 +782,6 @@ class GattLifecycleCharacterizationTest {
 
         core.close()
 
-        assertTrue(resubscribeJob.isCancelled)
         assertTrue(scheduledPending.completion.isCompleted)
         assertTrue(scheduledQueued.completion.isCompleted)
         assertTrue(session.gattOperationScheduler.isPoisoned)

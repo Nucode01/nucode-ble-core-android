@@ -3,7 +3,6 @@ package kr.co.nucode.ble.internal.session
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -191,15 +190,6 @@ internal class Session(val deviceId: PeripheralId) {
      */
     var relinkAfterAdapter: Boolean = false
 
-    /**
-     * 예약된 configuring-phase subscription restore `coreScope.launch` 손잡이,
-     * 규칙 8 — delay·await 를 품은 코루틴은 손잡이를 Session/BleRuntime 가 쥔다). 손잡이가
-     * 없으면 fire-and-forget 이라 새 `Connected` 가 구 재구독 루프를 대체(cancel)할 수
-     * 없고, disconnect·sweep·시작 리셋 시점에도 이미 죽은 링크 위에서 재구독이 계속
-     * 돈다 — 정리 지점마다 cancel 한다.
-     */
-    var resubscribeJob: Job? = null
-
     /** read/write/CCCD/MTU callback의 FIFO, pending, generation, poison 상태를 단독 소유한다. */
     val gattOperationScheduler: GattOperationScheduler = GattOperationScheduler()
 
@@ -207,7 +197,7 @@ internal class Session(val deviceId: PeripheralId) {
      * connect() 시점에 요청한 MTU 값(plan blecore-app-tunables 결정① — `ConnectOptions.requestedMtu`
      * 를 상수(구 `REQUESTED_MTU`) 대신 여기 보존한다). 기본 247 은 `ConnectOptions.requestedMtu`
      * 기본값과 같다. [GattBridge.connect] 가 `options.requestedMtu` 를 저장하고,
-     * `ConnectSequence.onServicesDiscovered` 가 이 값을 그대로 읽어
+     * `LinkSetup.onServicesDiscovered` 가 이 값을 그대로 읽어
      * `gattBridge.requestMtu` 를 부른다 — 연결별/기기별로 다른 값을 허용하려면 상수로는 안 되고
      * Session 에 둬야 한다(규칙 2, 기기별 값은 Session).
      */

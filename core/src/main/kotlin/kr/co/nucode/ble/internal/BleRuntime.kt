@@ -31,7 +31,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
-import kr.co.nucode.ble.internal.connection.ConnectSequence
+import kr.co.nucode.ble.internal.connection.LinkSetup
+import kr.co.nucode.ble.internal.connection.LinkSetupWiring
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
@@ -164,7 +165,7 @@ internal class BleRuntime private constructor(
 
     /**
      * 테스트 전용 seam(plan task 5 §작업①, plan v2 변경 사항). 플랫폼 `Context` 없이
-     * 배선 로직([connectSequence] 분기 · [emit] 발행 · [droppedEventCount])만
+     * 배선 로직([linkSetup] 분기 · [emit] 발행 · [droppedEventCount])만
      * 검증한다 — task 6 이 이 생성자로 `BleCoreWiringTest` 를 만든다.
      *
      * [central] 이 null 이라 [computeAdapterState] 는 항상 `evaluatePermissionState` 의
@@ -298,9 +299,9 @@ internal class BleRuntime private constructor(
      * 막지 않음) 버퍼가 차면 `tryEmit`이 `false`를 돌려줘 유실 사실을 알 수 있다.
      * `DROP_OLDEST`로 바꾸면 `tryEmit`이 항상 `true`라 유실이 조용해진다(plan §배선②).
      *
-     * 발행만 한다 — 제어를 일으키지 않는다(plan connect-sequence 불변식 ①). 연결 절차는
-     * 발행 소유자가 발행 **직후** [ConnectSequence] hook(`publishState` 도우미 ·
-     * `onServicesDiscovered` · `onMtuSettled`)을 불러 진행한다. 순서가 "발행 먼저, 진행 나중"
+     * 발행만 한다 — 제어를 일으키지 않는다(plan connect-sequence 불변식 ①). 붙은 뒤 절차는
+     * lifecycle 이 발행 **직후** [LinkSetup] 입력(`onLinkUp` · `onServicesDiscovered` ·
+     * `onMtuSettled`)을 불러 진행한다. 순서가 "발행 먼저, 진행 나중"
      * 이어야 `MtuChanged` 뒤 절차가 발행하는 `Ready` 가 그 `MtuChanged` 보다 먼저 소비자에
      * 닿지 않는다(설계 §6 런타임 flow).
      *
@@ -359,7 +360,7 @@ internal class BleRuntime private constructor(
     /**
      * 기기별 상태를 담는 유일한 registry(규칙 2). `internal` 로 올린 이유(plan task 5
      * §작업①) — 테스트 seam. task 6 배선 테스트가 세션을 직접 만들고 상태를 세팅해
-     * [connectSequence] 분기를 구동한다. 프로덕션 호출자는 워커 4개와
+     * [linkSetup] 분기를 구동한다. 프로덕션 호출자는 워커 4개와
      * `BleRuntime` 자신뿐이다.
      */
     internal val registry = SessionRegistry()
@@ -385,22 +386,6 @@ internal class BleRuntime private constructor(
         ?: AndroidGattDriver(central?.context, adapter, coreScope)
     private val rediscovery: PeripheralRediscovery? = rediscoveryOverride
         ?: central?.let { c -> AndroidPeripheralRediscovery { c.adapter()?.bluetoothLeScanner } }
-    /**
-     * 연결 절차 진행([ConnectSequence]). emit 은 발행만 하고, 상태·서비스·MTU 발행 소유자가
-     * 발행 직후 이 hook 을 부른다. 협력자(bridge)는 호출 시점에 평가되는
-     * 람다로만 참조하므로 그들보다 먼저 조립해 직접 넘긴다. `internal` 인 이유 — 테스트 seam: 배선 테스트가 이벤트 발행 없이
-     * 절차 분기를 직접 구동한다.
-     */
-    internal val connectSequence: ConnectSequence = ConnectSequence(
-        registry = registry,
-        isClosed = { closed },
-        markWarm = { deviceId -> warmAddresses += deviceId },
-        discoverServices = { deviceId -> gattBridge.discoverServices(deviceId) },
-        requestMtu = { deviceId, mtu -> gattBridge.requestMtu(deviceId, mtu) },
-        publishState = ::publishState,
-        restoreSubscriptionsBeforeReady = ::restoreSubscriptionsBeforeReady,
-    )
-
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
@@ -418,8 +403,21 @@ internal class BleRuntime private constructor(
         ),
         rediscovery = rediscovery,
         linkCacheWarm = { deviceId -> deviceId in warmAddresses },
-        connectSequence = connectSequence,
+        // 붙은 뒤 절차(LinkSetup)는 bridge 가 lifecycle 옆에 조립한다 — 런타임은 제 소유만 람다로 준다.
+        linkSetupWiring = LinkSetupWiring(
+            isClosed = { closed },
+            markWarm = { deviceId -> warmAddresses += deviceId },
+            onRestoreFailed = ::emitRestoreFailure,
+            failureOf = { e, deviceId, ref -> failureFromInternalException(e, FailurePhase.Configure, deviceId, ref) },
+        ),
     )
+
+    /**
+     * 붙은 뒤 절차. `internal` 인 이유 — 테스트 seam: 배선 테스트가 이벤트 발행 없이
+     * 절차 분기를 직접 구동하고 복원 job 을 관측한다.
+     */
+    internal val linkSetup: LinkSetup get() = gattBridge.linkSetup
+
     private val operationQueue = OperationQueue(
         registry = registry,
         emit = ::emit,
@@ -427,60 +425,7 @@ internal class BleRuntime private constructor(
         writeCommand = gattBridge::writeCommand,
     )
 
-    // ── 배선 ③ 연결 시퀀스 오케스트레이션 ────────────────────────────────────────
-
-
-    /**
-     * 런타임이 직접 내는 상태 발행의 유일한 경로 — 발행 뒤 [connectSequence] 를 진행한다
-     * (plan connect-sequence 불변식 ②). `internal` 인 이유 — 테스트 seam.
-     */
-    internal fun publishState(session: Session) {
-        emit(BleEvent.ConnStateChanged(session.deviceId, session.connectionState.value))
-        connectSequence.onStatePublished(session.deviceId)
-    }
-
-    /** Restores the desired CCCD intent serially while this generation remains Configuring. */
-    private fun restoreSubscriptionsBeforeReady(session: Session) {
-        session.resubscribeJob?.cancel()
-        val generation = session.connectionCoordinator.generation
-        session.resubscribeJob = coreScope.launch {
-            for (ref in session.subscriptionState.desiredSnapshot) {
-                if (!session.isConfiguringGeneration(generation)) return@launch
-                try {
-                    gattBridge.restoreSubscription(session.deviceId, ref)
-                } catch (e: CancellationException) {
-                    coroutineContext.ensureActive()
-                    return@launch
-                } catch (e: Exception) {
-                    if (!session.isConfiguringGeneration(generation)) return@launch
-                    val failure = failureFromInternalException(e, FailurePhase.Configure, session.deviceId, ref)
-                    if (failure.retryability == Retryability.Never) {
-                        session.subscriptionState.removeDesired(ref)
-                        emitRestoreFailure(session.deviceId, ref, failure)
-                    } else {
-                        emit(diagnostic(Severity.Warning, failure))
-                    }
-                    continue
-                }
-                if (!session.isConfiguringGeneration(generation)) return@launch
-                session.subscriptionState.markActive(ref, generation)
-            }
-            if (!session.isConfiguringGeneration(generation)) return@launch
-            val accepted = session.connectionCoordinator.transition(
-                callbackGeneration = generation,
-                expectedStage = ConnectionStage.Configuring,
-                nextStage = ConnectionStage.Ready,
-                scope = coreScope,
-            )
-            if (!accepted) return@launch
-            // Clear only this completed restore before publishing Ready. A replacement generation
-            // may already own the slot; an old completion must never erase that handle.
-            if (session.resubscribeJob === coroutineContext[Job]) {
-                session.resubscribeJob = null
-            }
-            publishState(session)
-        }
-    }
+    // ── 배선 ③ 복원 실패 공개 이벤트 — 공개 이벤트 채널은 런타임 소유라 LinkSetup 에 주입한다 ──
 
     private fun emitRestoreFailure(deviceId: PeripheralId, ref: CharacteristicRef, failure: BleFailure) {
         if (!_officialEvents.tryEmit(
@@ -596,8 +541,7 @@ internal class BleRuntime private constructor(
             // ConnectionCoordinator.supersedePlatformWait). handle 을 남기지 않는 표시(suppressReconnect)는
             // lifecycle terminate 가 세운다.
             if (session.stage == ConnectionStage.Disconnected && !session.awaitingPlatformRelink) continue
-            // resubscribeJob 정리(plan B) — 정리 지점마다 취소한다.
-            session.resubscribeJob?.cancel(); session.resubscribeJob = null
+            // 복원 job 정리(plan B)는 lifecycle terminate 가 한다.
             val failure = FailureMapper.fromAdapterState(cause).copy(
                 context = session.lifecycleFailureContext(),
             )
@@ -1104,7 +1048,7 @@ internal class BleRuntime private constructor(
         sessions.forEach { session ->
             runCatching {
                 // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
-                session.resubscribeJob?.cancel()
+                // 복원 job 도 lifecycle close 가 끊는다.
                 // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 플랫폼 재연결
                 // 대기 중 세션도 ClientClosed 로 끝난다.
                 gattBridge.close(session)

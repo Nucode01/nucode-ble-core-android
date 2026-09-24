@@ -41,7 +41,7 @@ import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
  * 콜백 출처(source)는 handle epoch 로 흉내 낸다 — production `AndroidGattCallbackRouter.sourceOf`
  * 의 `currentGatt === gatt` 자리. 명령(connect·retained connect·discover 등)이 나갈 때 [epoch] 를
  * 캡처하고, driver [close] 와 새 [connect](새 BluetoothGatt) 가 epoch 를 올린다(retained connect 는 같은 handle). 콜백 source 는 `fake.epoch == 캡처값` 이라 닫힌
- * handle 에서 온 콜백은 `sessionFor` 가 production 처럼 버린다.
+ * handle 에서 온 콜백은 `CallbackAttribution` 이 production 처럼 버린다.
  *
  * retained connect 는 production 경로 그대로 `Reconnector` → `GattBridge.startRetainedConnect` →
  * driver [reconnect] 로 들어온다 — 하네스가 코어 seam 을 바꿔 끼우지 않는다.

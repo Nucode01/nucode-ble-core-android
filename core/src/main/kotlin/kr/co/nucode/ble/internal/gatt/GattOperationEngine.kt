@@ -27,6 +27,7 @@ import kr.co.nucode.ble.internal.diagnostics.DiagnosticPolicy
 import kr.co.nucode.ble.internal.diagnostics.PayloadDirection
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
+import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
@@ -134,9 +135,29 @@ internal class GattOperationEngine(
         if (session.gattOperationScheduler.isPoisoned) session.gattOperationScheduler.beginNextGeneration()
     }
 
+    /**
+     * [CallbackAttribution] 판정을 operation 핸들러가 쓸 세션으로 바꾼다. null 이면 콜백을 버린다.
+     * 끝난 generation 의 ack([ackKind] != null)는 cleanup drain 뒤 pending 이 없을 때와 같은
+     * duplicate 진단을 남긴다. notify([ackKind] == null)는 조용히 버린다.
+     */
+    private fun attributedSession(event: GattDriverEvent, ackKind: String?, ackStatus: Int): Session? {
+        val session = registry.get(event.deviceId) ?: return null
+        return when (val attribution = CallbackAttribution.attribute(session, event)) {
+            is Attribution.Current -> session
+            // Bootstrap 은 STATE_CONNECTED 링크 콜백에만 나온다 — operation 이벤트에선 불가능하다.
+            Attribution.Bootstrap -> null
+            is Attribution.Drop -> {
+                if (attribution.reason != DropReason.StaleHandle && ackKind != null) {
+                    emitDuplicateCallback(session, ackStatus, ackKind)
+                }
+                null
+            }
+        }
+    }
+
     /** notify/indicate 수신 → CharValue emit. Session 갱신은 없다(구독 목록은 subscribe()가 관리). */
     internal fun handleCharacteristicChanged(event: GattDriverEvent.CharacteristicChanged) {
-        val session = registry.sessionFor(event) ?: return
+        val session = attributedSession(event, ackKind = null, ackStatus = 0) ?: return
         val characteristic = event.characteristic ?: return
         emitPayloadObservation(session, PayloadDirection.Rx, characteristic.toCharacteristicRef(), event.value)
         emit(BleEvent.CharValue(event.deviceId, characteristic.toCharacteristicRef(), event.value))
@@ -144,7 +165,7 @@ internal class GattOperationEngine(
 
     /** Read callback은 현재 generation의 동일 characteristic read만 완료한다. */
     internal fun handleCharacteristicRead(event: GattDriverEvent.CharacteristicRead) {
-        val session = registry.sessionFor(event) ?: return
+        val session = attributedSession(event, ackKind = "CharacteristicRead", ackStatus = event.status) ?: return
         val scheduler = session.gattOperationScheduler
         if (scheduler.pending == null) {
             emitDuplicateCallback(session, event.status, "CharacteristicRead")
@@ -178,7 +199,7 @@ internal class GattOperationEngine(
 
     /** 동일 generation/kind/characteristic write callback만 완료한다. */
     internal fun handleCharacteristicWrite(event: GattDriverEvent.CharacteristicWrite) {
-        val session = registry.sessionFor(event) ?: return
+        val session = attributedSession(event, ackKind = "CharacteristicWrite", ackStatus = event.status) ?: return
         val scheduler = session.gattOperationScheduler
         if (scheduler.pending == null) {
             emitDuplicateCallback(session, event.status, "CharacteristicWrite")
@@ -215,7 +236,7 @@ internal class GattOperationEngine(
 
     /** 동일 generation/kind/descriptor callback만 CCCD operation을 완료한다. */
     internal fun handleDescriptorWrite(event: GattDriverEvent.DescriptorWrite) {
-        val session = registry.sessionFor(event) ?: return
+        val session = attributedSession(event, ackKind = "DescriptorWrite", ackStatus = event.status) ?: return
         val scheduler = session.gattOperationScheduler
         if (scheduler.pending == null) {
             emitDuplicateCallback(session, event.status, "DescriptorWrite")
@@ -383,6 +404,10 @@ internal class GattOperationEngine(
      */
     suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
         val session = registry.get(deviceId) ?: return
+        // 링크가 없으면 끄는 방향은 로컬 해제만으로 달성된다(BleRuntime.unsubscribe KDoc).
+        if (session.connectionCoordinator.stage == ConnectionStage.Disconnected ||
+            session.gattOperationScheduler.isPoisoned
+        ) return
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
             operationTargetResolver != null -> resolveOperationTarget(session, charRef)?.identity

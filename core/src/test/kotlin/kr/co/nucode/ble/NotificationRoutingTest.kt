@@ -193,6 +193,9 @@ class NotificationRoutingTest {
         val ch = CharacteristicRef(ServiceRef(BleUuid(serviceUuid), 1), BleUuid(charUuid), 2)
         val other = CharacteristicRef(ServiceRef(BleUuid(serviceUuid), 0), BleUuid(charUuid), 2)
         val session = client.session(id)
+        // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
+        requireNotNull(core.registry.get(id)).connectionCoordinator
+            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
         val received = mutableListOf<Int>()
         val otherReceived = mutableListOf<Int>()
         val job = collect(session, ch) { received += it[0].toInt() }

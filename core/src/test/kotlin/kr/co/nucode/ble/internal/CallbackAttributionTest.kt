@@ -123,6 +123,53 @@ class CallbackAttributionTest {
         assertEquals(2 * 3 * 4 * 5 * 2, cases)
     }
 
+    private fun operationEvents(source: GattCallbackSource): List<GattDriverEvent> = listOf(
+        GattDriverEvent.CharacteristicChanged(deviceId, source, null, byteArrayOf(1)),
+        GattDriverEvent.CharacteristicRead(deviceId, source, null, byteArrayOf(1), BluetoothGatt.GATT_SUCCESS),
+        GattDriverEvent.CharacteristicWrite(deviceId, source, BluetoothGatt.GATT_SUCCESS),
+        GattDriverEvent.DescriptorWrite(deviceId, source, BluetoothGatt.GATT_SUCCESS),
+    )
+
+    @Test
+    fun `operation 콜백 — 이전 handle 은 StaleHandle, 끝난 세션은 EndedGeneration, 살아 있는 generation 은 Current`() = runTest {
+        for (event in operationEvents(GattCallbackSource { false })) {
+            assertEquals(
+                "$event",
+                Attribution.Drop(DropReason.StaleHandle),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, false), event),
+            )
+        }
+        for (suppress in listOf(false, true)) for (event in operationEvents(GattCallbackSource { true })) {
+            assertEquals(
+                "$event suppress=$suppress",
+                Attribution.Drop(DropReason.EndedGeneration),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Disconnected, suppress), event),
+            )
+            assertEquals(
+                "$event",
+                Attribution.Current(1L),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, suppress), event),
+            )
+        }
+        // 끝난 세션이 새 재연결 generation 을 열어 Connecting 이면 그 generation 의 사실이다.
+        val reconnecting = sessionAt(ConnectionStage.Disconnected, false)
+        val next = reconnecting.connectionCoordinator.beginConnection(this, 10_000) {}
+        assertEquals(ConnectionStage.Connecting, reconnecting.connectionCoordinator.stage)
+        for (event in operationEvents(GattCallbackSource { true })) {
+            assertEquals("$event", Attribution.Current(next), CallbackAttribution.attribute(reconnecting, event))
+        }
+    }
+
+    @Test
+    fun `callback 출처 판정은 CallbackAttribution 에만 있다`() {
+        val offenders = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { it.readText().contains("source.matches(") }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/CallbackAttribution.kt"), offenders)
+    }
+
     @Test
     fun `lifecycle 은 null generation 을 현재 generation 으로 추정하지 않는다`() {
         val source = File("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt").readText()

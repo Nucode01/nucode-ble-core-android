@@ -79,6 +79,15 @@ internal class Harness(
         return session
     }
 
+    /** [ref] 의 notifications 를 구독해 전달된 값을 [timeline] 에 상태 게시와 교차 순서대로 남긴다(I10). */
+    fun recordNotifications(id: PeripheralId, ref: CharacteristicRef) {
+        val session = session(id)
+        val timeline = timelines.getValue(id)
+        testScope.backgroundScope.launch(recorder) {
+            session.notifications(ref).collect { timeline += TimelinePoint.Notification(ref, it) }
+        }
+    }
+
     /** 세션 connectionState 의 게시 기록(첫 [session] 호출 이후). */
     fun states(id: PeripheralId): List<ConnectionState> = stateHistory[id].orEmpty()
 
@@ -164,10 +173,11 @@ internal class Harness(
     }
 }
 
-/** [Harness.timeline] 의 한 점 — 상태 게시 또는 구독 집합 게시. */
+/** [Harness.timeline] 의 한 점 — 상태 게시, 구독 집합 게시 또는 앱에 전달된 notification. */
 internal sealed interface TimelinePoint {
     data class State(val state: ConnectionState) : TimelinePoint
     data class Active(val refs: Set<CharacteristicRef>) : TimelinePoint
+    class Notification(val ref: CharacteristicRef, val bytes: ByteArray) : TimelinePoint
 }
 
 /** 하네스 생성. [config] 의 dispatcher 는 테스트 스케줄러의 StandardTestDispatcher 로 덮어쓴다. */

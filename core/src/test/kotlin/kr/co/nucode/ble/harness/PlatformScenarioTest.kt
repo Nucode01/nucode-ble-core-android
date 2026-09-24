@@ -4,6 +4,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.AdapterState
@@ -393,6 +394,19 @@ class PlatformScenarioTest {
             if (failed !is ConnectionState.Disconnected) fail("전제 실패: 종결되지 않음 ${h.states(id)}")
             Outcome(closedAt = closeInScenario(h), expectedLast = failed)
         })
+        // S 재연결 백오프 대기 중 notification — 끝난 연결 generation 의 값은 앱에 전달되지 않아야 한다(I10).
+        add(Scenario("notify during backoff", policyName(backoff), backoff) { h ->
+            h.connectToReady(id)
+            subscribeOrFail(h)
+            h.recordNotifications(id, ref)
+            runCurrent()
+            h.fake.linkLoss(id, 8)
+            runCurrent()
+            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+            h.fake.emitNotification(id, ref, byteArrayOf(7))
+            runCurrent()
+            Outcome()
+        })
         // S 재연결 백오프 대기 중 어댑터 off — 회복이 끝나 ADAPTER_UNAVAILABLE 종착, 예약된 재연결은 취소.
         add(Scenario("adapter off during reconnect backoff", policyName(backoff), backoff) { h ->
             h.connectToReady(id)
@@ -442,6 +456,88 @@ class PlatformScenarioTest {
             ),
         ),
     )
+
+    /** 재연결 대기(Recovering) 중 unsubscribe 는 예외 없이 끝나고, 재연결 뒤 구독을 되살리지 않는다. */
+    @Test
+    fun `재연결 대기 중 unsubscribe 는 로컬 해제만 하고 재연결 뒤 CCCD 를 쓰지 않는다`() = runTest {
+        val h = harness(config, backoff)
+        h.connectToReady(id)
+        subscribeOrFail(h)
+        h.fake.linkLoss(id, 8)
+        runCurrent()
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+        val descriptorsBefore = h.fake.calls.count { it == "descriptor" }
+        val job = async { runCatching { h.session(id).unsubscribe(ref) } }
+        runCurrent()
+        if (!job.isCompleted) fail("Recovering 중 unsubscribe 가 끝나지 않음")
+        job.getCompleted().exceptionOrNull()?.let { fail("Recovering 중 unsubscribe 가 예외를 던짐: $it") }
+        h.waitUntil("재연결이 Ready 에 도달") { h.session(id).connectionState.value == ConnectionState.Ready }
+        runCurrent()
+        val descriptorsAfter = h.fake.calls.count { it == "descriptor" } - descriptorsBefore
+        if (descriptorsAfter != 0) fail("unsubscribe 뒤 CCCD write $descriptorsAfter 회 calls=${h.fake.calls}")
+        if (h.session(id).activeSubscriptions.value.isNotEmpty()) fail("재연결 뒤 activeSubscriptions 가 비어 있지 않음: ${h.session(id).activeSubscriptions.value}")
+        h.close()
+    }
+
+    private fun notificationsIn(h: Harness) = h.timeline(id).count { it is TimelinePoint.Notification }
+
+    /** 양성 대조 — Ready 에서 온 notify 는 전달된다. */
+    @Test
+    fun `Ready 중 notify 는 한 번 전달된다`() = runTest {
+        val h = harness(config, backoff)
+        h.connectToReady(id)
+        subscribeOrFail(h)
+        h.recordNotifications(id, ref)
+        runCurrent()
+        h.fake.emitNotification(id, ref, byteArrayOf(1))
+        runCurrent()
+        if (notificationsIn(h) != 1) fail("Ready notify 전달 수 ${notificationsIn(h)} != 1 timeline=${h.timeline(id)}")
+        h.close()
+    }
+
+    /** 양성 대조 — 재연결 시도의 새 generation(Ready 전, 서비스 탐색 대기) 에서 온 notify 는 전달된다. */
+    @Test
+    fun `재연결 시도 새 generation 의 notify 는 전달된다`() = runTest {
+        val h = harness(config, backoff)
+        h.connectToReady(id)
+        subscribeOrFail(h)
+        h.recordNotifications(id, ref)
+        runCurrent()
+        h.fake.linkLoss(id, 8)
+        runCurrent()
+        // 재연결 뒤 서비스 탐색 콜백을 붙잡아 Ready 전 단계에 머물게 한다.
+        h.fake.onDiscover = CallbackVariant.Missing
+        h.waitUntil("재연결 뒤 서비스 탐색 시작") {
+            h.fake.calls.count { it == "retainedConnect" } >= 1 && h.fake.calls.count { it == "discover" } >= 2
+        }
+        val state = h.session(id).connectionState.value
+        if (state is ConnectionState.Ready || state is ConnectionState.Recovering || state is ConnectionState.Disconnected) {
+            fail("전제 실패: 재연결 시도 진행 중(Connecting 이후·Ready 전) 아님 $state ${h.states(id)}")
+        }
+        h.fake.emitNotification(id, ref, byteArrayOf(2))
+        runCurrent()
+        if (notificationsIn(h) != 1) fail("재연결 시도 중 notify 전달 수 ${notificationsIn(h)} != 1 timeline=${h.timeline(id)}")
+        h.close()
+    }
+
+    /** 대조 — 사용자 disconnect 가 끝난 뒤 온 notify 는 전달되지 않는다. */
+    @Test
+    fun `사용자 disconnect 완료 뒤 notify 는 전달되지 않는다`() = runTest {
+        val h = harness(config, backoff)
+        h.connectToReady(id)
+        subscribeOrFail(h)
+        h.recordNotifications(id, ref)
+        runCurrent()
+        h.disconnect(id)
+        h.advancePastAllDeadlines()
+        if (h.session(id).connectionState.value != ConnectionState.Disconnected(BleDisconnectReason.Requested)) {
+            fail("전제 실패: disconnect 가 끝나지 않음 ${h.states(id)}")
+        }
+        h.fake.emitNotification(id, ref, byteArrayOf(3))
+        runCurrent()
+        if (notificationsIn(h) != 0) fail("disconnect 뒤 notify 전달 수 ${notificationsIn(h)} != 0 timeline=${h.timeline(id)}")
+        h.close()
+    }
 
     @Test
     fun `시나리오 x 변형의 불변식 위반 집합은 고정 기준선과 같다`() {
@@ -500,7 +596,6 @@ class PlatformScenarioTest {
          * 새 항목이 생기면 회귀(red), 고쳐진 항목은 이 목록에서 빼야 green 이다.
          * 형식: "<시나리오> | <변형> | <불변식>".
          */
-        val KNOWN_INVARIANT_VIOLATIONS: Set<String> = setOf(
-        )
+        val KNOWN_INVARIANT_VIOLATIONS: Set<String> = emptySet()
     }
 }

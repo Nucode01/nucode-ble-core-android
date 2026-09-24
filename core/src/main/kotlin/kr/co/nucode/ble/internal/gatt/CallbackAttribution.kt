@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothProfile
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 
-/** lifecycle 콜백 하나가 어느 connection generation 에 속하는지에 대한 판정. */
+/** GATT 콜백 하나가 어느 connection generation 에 속하는지에 대한 판정. */
 internal sealed interface Attribution {
     /** 현재 generation 의 사실이다. */
     data class Current(val generation: Long) : Attribution
@@ -18,7 +18,8 @@ internal sealed interface Attribution {
 }
 
 /**
- * lifecycle 콜백 귀속의 유일한 판정처. 출처(handle) 확인과 generation 귀속을 한 곳에서 한다.
+ * GATT 콜백(lifecycle·operation 모두) 귀속의 유일한 판정처. 출처(handle) 확인과 generation 귀속을
+ * 한 곳에서 한다.
  *
  * Android 콜백은 generation 을 싣지 않는다(null). null 을 "현재 generation" 으로 추정하는 것은
  * 세션이 살아 있을 때(stage != Disconnected)뿐이다. 종결된 세션에 온 null 콜백은 링크 성공

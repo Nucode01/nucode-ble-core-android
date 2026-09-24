@@ -42,9 +42,9 @@ internal data class GenerationStats(
     val last: ConnectionState?,
 )
 
-/** 연결 불변식 I1·I2·I3·I4·I6·I7·I8·I9 를 모두 검사한다(I5 는 스캔 — task 3). */
+/** 연결 불변식 I1·I2·I3·I4·I6·I7·I8·I9·I10 을 모두 검사한다(I5 는 스캔 — task 3). */
 internal fun checkConnectionInvariants(h: ConnectionHistory): List<InvariantViolation> =
-    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h), checkI8(h), checkI9(h))
+    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h), checkI8(h), checkI9(h), checkI10(h))
 
 /** I1 첫 연결 시도 이후 `Disconnected(Initial)` 게시 없음. */
 internal fun checkI1(h: ConnectionHistory): InvariantViolation? {
@@ -84,6 +84,7 @@ internal fun checkI4(h: ConnectionHistory): InvariantViolation? {
         when (point) {
             is TimelinePoint.State -> state = point.state
             is TimelinePoint.Active -> active = point.refs
+            is TimelinePoint.Notification -> continue
         }
         if (active.isEmpty() || state == null) continue
         if (state == ConnectionState.Configuring || state == ConnectionState.Ready) continue
@@ -158,4 +159,23 @@ internal fun assertViolationsPinned(known: Set<String>, observed: Set<String>, d
         known.toSortedSet().toList(),
         sorted.toList(),
     )
+}
+
+/**
+ * I10 연결 상태가 Disconnected 또는 Recovering 인 동안 앱에 notification 이 전달되지 않는다 —
+ * 끝난 연결 generation 의 notification 은 버려져야 한다. [ConnectionHistory.timeline] 의 교차 순서로 본다.
+ */
+internal fun checkI10(h: ConnectionHistory): InvariantViolation? {
+    var state: ConnectionState? = null
+    for ((index, point) in h.timeline.withIndex()) {
+        when (point) {
+            is TimelinePoint.State -> state = point.state
+            is TimelinePoint.Active -> Unit
+            is TimelinePoint.Notification ->
+                if (state is ConnectionState.Disconnected || state is ConnectionState.Recovering) {
+                    return InvariantViolation("I10", "notification ${point.ref} delivered in state=$state at #$index")
+                }
+        }
+    }
+    return null
 }

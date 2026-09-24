@@ -1056,8 +1056,11 @@ internal class BleRuntime private constructor(
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-            gattBridge.unsubscribe(deviceId, charRef)
-            session.subscriptionState.removeDesired(charRef)
+            try {
+                gattBridge.unsubscribe(deviceId, charRef)
+            } finally {
+                session.subscriptionState.removeDesired(charRef)
+            }
         }
     }
 

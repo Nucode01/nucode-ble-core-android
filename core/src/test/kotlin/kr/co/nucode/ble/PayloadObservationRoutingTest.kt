@@ -52,9 +52,13 @@ class PayloadObservationRoutingTest {
     @Test(timeout = 5_000)
     fun `engine payload observation does not reach public events without logger`() = runBlocking {
         val driver = NoopGattDriver()
-        val client = DefaultBleClient(BleRuntime(config = BleConfig(), adapter = { null }, gattDriver = driver))
+        val core = BleRuntime(config = BleConfig(), adapter = { null }, gattDriver = driver)
+        val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:4A")
         val session = client.session(id)
+        // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
+        requireNotNull(core.registry.get(id)).connectionCoordinator
+            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
         val events = mutableListOf<BleClientEvent>()
         val received = mutableListOf<Int>()
         val eventsJob = collectEvents(client, events)
@@ -78,11 +82,13 @@ class PayloadObservationRoutingTest {
             if (record.failure.code == observed) latch.countDown()
         }
         val driver = NoopGattDriver()
-        val client = DefaultBleClient(
-            BleRuntime(config = BleConfig(logger = logger), adapter = { null }, gattDriver = driver),
-        )
+        val core = BleRuntime(config = BleConfig(logger = logger), adapter = { null }, gattDriver = driver)
+        val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:4B")
         client.session(id)
+        // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
+        requireNotNull(core.registry.get(id)).connectionCoordinator
+            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
 
         driver.notify(id, 9)
 

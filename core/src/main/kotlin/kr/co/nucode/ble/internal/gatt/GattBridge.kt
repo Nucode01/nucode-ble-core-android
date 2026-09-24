@@ -40,15 +40,6 @@ internal fun interface GattOperationTargetResolver {
 }
 
 /**
- * `GattConnectionLifecycle`·`GattOperationEngine` 양쪽 콜백 핸들러가 공유하는 seam(plan D task 1) —
- * 같은 [GattDriverEvent]가 두 절반 모두로 라우팅되므로 한 곳에만 둔다.
- */
-internal fun SessionRegistry.sessionFor(event: GattDriverEvent): Session? {
-    val session = get(event.deviceId) ?: return null
-    return session.takeIf { event.source.matches(it.gatt) }
-}
-
-/**
  * `GattCharacteristicSnapshot` → 공개 `CharacteristicRef` 생성자. `handleServicesDiscovered`
  * (lifecycle)와 `handleCharacteristicChanged`/`handleCharacteristicRead`(operation) 양쪽에서
  * 쓰는 공유 유틸이다.

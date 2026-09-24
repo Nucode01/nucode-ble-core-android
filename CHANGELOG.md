@@ -46,6 +46,8 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- 재연결 대기 중(끝난 연결)에 도착한 notify 가 `notifications()` 로 전달되던 문제를 고쳤다.
+- 재연결 대기 중 `unsubscribe()` 가 `IllegalStateException` 을 던지고 구독 의도를 지우지 못해 재연결 뒤 구독이 복원되던 문제를 고쳤다. 이제 링크가 없으면 로컬 해제만 한다.
 - 이전 스캔 요청의 늦은 `onScanFailed` 가 새 스캔을 멈추고 `scanState` 를 그 실패로 덮던 것을 고쳤다. 스캔마다 generation 을 붙여 다른 스캔·이미 멈춘 스캔의 실패는 `Diagnostic(Warning)` 으로만 남긴다.
 - 스캔 종료 이유는 먼저 확정된 것이 유지된다 — 블루투스가 꺼져 `Idle(SCAN_STOPPED_BY_ADAPTER)` 가 된 뒤 도착한 `onScanFailed` 가 이유를 `SCAN_RUNTIME_FAILED` 로 바꾸지 않는다.
 - `stopScan()`·`disconnect()` 가 이미 취소된 코루틴에서 불리면 정리를 실행하지 않고 취소 예외만 던지던 것을 고쳤다. 이제 정리를 끝까지 한 뒤 취소를 전파한다 — `finally { stopScan() }` 이 화면 이탈 시에도 스캔을 멈춘다.

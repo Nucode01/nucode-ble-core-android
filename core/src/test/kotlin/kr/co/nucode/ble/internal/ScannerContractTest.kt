@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import java.io.File
 import java.util.UUID
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineScope
@@ -13,9 +14,11 @@ import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
+import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -25,7 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScannerContractTest {
-    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext)) { null }
+    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner { null })
 
     @Test
     fun `candidate filters are OR and advertised name is AND`() {
@@ -76,15 +79,15 @@ class ScannerContractTest {
         val bytes = byteArrayOf(1)
         val manufacturers = mutableListOf(BleManufacturerDataFilter(7, bytes))
         val request = ScanRequest(BleScanFilter(serviceUuids = serviceUuids, manufacturerData = manufacturers))
-        var platformFilter: BleScanFilter? = null
+        val port = RecordingScanPort()
         val runningScanner = Scanner(
             emit = {},
             scope = CoroutineScope(EmptyCoroutineContext),
-            scanner = { null },
+            port = port,
         )
-        runningScanner.startOverride = { filter, _, _, _ -> platformFilter = filter; null }
 
         assertNull(runningScanner.startScan(request))
+        val platformFilter = port.starts.single().spec.userFilter
         serviceUuids.clear()
         manufacturers.clear()
         bytes[0] = 2
@@ -116,8 +119,7 @@ class ScannerContractTest {
     @Test
     fun `client level scan failure does not manufacture a session correlation`() {
         val events = mutableListOf<kr.co.nucode.ble.internal.event.BleEvent>()
-        val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext)) { null }
-        scanner.startOverride = { _, _, _, _ ->
+        val port = RecordingScanPort {
             kr.co.nucode.ble.BleFailure(
                 category = FailureCategory("scan"),
                 code = FailureCode("SCAN_START_FAILED"),
@@ -125,11 +127,29 @@ class ScannerContractTest {
                 retryability = Retryability.Unknown,
             )
         }
+        val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext), port = port)
 
         runCatching { scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions()) } // 거부는 throw 로도 전달된다
 
         val failure = (events.single() as kr.co.nucode.ble.internal.event.BleEvent.Diagnostic).failure
         assertNull(failure.context.sessionId)
         assertNull(failure.context.connectionGeneration)
+    }
+
+    /**
+     * plan scan-owner 불변식 ① — 플랫폼 스캔(`BluetoothLeScanner.startScan/stopScan`)과 그 콜백 객체는
+     * platform/android/AndroidScanner 에만 있다. 한계: LE 스캐너 수신자 이름(`*leScanner`, `bluetoothLeScanner`,
+     * `scanner()`)과 `: ScanCallback()` 구현으로 잡는다 — 다른 이름의 수신자는 ScanCallback 쪽이 잡는다.
+     */
+    @Test
+    fun `플랫폼 스캔 시작·정지는 AndroidScanner 에만 있다`() {
+        val platformCall = Regex("""\b(\w*[Ll]eScanner|scanner\(\))\??\.(startScan|stopScan)\(""")
+        val callback = Regex(""":\s*ScanCallback\(\)""")
+        val sites = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { file -> file.readText().let { platformCall.containsMatchIn(it) || callback.containsMatchIn(it) } }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/platform/android/AndroidScanner.kt"), sites)
     }
 }

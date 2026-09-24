@@ -26,7 +26,8 @@ import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
-import kr.co.nucode.ble.internal.platform.android.AndroidPeripheralRediscovery
+import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.Session
@@ -452,14 +453,15 @@ class FailureRouteInfoDeliveryTest {
 
     @Test
     fun `rediscovery without scanner emits SCANNER_UNAVAILABLE Diagnostic and falls back to connect`() = runTest {
-        val f = connectWithRediscovery(AndroidPeripheralRediscovery { null })
+        // 운영 재발견 = Scanner 소비자 → 플랫폼 문 AndroidScanner(스캐너 없음).
+        val f = connectWithRediscovery(Scanner({}, backgroundScope, port = AndroidScanner { null }))
 
         assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCANNER_UNAVAILABLE").isNotEmpty())
         assertEquals(ConnectionState.Connecting, f.state)
     }
 
     /**
-     * 아래 세 재발견 실패는 AndroidPeripheralRediscovery 가 BluetoothLeScanner(JVM 에서 만들 수 없음)에서 얻는다 —
+     * 아래 세 재발견 실패는 AndroidScanner 가 BluetoothLeScanner(JVM 에서 만들 수 없음)에서 얻는다 —
      * 같은 FailureMapper 값을 rediscovery seam 이 돌려줘 lifecycle 의 폴백 전달만 검증한다.
      */
     @Test

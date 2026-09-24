@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.internal.scan.PlatformScanPort
+import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.scan.ScanObservation
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -13,9 +15,6 @@ import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleScanFilter
-import kr.co.nucode.ble.BleScanOptions
-import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
@@ -125,7 +124,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     /** 성공한 시작 하나 — production 콜백 객체처럼 자기 요청을 알지만, 코어로 가는 홉은 요청을 싣지 않는다. */
     inner class ScanStart(
-        val request: ScanRequest,
+        val spec: PlatformScanSpec,
         private val onFailure: (BleFailure) -> Unit,
         private val onResult: (ScanObservation) -> Unit,
     ) {
@@ -155,15 +154,28 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         scanStarts.last().fail(errorCode, variant)
     }
 
-    /** `core.scanner.startOverride` 로 설치 — [harness] 가 부른다. */
-    fun installScanner() {
-        runtime.scanner.startOverride = { filter: BleScanFilter, options: BleScanOptions, onFailure, onResult ->
+    /** 플랫폼 정지 횟수(AndroidScanner.stop 자리). */
+    var scanStops: Int = 0
+
+    /**
+     * 플랫폼 스캔 문(AndroidScanner 자리) — [harness] 가 BleRuntime 에 주입한다. 시작마다 "scanStart" 를
+     * [calls] 에 남기고, 성공한 시작은 Scanner 가 넘긴 같은 콜백 람다와 spec 을 [scanStarts] 에 보관한다.
+     */
+    val scanPort: PlatformScanPort = object : PlatformScanPort {
+        override fun start(
+            spec: PlatformScanSpec,
+            onResult: (ScanObservation) -> Unit,
+            onFailure: (BleFailure) -> Unit,
+        ): BleFailure? {
             calls += "scanStart"
-            scanStartFailure ?: run {
-                // Scanner 가 AndroidScanner 에 넘길 같은 람다를 보관한다.
-                scanStarts += ScanStart(ScanRequest(filter, options), onFailure, onResult)
+            return scanStartFailure ?: run {
+                scanStarts += ScanStart(spec, onFailure, onResult)
                 null
             }
+        }
+
+        override fun stop() {
+            scanStops++
         }
     }
 

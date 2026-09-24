@@ -86,6 +86,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
   수집자 하나라도 그만큼 밀려 있으면 새 이벤트는 종류와 무관하게 모든 수집자에게서 버려진다. `scanResults` 도 같다.
   연결 상태·서비스의 기준 값은 유실 없는 `BleSession.connectionState` / `services`(`StateFlow`) 다.
   `notifications()` 는 수집자별 버퍼라 자기 수집자의 지연으로만 유실된다. KDoc 에 명시했다(동작 변경 없음).
+- 사용자 필터 스캔 중 cold-cache 연결의 재발견은 합집합 재시작 1회를 쓴다 — Android 스캔 시작 한도(기기 확인 필요)에 사용자 스캔과 같이 계산된다.
 
 ### Verification boundary
 

@@ -47,9 +47,10 @@ import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
-import kr.co.nucode.ble.internal.platform.android.AndroidPeripheralRediscovery
 import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
+import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
+import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.scan.ScanObservation
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
@@ -119,6 +120,10 @@ internal class BleRuntime private constructor(
     private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
     private val gattOperationTargetResolver: GattOperationTargetResolver?,
     private val rediscoveryOverride: PeripheralRediscovery?,
+    /** 플랫폼 스캔 문 seam — null 이면 운영 [kr.co.nucode.ble.internal.platform.android.AndroidScanner]. */
+    private val scanPortOverride: PlatformScanPort?,
+    /** 테스트 opt-in — true 면 central 없이도 재발견을 실제 [scanner] 소비자로 배선한다(e2e 하네스용). */
+    private val scannerRediscovery: Boolean = false,
     /**
      * plan G task 1(G1) 어댑터 상태 probe seam — 있으면 [computeAdapterState] 가 실제
      * 어댑터/권한 판정을 완전히 건너뛰고 이 람다 값을 그대로 쓴다. 프로덕션 생성자는
@@ -161,6 +166,7 @@ internal class BleRuntime private constructor(
         gattDriverFactory = null,
         gattOperationTargetResolver = null,
         rediscoveryOverride = null,
+        scanPortOverride = null,
     )
 
     /**
@@ -185,6 +191,8 @@ internal class BleRuntime private constructor(
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
         rediscovery: PeripheralRediscovery? = null,
         adapterState: (() -> AdapterState)? = null,
+        scanPort: PlatformScanPort? = null,
+        scannerRediscovery: Boolean = false,
     ) : this(
         central = null,
         config = config,
@@ -193,6 +201,8 @@ internal class BleRuntime private constructor(
         gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
         gattOperationTargetResolver = gattOperationTargetResolver,
         rediscoveryOverride = rediscovery,
+        scanPortOverride = scanPort,
+        scannerRediscovery = scannerRediscovery,
         adapterStateProbe = adapterState,
     )
 
@@ -371,7 +381,7 @@ internal class BleRuntime private constructor(
     private val warmAddresses = mutableSetOf<PeripheralId>()
 
     /**
-     * `internal` 인 이유 — 테스트 seam. 스캔 테스트가 `startOverride` 로 스캔을 시작하고
+     * `internal` 인 이유 — 테스트 seam. 스캔 테스트가 `scanPort` fake 로 스캔을 시작하고
      * [Scanner.handle] 로 플랫폼 콜백을 주입한다. 프로덕션 호출자는 `BleRuntime` 자신뿐이다.
      */
     internal val scanState: StateFlow<ScanState> get() = scanner.scanState
@@ -379,13 +389,17 @@ internal class BleRuntime private constructor(
     internal val scanner = Scanner(
         emit = ::emit,
         scope = coreScope,
-        scanner = { adapter()?.bluetoothLeScanner },
         emitObservation = ::emitScanObservation,
+        port = scanPortOverride ?: AndroidScanner { adapter()?.bluetoothLeScanner },
     )
     private val gattDriver = gattDriverFactory?.invoke(coreScope)
         ?: AndroidGattDriver(central?.context, adapter, coreScope)
+    /**
+     * 재발견은 [scanner] 의 소비자다(plan scan-owner D2) — 플랫폼 스캔 문은 하나. 테스트 생성자는 주입값만
+     * (없으면 재발견 없음), `scannerRediscovery = true` 면 실제 [scanner] 를 쓴다.
+     */
     private val rediscovery: PeripheralRediscovery? = rediscoveryOverride
-        ?: central?.let { c -> AndroidPeripheralRediscovery { c.adapter()?.bluetoothLeScanner } }
+        ?: scanner.takeIf { central != null || scannerRediscovery }
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
@@ -529,12 +543,12 @@ internal class BleRuntime private constructor(
         // 스캔도 어댑터와 함께 죽는다(review L) — isScanning 잔류를 두면 BT 복귀 후
         // startScan() 이 조용한 no-op 이 된다. 소비자에게는 Diagnostic 으로 알린다
         // (onScanFailed 는 이 경로에서 보장되지 않는다).
-        if (scanner.isScanning) {
-            val scanFailure = FailureMapper.fromAdapterState(cause)
-                .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
-            scanner.stopForAdapter(scanFailure)
-            emit(diagnostic(Severity.Warning, scanFailure))
-        }
+        // 재발견만 돌던 플랫폼 스캔도 함께 끝난다(재발견 Unavailable) — Diagnostic 은 사용자 스캔이 끊겼을 때만.
+        val userWasScanning = scanner.isScanning
+        val scanFailure = FailureMapper.fromAdapterState(cause)
+            .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
+        scanner.stopForAdapter(scanFailure)
+        if (userWasScanning) emit(diagnostic(Severity.Warning, scanFailure))
         for (session in registry.all()) {
             // 이미 끝난 세션은 조용히(원인 유지). 단 플랫폼 재연결 대기 중(Recovering)이면 앱 관점에서
             // 아직 종착이 아니다 — 어댑터 원인으로 대기를 끝낸다(lifecycle 이 close 와 같은 경로로 재게시,
@@ -1043,6 +1057,8 @@ internal class BleRuntime private constructor(
      */
     private fun runCloseCleanupBody(): Throwable? {
         scanner.stopScan()
+        // 재발견 소비자도 끝낸다 — 남아 있으면 close 뒤에도 플랫폼 스캔이 돈다.
+        scanner.endRediscoveriesForClose(clientClosed().failure)
         val sessions = registry.all()
         var firstFailure: Throwable? = null
         sessions.forEach { session ->

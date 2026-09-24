@@ -179,6 +179,8 @@ internal fun TestScope.harness(
     config: BleConfig = BleConfig(),
     /** [Harness.connect]·[Harness.connectToReady] 에 옵션을 주지 않았을 때 쓰는 연결 옵션. */
     options: BleConnectOptions = BleConnectOptions(),
+    /** true 면 재발견을 실제 Scanner 소비자로 배선한다(fake 스캔 문 사용). 기본은 재발견 없음. */
+    scannerRediscovery: Boolean = false,
 ): Harness {
     val dispatcher = StandardTestDispatcher(testScheduler)
     // fake 콜백 scope — Harness.close() 가 취소한다.
@@ -190,9 +192,10 @@ internal fun TestScope.harness(
         gattDriver = fake,
         gattOperationTargetResolver = fake.resolver,
         adapterState = fake.adapterProbe,
+        scanPort = fake.scanPort,
+        scannerRediscovery = scannerRediscovery,
     )
     fake.runtime = core
-    fake.installScanner()
     val harness = Harness(this, core, DefaultBleClient(core), fake, options, fakeJob)
     runCurrent()
     return harness

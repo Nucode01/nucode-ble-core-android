@@ -90,5 +90,24 @@ class GattConnectionLifecycleTest {
         assertTrue("ConnStateChanged 가 publishState 본문 밖에 있다", construct.containsMatchIn(body))
     }
 
+    /**
+     * 복원 job 취소(LinkSetup.cancel)는 main 에서 한 곳 — generation 이 링크를 떠나는 stage 이벤트
+     * listener(Session.onLeaveLink) 등록 — 에서만 부른다. 한계: `linkSetup()?.cancel(`/`linkSetup.cancel(` 형태만 잡는다.
+     */
+    @Test
+    fun `LinkSetup cancel 호출은 main 에 한 곳뿐이다`() {
+        val call = Regex("""\blinkSetup(\(\)\?)?\.cancel\(""")
+        val sites = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { file ->
+                file.readLines().mapIndexedNotNull { index, line ->
+                    if (call.containsMatchIn(line)) "${file.invariantSeparatorsPath}:${index + 1}" else null
+                }
+            }
+            .toList()
+        assertEquals(sites.toString(), 1, sites.size)
+        assertTrue(sites.single(), sites.single().startsWith("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt:"))
+    }
+
     private class FakeGattDriver : NoopGattDriver()
 }

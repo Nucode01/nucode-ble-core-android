@@ -75,6 +75,12 @@ internal class Session(val deviceId: PeripheralId) {
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
 
     /**
+     * generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected)의 단일 listener 슬롯.
+     * 붙은 뒤 절차의 소유자(lifecycle)가 연결 시작 때 건다 — Session 은 누가 거는지 모른다.
+     */
+    var onLeaveLink: () -> Unit = {}
+
+    /**
      * [stageEvent] = false 는 stage 는 그대로이고 플랫폼 재연결 대기만 바뀐 재파생이다([beginPlatformWait]/
      * [endPlatformWait]) — generation 경계 부수효과 없이 공개 상태만 다시 계산한다.
      */
@@ -88,6 +94,7 @@ internal class Session(val deviceId: PeripheralId) {
             subscriptionState.beginGeneration(connectionCoordinator.generation)
         } else if (stageEvent && (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected)) {
             subscriptionState.clearActive()
+            onLeaveLink()
         }
         _connectionState.value = if (stage == ConnectionStage.Disconnected && awaitingPlatformRelink) {
             // 플랫폼 재연결 대기 — 공개 상태는 Recovering 으로 파생한다(plan autoconnect-reconnect v2).

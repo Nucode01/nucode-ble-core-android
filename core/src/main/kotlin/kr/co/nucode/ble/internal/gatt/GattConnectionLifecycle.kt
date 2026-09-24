@@ -94,11 +94,6 @@ internal class GattConnectionLifecycle(
         return true
     }
 
-    /** 진행 중인 구독 복원을 끊는다 — 정리 경로마다 부른다. */
-    private fun cancelLinkSetup(session: Session) {
-        linkSetup()?.cancel(session)
-    }
-
     /**
      * 플랫폼 재연결 대기 중인 handle 에 OS 가 다시 붙였을 때(Bootstrap) 새 generation 을 연다.
      * 플랫폼 재연결 대기([Session.awaitingPlatformRelink])가 아닌 세션이면 열지 않는다 — 귀속 판정과 같은 술어다.
@@ -164,7 +159,6 @@ internal class GattConnectionLifecycle(
 
         if (suppressReconnect) session.suppressReconnect = true
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
-        cancelLinkSetup(session)
         publishState(session)
         try {
             driver.disconnect(session.deviceId, session.gatt)
@@ -187,8 +181,6 @@ internal class GattConnectionLifecycle(
      * generation 을 Disconnected 로 확정한 뒤 한 번 게시한다. 이미 고정된 원인이 있으면 그 원인이 이긴다.
      */
     fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean {
-        // 종결되는 세션에 진행 중 복원이 남으면 안 된다(구 BleRuntime 스윕의 취소 — 이제 lifecycle 이 한다).
-        cancelLinkSetup(session)
         val adapterLost = cause.reason == TerminalCleanupReason.AdapterUnavailable ||
             cause.reason == TerminalCleanupReason.PermissionDenied
         // adapter off 스윕은 플랫폼 재연결 대기 중(이미 Disconnected)인 세션도 끝낸다 — close 와 같은 경로.
@@ -297,7 +289,6 @@ internal class GattConnectionLifecycle(
         if (!completed) return false
 
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
-        cancelLinkSetup(session)
         session.mtu = null
         session.chunkSize = null
         if (session.suppressReconnect) closeHandle(session)
@@ -654,9 +645,10 @@ internal class GattConnectionLifecycle(
         // autoConnect 가 아니면 이 handle 은 처음부터 OS 대기용이 아니다(링크가 끊기면 닫고 Disconnected).
         // connectGatt 호출 뒤로 미루면 그 사이 콜백이 (이례적으로) 동기 재진입해 stale 한 값을 보는 창이 생긴다.
         session.suppressReconnect = !options.autoConnect
-        // 복원 job 정리(plan B) — 새 연결 시도가 시작되는데 이전 생애주기의 재구독
-        // 루프가 살아 있으면 안 된다.
-        cancelLinkSetup(session)
+        // 복원 job 취소의 유일한 지점 — generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected).
+        // Connecting 에서는 끊지 않는다: 이전 generation 은 이미 Disconnected 를 지나며 끊겼고, 남았더라도
+        // job 의 generation 확인이 멈춘다. 같은 Session 에 다시 걸어도 같은 동작이다(멱등).
+        session.onLeaveLink = { linkSetup()?.cancel(session) }
         session.autoConnect = options.autoConnect
         // 새 시도는 어댑터 복귀 재연결 대상이 아니다 — 이 시도 자체가 그 재연결이거나 사용자가 새로 건 것이다.
         session.relinkAfterAdapter = false
@@ -805,14 +797,12 @@ internal class GattConnectionLifecycle(
         // 플랫폼 재연결 대기 중(이미 Disconnected)이면 사용자 해제가 대기를 끝낸다 — Disconnected(Requested).
         val coordinator = session.connectionCoordinator
         if (endPlatformWait(session, coordinator.generation, TerminalCause(TerminalCleanupReason.UserRequested, null))) {
-            cancelLinkSetup(session)
             return
         }
         if (coordinator.stage == ConnectionStage.Disconnected) {
             // 이미 끝났고 대기도 없다 — 대기가 아닌 종결 generation 의 handle 은 lifecycle 이 이미 닫았다.
-            // 정리할 것은 재구독 job 뿐이다(plan B — 사용자 해제 의도에 진행 중 재구독이 남으면 안 된다).
+            // 재구독 job 은 Disconnected 이벤트에서 이미 끊겼다.
             session.suppressReconnect = true
-            cancelLinkSetup(session)
             return
         }
         beginCleanup(
@@ -918,8 +908,6 @@ internal class GattConnectionLifecycle(
      * 진행하지 않고 복원 job 만 끊는다(닫힌 런타임에서 다음 단계를 진행할 이유가 없다).
      */
     fun close(session: Session) {
-        // 닫힌 클라이언트에서 복원을 계속할 이유가 없다(구 BleRuntime close 루프의 취소).
-        cancelLinkSetup(session)
         session.relinkAfterAdapter = false
         val coordinator = session.connectionCoordinator
         val generation = coordinator.generation
@@ -970,7 +958,6 @@ internal class GattConnectionLifecycle(
             connectionGeneration,
             TerminalCause(TerminalCleanupReason.OperationInvalidated, cause),
         )
-        cancelLinkSetup(session)
         val oldGatt = session.gatt
         driver.disconnect(session.deviceId, oldGatt)
         driver.close(session.deviceId, oldGatt)

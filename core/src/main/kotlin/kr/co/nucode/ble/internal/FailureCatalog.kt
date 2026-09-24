@@ -222,7 +222,7 @@ internal object FailureCatalog {
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, GattConnectionLifecycle.kt:connect"),
                 Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
@@ -230,7 +230,7 @@ internal object FailureCatalog {
             "SCANNER_UNAVAILABLE",
             listOf(
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(BluetoothLeScanner null → SCANNER_UNAVAILABLE) → Unavailable, GattConnectionLifecycle.kt:connect"),
             ),
         ),
         FailureSpec(
@@ -244,14 +244,14 @@ internal object FailureCatalog {
             listOf(
                 Route("scan runtime callback", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Scanner.kt:handleFailure(scanState=Idle(failure)) — ScanContractTest"),
                 Route("stale scan failure (ended/other scan)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(generation 불일치·정지 뒤 → 상태 불변, Warning) — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(재발견 중 onScanFailed → 모든 소비자 종료) → Unavailable, GattConnectionLifecycle.kt:connect"),
             ),
         ),
         FailureSpec(
             "SCAN_START_FAILED",
             listOf(
-                Route("startScan command (startOverride seam only)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan — AndroidScanner.start 는 이 코드를 만들지 않는다; ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
+                Route("startScan command (platform start rejected)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← AndroidScanner.start(필터 IllegalArgumentException·startScan 의 비-Security Exception; SecurityException 은 PERMISSION_DENIED); Scanner.kt:rediscover 는 MAC 형식이 아닌 주소를 플랫폼 전에 거른다 — ScanContractTest"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover(MAC 형식 아님·예상 밖 비취소 예외) · AndroidScanner.kt:start(필터 IllegalArgumentException·그 밖의 비-Security Exception) → Unavailable, GattConnectionLifecycle.kt:connect"),
             ),
         ),
         FailureSpec(

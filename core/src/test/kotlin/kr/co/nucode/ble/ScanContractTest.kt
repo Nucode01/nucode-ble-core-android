@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.scan.ScanObservation
 import kr.co.nucode.ble.internal.event.BleEvent
@@ -21,24 +22,29 @@ import org.junit.Test
 /**
  * plan `failure-delivery-fixes/v1` task 2 — startScan 동기 실패의 throw, scanState 전이,
  * stopScan 의 취소 내성을 공개 경계(BleRuntime)에서 고정한다.
- * seam: 테스트 생성자의 어댑터 probe 와 internal `core.scanner.startOverride`.
+ * seam: 테스트 생성자의 어댑터 probe 와 `scanPort`(RecordingScanPort).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScanContractTest {
 
     private class ProbeHolder(var state: AdapterState)
 
-    private fun TestScope.newCore(probe: ProbeHolder = ProbeHolder(AdapterState.Ready)): BleRuntime =
+    /** [realPlatform] 이면 fake 대신 운영 AndroidScanner(어댑터 null) 를 쓴다. */
+    private fun TestScope.newCore(
+        probe: ProbeHolder = ProbeHolder(AdapterState.Ready),
+        realPlatform: Boolean = false,
+    ): BleRuntime =
         BleRuntime(
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
             adapter = { null },
             adapterState = { probe.state },
-        ).also { it.scanner.startOverride = { _, _, onFailure, onResult -> starts += Callbacks(onFailure, onResult); null } }
+            scanPort = port.takeUnless { realPlatform },
+        )
 
-    /** 시작마다 Scanner 가 만든 콜백 — 테스트는 이 람다로만 실패·결과를 싣는다(production 홉과 같은 경로). */
-    private class Callbacks(val onFailure: (BleFailure) -> Unit, val onResult: (ScanObservation) -> Unit)
+    private val port = RecordingScanPort()
 
-    private val starts = mutableListOf<Callbacks>()
+    /** 성공한 시작마다 Scanner 가 만든 콜백 — 테스트는 이 람다로만 실패·결과를 싣는다(production 홉과 같은 경로). */
+    private val starts: List<RecordingScanPort.Start> get() = port.starts.filter { it.failure == null }
 
     private val first = BleScanFilter(namePrefix = "A")
     private val second = BleScanFilter(namePrefix = "B")
@@ -78,7 +84,7 @@ class ScanContractTest {
     fun `b 플랫폼 시작 실패는 그 실패를 던지고 Scanning 이 되지 않는다`() = runTest {
         val core = newCore()
         val events = collectEvents(core)
-        core.scanner.startOverride = { _, _, _, _ -> failure("SCAN_START_FAILED") }
+        port.onStart = { failure("SCAN_START_FAILED") }
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
         runCurrent()
         assertEquals("SCAN_START_FAILED", (thrown as? BleException)?.failure?.code?.value)
@@ -185,16 +191,13 @@ class ScanContractTest {
     fun `m 실패한 시작도 generation 을 소비해 다음 성공한 시작과 공유하지 않는다`() = runTest {
         val core = newCore()
         val events = collectEvents(core)
-        var failedStart: Callbacks? = null
-        core.scanner.startOverride = { _, _, onFailure, onResult ->
-            failedStart = Callbacks(onFailure, onResult)
-            failure("SCAN_START_FAILED")
-        }
+        port.onStart = { failure("SCAN_START_FAILED") }
         runCatching { core.startScan(first) }
-        core.scanner.startOverride = { _, _, onFailure, onResult -> starts += Callbacks(onFailure, onResult); null }
+        val failedStart = port.starts.single()
+        port.onStart = { null }
         core.startScan(first)
         // 실패한 시작의 콜백이 뒤늦게 와도 성공한 스캔을 멈추지 않는다.
-        requireNotNull(failedStart).onFailure(failure("SCAN_RUNTIME_FAILED"))
+        failedStart.onFailure(failure("SCAN_RUNTIME_FAILED"))
         runCurrent()
         assertEquals(ScanState.Scanning(ScanRequest(first, BleScanOptions())), core.scanState.value)
         val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
@@ -237,9 +240,8 @@ class ScanContractTest {
 
     @Test
     fun `h 플랫폼 스캐너가 없으면 SCANNER_UNAVAILABLE 을 던지고 Diagnostic 을 낸다`() = runTest {
-        val core = newCore()
+        val core = newCore(realPlatform = true)
         val events = collectEvents(core)
-        core.scanner.startOverride = null
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
         runCurrent()
         assertEquals("SCANNER_UNAVAILABLE", (thrown as? BleException)?.failure?.code?.value)
@@ -247,12 +249,12 @@ class ScanContractTest {
         assertTrue(events.diagnosticCodes().toString(), "SCANNER_UNAVAILABLE" in events.diagnosticCodes())
     }
 
-    /** AndroidScanner 의 SecurityException 변환은 JVM 에서 만들 수 없어 같은 코드를 startOverride 로 싣는다. */
+    /** AndroidScanner 의 SecurityException 변환은 JVM 에서 만들 수 없어 같은 코드를 fake 포트로 싣는다. */
     @Test
     fun `i 스캔 시작 권한 거부는 PERMISSION_DENIED 를 던지고 Diagnostic 을 낸다`() = runTest {
         val core = newCore()
         val events = collectEvents(core)
-        core.scanner.startOverride = { _, _, _, _ -> failure("PERMISSION_DENIED") }
+        port.onStart = { failure("PERMISSION_DENIED") }
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
         runCurrent()
         assertEquals("PERMISSION_DENIED", (thrown as? BleException)?.failure?.code?.value)

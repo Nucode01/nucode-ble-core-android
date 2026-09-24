@@ -20,7 +20,6 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
@@ -104,13 +103,13 @@ class FailureRouteDeliveryTest {
         val core: BleRuntime,
         val driver: Driver,
         val id: PeripheralId,
-        val events: MutableList<BleEvent>,
+        val events: MutableList<BleClientEvent>,
     ) {
         val session: Session get() = core.registry.get(id)!!
         val generation: Long get() = session.connectionCoordinator.generation
 
         fun diagnosticCodes(): List<String> =
-            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
+            events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().map { it.failure.code.value }
     }
 
     private fun TestScope.fixture(
@@ -134,8 +133,8 @@ class FailureRouteDeliveryTest {
             gattOperationTargetResolver = if (resolver) RESOLVER else null,
             adapterState = adapterState,
         )
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         return Fixture(core, driver, PeripheralId("AA:BB:CC:DD:EE:D1"), events)
     }

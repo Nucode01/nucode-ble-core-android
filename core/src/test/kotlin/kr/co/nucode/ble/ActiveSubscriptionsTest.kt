@@ -175,8 +175,8 @@ class ActiveSubscriptionsTest {
 
         var activeAtReady: Set<CharacteristicRef>? = null
         backgroundScope.launch {
-            f.core.events.collect { event ->
-                if (event == BleEvent.ConnStateChanged(f.deviceId, ConnectionState.Ready)) {
+            f.core.officialEvents.collect { event ->
+                if (event == OfficialBleClientEvent.Connection(f.deviceId, ConnectionState.Ready)) {
                     activeAtReady = f.bleSession.activeSubscriptions.value
                 }
             }
@@ -299,7 +299,7 @@ class ActiveSubscriptionsTest {
         advanceTimeBy(BleConfig().operationTimeoutMillis + 1)
         runCurrent()
 
-        val states = f.events.filterIsInstance<BleEvent.ConnStateChanged>().map { it.state }
+        val states = f.officialEvents.filterIsInstance<OfficialBleClientEvent.Connection>().map { it.state }
         assertTrue(states.toString(), states.any { failedCode(it) == "OPERATION_TIMEOUT" })
         assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
         assertTrue(f.restoreFailureEventCodes().toString(), "OPERATION_TIMEOUT" in f.restoreFailureEventCodes())
@@ -315,7 +315,7 @@ class ActiveSubscriptionsTest {
         advanceTimeBy(BleConfig().disconnectCleanupTimeoutMillis + 1) // cleanup ack 대기를 끝낸다
         runCurrent()
 
-        val states = f.events.filterIsInstance<BleEvent.ConnStateChanged>().map { it.state }
+        val states = f.officialEvents.filterIsInstance<OfficialBleClientEvent.Connection>().map { it.state }
         assertTrue(states.toString(), states.any { failedCode(it) == "PERMISSION_DENIED" })
         assertTrue(f.ref !in f.bleSession.activeSubscriptions.value)
         assertTrue(f.restoreFailureEventCodes().toString(), "PERMISSION_DENIED" in f.restoreFailureEventCodes())
@@ -348,14 +348,12 @@ class ActiveSubscriptionsTest {
         val session = core.registry.getOrCreate(deviceId).apply { chunkSize = 20 }
         val client = DefaultBleClient(core)
         val bleSession = client.session(deviceId)
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
         val officialEvents = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(officialEvents) }
         runCurrent()
         return Fixture(
             core, client, bleSession, session, driver, deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()),
-            events, officialEvents, coreDispatcher,
+            officialEvents, coreDispatcher,
         )
     }
 
@@ -367,14 +365,13 @@ class ActiveSubscriptionsTest {
         val driver: FakeDriver,
         val deviceId: PeripheralId,
         val ref: CharacteristicRef,
-        val events: List<BleEvent>,
         val officialEvents: List<BleClientEvent>,
         /** 코어 디스패처 — 경합 테스트가 코어 큐 순서에 끼어들 때 쓴다. */
         val coreDispatcher: CoroutineDispatcher,
 ) {
         /** 복원 실패의 Event 채널 — Diagnostic 또는 SubscriptionRestoreFailed 로 나간 코드. */
         fun restoreFailureEventCodes(): List<String> =
-            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value } +
+            officialEvents.filterIsInstance<OfficialBleClientEvent.Diagnostic>().map { it.failure.code.value } +
                 officialEvents.filterIsInstance<OfficialBleClientEvent.SubscriptionRestoreFailed>()
                     .map { it.failure.code.value }
 
@@ -418,10 +415,11 @@ class ActiveSubscriptionsTest {
             session.gattOperationScheduler.beginNextGeneration()
         }
 
-        /** lifecycle 의 MTU 발행 지점을 흉내 낸다 — 발행 후 `onMtuSettled`(재구독 → Ready). */
+        /** lifecycle 의 MTU 확정 지점을 흉내 낸다 — 세션 mtu/chunkSize 반영 후 `onMtuSettled`(재구독 → Ready). */
         fun settleMtu(scope: TestScope) {
-            core.emit(BleEvent.MtuChanged(deviceId, 247, 244))
             val session = core.registry.get(deviceId)!!
+            session.mtu = 247
+            session.chunkSize = 244
             core.linkSetup.onMtuSettled(session, session.connectionCoordinator.generation)
             scope.runCurrent()
         }

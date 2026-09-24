@@ -13,11 +13,11 @@ import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.harness.CallbackVariant
 import kr.co.nucode.ble.harness.harness
-import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattConnectionLifecycle
 import kr.co.nucode.ble.internal.gatt.GattOperationHooks
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
@@ -62,7 +62,7 @@ class TerminalCauseLifecycleTest {
         assertTrue(
             h.events.toString(),
             h.events.any {
-                it is BleEvent.Diagnostic && it.failure.code.value == "LINK_FAILED" &&
+                it is OfficialBleClientEvent.Diagnostic && it.failure.code.value == "LINK_FAILED" &&
                     (it.failure.platformDetail as? PlatformDetail.Android)?.statusCode == 8
             },
         )
@@ -94,7 +94,7 @@ class TerminalCauseLifecycleTest {
         assertEquals(0, (failure?.platformDetail as? PlatformDetail.Android)?.statusCode)
         assertTrue(
             h.events.toString(),
-            h.events.any { it is BleEvent.Diagnostic && it.failure == failure },
+            h.events.any { it is OfficialBleClientEvent.Diagnostic && it.failure == failure },
         )
     }
 
@@ -151,7 +151,7 @@ class TerminalCauseLifecycleTest {
         assertTrue(
             h.events.drop(eventsBefore).toString(),
             h.events.drop(eventsBefore).any {
-                it is BleEvent.Diagnostic && it.failure.code.value == "ADAPTER_UNAVAILABLE"
+                it is OfficialBleClientEvent.Diagnostic && it.failure.code.value == "ADAPTER_UNAVAILABLE"
             },
         )
     }

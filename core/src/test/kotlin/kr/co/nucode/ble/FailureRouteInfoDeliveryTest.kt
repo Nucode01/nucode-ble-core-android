@@ -19,7 +19,6 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
@@ -119,17 +118,17 @@ class FailureRouteInfoDeliveryTest {
         val core: BleRuntime,
         val driver: Driver,
         val id: PeripheralId,
-        val events: MutableList<BleEvent>,
+        val events: MutableList<BleClientEvent>,
     ) {
         val session: Session get() = core.registry.get(id)!!
         val generation: Long get() = session.connectionCoordinator.generation
         val state: ConnectionState get() = session.connectionState.value
 
         fun diagnostics(code: String): List<BleFailure> =
-            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure }.filter { it.code.value == code }
+            events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().map { it.failure }.filter { it.code.value == code }
 
         fun diagnosticCodes(): List<String> =
-            events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
+            events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().map { it.failure.code.value }
     }
 
     private fun TestScope.fixture(rediscovery: PeripheralRediscovery? = null, logger: BleLogger? = null): Fixture {
@@ -151,8 +150,8 @@ class FailureRouteInfoDeliveryTest {
             rediscovery = rediscovery,
             adapterState = { AdapterState.Ready },
         )
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         return Fixture(core, driver, PeripheralId("AA:BB:CC:DD:EE:D2"), events)
     }
@@ -433,7 +432,7 @@ class FailureRouteInfoDeliveryTest {
         f.driver.emit(GattDriverEvent.ConnectionStateChanged(f.id, SOURCE, 133, BluetoothProfile.STATE_DISCONNECTED))
         runCurrent()
 
-        val late = f.events.filterIsInstance<BleEvent.Diagnostic>().filter { it.failure.code.value == "LINK_FAILED" }.drop(before)
+        val late = f.events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().filter { it.failure.code.value == "LINK_FAILED" }.drop(before)
         assertEquals(f.diagnosticCodes().toString(), 1, late.size)
         assertEquals(Severity.Warning, late.single().severity)
         assertEquals(recovering, f.state)

@@ -14,7 +14,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -51,12 +50,12 @@ class CloseNoDeadlockTest {
         val id = testDeviceId()
         val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
-        // 코어의 events 스트림이 close() 이후에도 정상 종결되는지(예외 없이) 함께 살펴본다 —
+        // 코어의 officialEvents 스트림이 close() 이후에도 정상 종결되는지(예외 없이) 함께 살펴본다 —
         // close() 의 정리부는(변경 전/후 모두) 이 스트림에 BleEvent.ConnStateChanged 를 emit
         // 하지 않는다(session.connectionState StateFlow만 직접 갱신한다, GattConnectionLifecycle.close
         // 참고) — 그래서 emitted-event 개수는 여기서 단언하지 않는다.
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
 
         // close() 는 테스트 코루틴(코어 스레드가 아님) 위에서 직접 부른다 — 즉시 반환해야 한다.

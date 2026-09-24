@@ -14,14 +14,17 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.BleClientEvent
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.DisconnectReason
+import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
@@ -222,8 +225,17 @@ class GattLifecycleCharacterizationTest {
             requestedMtu = 185
         }
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        // MtuChanged 는 공개 흐름에 없다 — Ready 게시 순간의 MTU 를 찍어 "MTU 반영 뒤 Ready" 를 본다.
+        val mtuAtReady = mutableListOf<Pair<Int?, Int?>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            core.officialEvents.collect {
+                observed += it
+                if (it == OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Ready)) {
+                    mtuAtReady += session.mtu to session.chunkSize
+                }
+            }
+        }
         runCurrent()
 
         driver.emitAfter(
@@ -290,14 +302,15 @@ class GattLifecycleCharacterizationTest {
         assertEquals(182, session.chunkSize)
         assertEquals(
             listOf(
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.DiscoveringServices),
-                BleEvent.ServicesDiscovered(DEVICE_ID, emptyList()),
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Configuring),
-                BleEvent.MtuChanged(DEVICE_ID, 185, 182),
-                BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Ready),
+                OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.DiscoveringServices),
+                OfficialBleClientEvent.Services(DEVICE_ID, emptyList()),
+                OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Configuring),
+                OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Ready),
             ),
             observed,
         )
+        // Ready 는 MTU(185/182) 가 반영된 뒤에 나간다.
+        assertEquals(listOf<Pair<Int?, Int?>>(185 to 182), mtuAtReady)
     }
 
     @Test
@@ -479,8 +492,8 @@ class GattLifecycleCharacterizationTest {
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
 
         driver.emit(connectedEvent(generation - 1))
@@ -646,8 +659,8 @@ class GattLifecycleCharacterizationTest {
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
 
         driver.emit(connectedEvent(generation))
@@ -662,17 +675,17 @@ class GattLifecycleCharacterizationTest {
         )
         runCurrent()
 
-        val diagnostic = observed.filterIsInstance<BleEvent.Diagnostic>().single()
+        val diagnostic = observed.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single()
         assertEquals("SERVICE_DISCOVERY_FAILED", diagnostic.failure.code.value)
         assertEquals(133, (diagnostic.failure.platformDetail as? kr.co.nucode.ble.PlatformDetail.Android)?.statusCode)
         assertEquals(session.failureSessionId, diagnostic.failure.context.sessionId)
         assertFalse(session.connectionState.value is ConnectionState.Ready)
         assertFalse(session.connectionCoordinator.stage == ConnectionStage.Ready)
         assertEquals(1, driver.commands.count { it == "discover" })
-        assertTrue(observed.none { it is BleEvent.ServicesDiscovered })
+        assertTrue(observed.none { it is OfficialBleClientEvent.Services })
         assertTrue(
             observed.none {
-                it is BleEvent.ConnStateChanged && it.state is ConnectionState.Ready
+                it is OfficialBleClientEvent.Connection && it.state is ConnectionState.Ready
             },
         )
     }
@@ -683,8 +696,8 @@ class GattLifecycleCharacterizationTest {
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
 
         driver.emit(connectedEvent(generation))
@@ -698,7 +711,7 @@ class GattLifecycleCharacterizationTest {
         assertEquals(1, driver.commands.count { it == "discover" })
         assertTrue(
             observed.none {
-                it is BleEvent.ConnStateChanged && it.state is ConnectionState.Ready
+                it is OfficialBleClientEvent.Connection && it.state is ConnectionState.Ready
             },
         )
     }
@@ -711,8 +724,8 @@ class GattLifecycleCharacterizationTest {
             suppressReconnect = true
         }
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
 
         driver.emitAfter(10, connectedEvent(generation))
@@ -735,16 +748,16 @@ class GattLifecycleCharacterizationTest {
         assertEquals(
             1,
             observed.count {
-                it is BleEvent.ConnStateChanged && it.state is ConnectionState.DiscoveringServices
+                it is OfficialBleClientEvent.Connection && it.state is ConnectionState.DiscoveringServices
             },
         )
         val firstDisconnected = observed.indexOfFirst {
-            it is BleEvent.ConnStateChanged && it.state is ConnectionState.Disconnected
+            it is OfficialBleClientEvent.Connection && it.state is ConnectionState.Disconnected
         }
         assertTrue(firstDisconnected >= 0)
         assertTrue(
             observed.drop(firstDisconnected + 1).none {
-                it is BleEvent.ConnStateChanged && (
+                it is OfficialBleClientEvent.Connection && (
                     it.state is ConnectionState.DiscoveringServices ||
                         it.state is ConnectionState.Configuring ||
                         it.state is ConnectionState.Ready
@@ -809,8 +822,8 @@ class GattLifecycleCharacterizationTest {
             GattOperation.WriteWithResponse(0, identity, byteArrayOf(1)),
         )
         session.gattOperationScheduler.startNext()
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
 
         driver.emit(
@@ -851,7 +864,7 @@ class GattLifecycleCharacterizationTest {
     @Test(timeout = 10_000)
     fun `MTU status failure falls back to default MTU and still reaches Ready`() = runTest {
         val driver = FakeGattDriver(this)
-        val (session, observed) = driveToMtuRequest(driver)
+        val (session, mtuAtReady) = driveToMtuRequest(driver)
 
         driver.emitAfter(
             1,
@@ -866,26 +879,34 @@ class GattLifecycleCharacterizationTest {
         advanceTimeBy(1)
         runCurrent()
 
-        assertFallbackThenReady(session, observed)
+        assertFallbackThenReady(session, mtuAtReady)
     }
 
     /** requestMtu 시작 실패(false) — 콜백이 없으므로 폴백 MtuChanged(23) 뒤 onMtuSettled 로 Ready 까지 간다. */
     @Test(timeout = 10_000)
     fun `MTU request start failure falls back to default MTU and still reaches Ready`() = runTest {
         val driver = FakeGattDriver(this).apply { mtuStartResult = false }
-        val (session, observed) = driveToMtuRequest(driver)
+        val (session, mtuAtReady) = driveToMtuRequest(driver)
 
-        assertFallbackThenReady(session, observed)
+        assertFallbackThenReady(session, mtuAtReady)
     }
 
     private fun TestScope.driveToMtuRequest(
         driver: FakeGattDriver,
-    ): Pair<Session, MutableList<BleEvent>> {
+    ): Pair<Session, List<Pair<Int?, Int?>>> {
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply { requestedMtu = 185 }
         val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
-        val observed = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(observed) }
+        val observed = mutableListOf<BleClientEvent>()
+        val mtuAtReady = mutableListOf<Pair<Int?, Int?>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            core.officialEvents.collect {
+                observed += it
+                if (it == OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Ready)) {
+                    mtuAtReady += session.mtu to session.chunkSize
+                }
+            }
+        }
         runCurrent()
 
         driver.emitAfter(1, connectedEvent(generation))
@@ -904,18 +925,16 @@ class GattLifecycleCharacterizationTest {
         advanceTimeBy(1)
         runCurrent()
         assertEquals(listOf("discover", "mtu:185"), driver.commands)
-        return session to observed
+        return session to mtuAtReady
     }
 
-    private fun assertFallbackThenReady(session: Session, observed: List<BleEvent>) {
+    /** [mtuAtReady] — Ready 게시 순간의 (mtu, chunkSize). MtuChanged 는 공개 흐름에 없어 이것으로 순서를 본다. */
+    private fun assertFallbackThenReady(session: Session, mtuAtReady: List<Pair<Int?, Int?>>) {
         assertEquals(ConnectionState.Ready, session.connectionState.value)
         assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
         assertEquals(23, session.mtu)
         assertEquals(20, session.chunkSize)
-        val fallback = observed.indexOf(BleEvent.MtuChanged(DEVICE_ID, 23, 20))
-        val ready = observed.indexOf(BleEvent.ConnStateChanged(DEVICE_ID, ConnectionState.Ready))
-        assertTrue("fallback MtuChanged 누락: $observed", fallback >= 0)
-        assertTrue("Ready 가 폴백 뒤에 와야 한다: $observed", ready > fallback)
+        assertEquals("Ready 가 폴백 MTU 반영 뒤에 와야 한다", listOf<Pair<Int?, Int?>>(23 to 20), mtuAtReady)
     }
 
     private fun TestScope.newCore(driver: GattDriver): BleRuntime = BleRuntime(

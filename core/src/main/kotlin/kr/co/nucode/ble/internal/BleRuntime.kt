@@ -195,8 +195,6 @@ internal class BleRuntime private constructor(
         sessionOf = { deviceId -> registry.get(deviceId) },
     )
 
-    /** 내부 신호의 관찰 탭 — [ClientEventBus.events] 위임. */
-    public val events: Flow<BleEvent> get() = eventBus.events
 
     internal val officialEvents: Flow<BleClientEvent> get() = eventBus.officialEvents
 

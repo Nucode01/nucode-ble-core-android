@@ -23,8 +23,8 @@ class DiagnosticsWiringTest {
         val logged = mutableListOf<DiagnosticRecord>()
         val loggerLatch = CountDownLatch(1)
         val core = newCore(BleLogger { record -> synchronized(logged) { logged += record }; loggerLatch.countDown() })
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val failure = failure()
 
@@ -32,7 +32,7 @@ class DiagnosticsWiringTest {
 
         assertTrue(loggerLatch.await(2, TimeUnit.SECONDS))
         runCurrent()
-        val event = events.filterIsInstance<BleEvent.Diagnostic>().single()
+        val event = events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single()
         assertEquals(failure, event.failure)
         val record = synchronized(logged) { logged.single() }
         assertEquals(DiagnosticSeverity.Warning, record.severity)
@@ -49,8 +49,8 @@ class DiagnosticsWiringTest {
             logger = BleLogger { record -> synchronized(logged) { logged += record }; loggerLatch.countDown() },
             diagnosticOptions = configuredOptions,
         )
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val failure = failure()
 
@@ -62,7 +62,7 @@ class DiagnosticsWiringTest {
 
         assertTrue(loggerLatch.await(2, TimeUnit.SECONDS))
         runCurrent()
-        assertEquals(listOf(BleEvent.Diagnostic(Severity.Error, failure)), events)
+        assertEquals(listOf(OfficialBleClientEvent.Diagnostic(Severity.Error, failure)), events)
         assertEquals(
             mapOf("payload-state" to DiagnosticValue.Redacted),
             synchronized(logged) { logged.single().values },
@@ -93,14 +93,14 @@ class DiagnosticsWiringTest {
                 }
             }
         })
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
 
         core.emit(BleEvent.Diagnostic(Severity.Error, failure()))
         assertTrue(entered.await(2, TimeUnit.SECONDS))
         runCurrent()
-        assertEquals(1, events.filterIsInstance<BleEvent.Diagnostic>().size)
+        assertEquals(1, events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().size)
         val started = System.nanoTime()
         core.close()
         val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
@@ -120,8 +120,8 @@ class DiagnosticsWiringTest {
     @Test
     fun `without logger compatibility diagnostics remain complete`() = runTest {
         val core = newCore(logger = null)
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val failure = failure()
 
@@ -132,7 +132,7 @@ class DiagnosticsWiringTest {
         }
         runCurrent()
 
-        assertEquals(listOf(BleEvent.Diagnostic(Severity.Info, failure)), events)
+        assertEquals(listOf(OfficialBleClientEvent.Diagnostic(Severity.Info, failure)), events)
         assertTrue(!valuesEvaluated)
         core.close()
     }

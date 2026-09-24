@@ -31,8 +31,8 @@ class DiagnosticsF26Test {
             ),
             adapter = { null },
         )
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val failure = unknownFailure()
 
@@ -40,7 +40,7 @@ class DiagnosticsF26Test {
 
         assertTrue("logger did not receive diagnostic", delivered.await(2, TimeUnit.SECONDS))
         runCurrent()
-        assertEquals(listOf(BleEvent.Diagnostic(Severity.Error, failure)), events)
+        assertEquals(listOf(OfficialBleClientEvent.Diagnostic(Severity.Error, failure)), events)
         val record = synchronized(records) { records.single() }
         assertEquals(DiagnosticSeverity.Error, record.severity)
         assertEquals(DiagnosticFailure(failure), record.failure)
@@ -54,8 +54,8 @@ class DiagnosticsF26Test {
     @Test
     fun `logger absent preserves compatibility diagnostic without evaluating unsafe values`() = runTest {
         val core = BleRuntime(config = BleConfig(logger = null), adapter = { null })
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val failure = unknownFailure()
         var valuesEvaluated = false
@@ -67,7 +67,7 @@ class DiagnosticsF26Test {
 
         runCurrent()
         assertFalse(valuesEvaluated)
-        assertEquals(listOf(BleEvent.Diagnostic(Severity.Warning, failure)), events)
+        assertEquals(listOf(OfficialBleClientEvent.Diagnostic(Severity.Warning, failure)), events)
         assertFalse(events.single().toString().contains("raw-address-secret"))
         core.close()
     }

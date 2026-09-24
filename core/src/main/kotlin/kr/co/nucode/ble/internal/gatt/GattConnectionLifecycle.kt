@@ -498,16 +498,16 @@ internal class GattConnectionLifecycle(
     }
 
     /**
-     * MTU 협상 결과 → chunkSize 계산 + MtuChanged emit.
+     * MTU 협상 결과 → chunkSize 계산 + 세션 반영.
      *
      * 계산은 [chunkSizeForMtu] 한 곳에만 둔다 — write 경로와 여기가
      * 다른 값을 쓰면 청크가 MTU 를 넘어 조용히 잘린다.
      *
      * 실패 분기(review #4): 예전에는 Diagnostic 만 내고 return 해 Discovering 에 영구
-     * 정지했다(연결 시퀀스가 MtuChanged 를 기다리는데 다시 오지 않으므로). 협상 실패라도
-     * 링크 자체는 살아 있고 유효 MTU 가 BLE 기본값 23 이므로, 23/20 폴백을 그대로
-     * 발행한 뒤 성공 경로와 똑같이 `LinkSetup.onMtuSettled` 를 불러 구독 복구 → Ready 로
-     * 진행시킨다(발행 직후 — plan link-setup).
+     * 정지했다(연결 시퀀스가 MTU 확정을 기다리는데 다시 오지 않으므로). 협상 실패라도
+     * 링크 자체는 살아 있고 유효 MTU 가 BLE 기본값 23 이므로, 23/20 폴백을 세션에
+     * 반영한 뒤 성공 경로와 똑같이 `LinkSetup.onMtuSettled` 를 불러 구독 복구 → Ready 로
+     * 진행시킨다(반영 직후 — plan link-setup).
      */
     internal fun handleMtuChanged(event: GattDriverEvent.MtuChanged) {
         val deviceId = event.deviceId
@@ -529,7 +529,6 @@ internal class GattConnectionLifecycle(
             val fallbackChunk = chunkSizeForMtu(DEFAULT_MTU)
             session.mtu = DEFAULT_MTU
             session.chunkSize = fallbackChunk
-            emit(BleEvent.MtuChanged(deviceId, DEFAULT_MTU, fallbackChunk))
             linkSetup()?.onMtuSettled(session, callbackGeneration)
             return
         }
@@ -537,7 +536,6 @@ internal class GattConnectionLifecycle(
         val chunkSize = chunkSizeForMtu(mtu)
         session.mtu = mtu
         session.chunkSize = chunkSize
-        emit(BleEvent.MtuChanged(deviceId, mtu, chunkSize))
         linkSetup()?.onMtuSettled(session, callbackGeneration)
         // Ready 전이·게시는 LinkSetup 의 구독 복원 뒤 completeReady 가 한다.
     }
@@ -962,7 +960,6 @@ internal class GattConnectionLifecycle(
             val fallbackChunk = chunkSizeForMtu(DEFAULT_MTU)
             session.mtu = DEFAULT_MTU
             session.chunkSize = fallbackChunk
-            emit(BleEvent.MtuChanged(deviceId, DEFAULT_MTU, fallbackChunk))
             linkSetup()?.onMtuSettled(session, session.connectionCoordinator.generation)
         }
     }

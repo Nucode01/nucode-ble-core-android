@@ -32,18 +32,6 @@ internal class ClientEventBus(
 
     // ── 배선 ② emit — 규칙 7: 방출 지점은 이 함수 하나뿐 ─────────────────────────────
 
-    private val _events = MutableSharedFlow<BleEvent>(
-        replay = 0,
-        extraBufferCapacity = config.eventBufferCapacity,
-        onBufferOverflow = BufferOverflow.SUSPEND,
-    )
-
-    /**
-     * 내부 신호(연결 상태·서비스·MTU·진단)의 관찰 탭. production 소비자는 없다 — 테스트가 신호
-     * 순서를 관찰하는 자리다. notification 은 여기 오지 않는다([notifications], plan J).
-     */
-    val events: Flow<BleEvent> = _events.asSharedFlow()
-
     private val _officialEvents = MutableSharedFlow<BleClientEvent>(
         replay = 0,
         extraBufferCapacity = config.eventBufferCapacity,
@@ -61,7 +49,7 @@ internal class ClientEventBus(
 
     private val dropped = AtomicLong(0)
 
-    /** notification 은 [_events] 를 거치지 않고 수집자별 버퍼로 간다(plan J). */
+    /** notification 은 [officialEvents] 를 거치지 않고 수집자별 버퍼로 간다(plan J). */
     private val notificationHub = NotificationHub(
         capacity = config.eventBufferCapacity,
         onDrop = { dropped.incrementAndGet() },
@@ -98,7 +86,7 @@ internal class ClientEventBus(
 
     /**
      * 이벤트 방출 진입점. 이 함수 하나로만 모은다(규칙 7) — 워커 4개는 생성자로
-     * 이 함수 참조(`::emit`)를 받을 뿐, `_events.tryEmit`을 직접 부르지 않는다.
+     * 이 함수 참조(`::emit`)를 받을 뿐, 나가는 흐름의 `tryEmit`을 직접 부르지 않는다.
      *
      * `SUSPEND` + `tryEmit` 조합이 의도다: 절대 블로킹하지 않으면서(GATT 콜백 스레드를
      * 막지 않음) 버퍼가 차면 `tryEmit`이 `false`를 돌려줘 유실 사실을 알 수 있다.
@@ -107,8 +95,8 @@ internal class ClientEventBus(
      * 발행만 한다 — 제어를 일으키지 않는다(plan connect-sequence 불변식 ①). 붙은 뒤 절차는
      * lifecycle 이 발행 **직후** [kr.co.nucode.ble.internal.connection.LinkSetup] 입력(`onLinkUp` ·
      * `onServicesDiscovered` · `onMtuSettled`)을 불러 진행한다. 순서가 "발행 먼저, 진행 나중"
-     * 이어야 `MtuChanged` 뒤 절차가 발행하는 `Ready` 가 그 `MtuChanged` 보다 먼저 소비자에
-     * 닿지 않는다(설계 §6 런타임 flow).
+     * 이어야 앞 사건(예: `ServicesDiscovered`) 뒤 절차가 발행하는 다음 상태가 그 사건보다 먼저
+     * 소비자에 닿지 않는다(설계 §6 런타임 flow).
      */
     fun emit(e: BleEvent) {
         if (isClosed()) return
@@ -147,7 +135,6 @@ internal class ClientEventBus(
             else -> null
         }
         if (official != null && !_officialEvents.tryEmit(official)) dropped.incrementAndGet()
-        if (!_events.tryEmit(e)) dropped.incrementAndGet()
     }
 
     /** 닫힘 게이트 검사는 호출부(런타임)가 온기 기록 앞에서 한다 — 순서: 온기 mark → tryEmit. */

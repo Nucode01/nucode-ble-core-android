@@ -128,19 +128,17 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Configuring) }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent() // 수집자가 구독자로 등록될 때까지 진행
 
         core.emitMtuSettled(id, 247, 244)
         runCurrent()
 
         // BleCore.emit KDoc: "발행이 먼저다" — 순서가 뒤집히면(Connected 가 먼저 나오면) red.
+        // MtuChanged 는 공개 흐름에 없다 — 절차 진행 결과 Ready 가 한 번 나오는지만 본다.
         assertEquals(
-            listOf(
-                BleEvent.MtuChanged(id, 247, 244),
-                BleEvent.ConnStateChanged(id, ConnectionState.Ready),
-            ),
+            listOf(OfficialBleClientEvent.Connection(id, ConnectionState.Ready)),
             acc,
         )
     }
@@ -154,14 +152,14 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.emitMtuSettled(id, 247, 244)
         runCurrent()
 
-        assertEquals(listOf(BleEvent.MtuChanged(id, 247, 244)), acc)
+        assertTrue("Connected 를 재방출하면 안 된다: $acc", acc.isEmpty())
     }
 
     @Test
@@ -169,14 +167,14 @@ class BleCoreWiringTest {
         val core = newCore()
         val id = testDeviceId("A1")
         val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
 
         core.sweepSessions(AdapterState.PoweredOff)
         runCurrent()
 
-        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single().failure
+        val diagnostic = events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single().failure
         val terminal = ((session.connectionState.value as ConnectionState.Disconnected).reason as BleDisconnectReason.Failed).failure
         assertEquals(terminal, diagnostic)
         assertEquals(session.failureSessionId, diagnostic.context.sessionId)
@@ -201,14 +199,14 @@ class BleCoreWiringTest {
             requestedMtu = 185
         }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.emitServicesDiscovered(id, emptyList())
         runCurrent()
 
-        val mtuRequestFailed = acc.filterIsInstance<BleEvent.Diagnostic>()
+        val mtuRequestFailed = acc.filterIsInstance<OfficialBleClientEvent.Diagnostic>()
             .firstOrNull {
                 it.failure.code == FailureCode("GATT_OPERATION_START_FAILED") &&
                     (it.failure.platformDetail as? PlatformDetail.Android)?.apiOperation == "requestMtu"
@@ -224,7 +222,7 @@ class BleCoreWiringTest {
         val core = newCore(eventBufferCapacity = bufferCapacity)
 
         // 첫 이벤트를 받은 뒤 영원히 멈추는 수집자 — EventEmissionTest ②와 같은 패턴.
-        backgroundScope.launch { core.events.collect { awaitCancellation() } }
+        backgroundScope.launch { core.officialEvents.collect { awaitCancellation() } }
         runCurrent() // 수집자가 구독자로 등록될 때까지 진행
 
         repeat(bufferCapacity + 1) { i ->
@@ -546,8 +544,8 @@ class BleCoreWiringTest {
             subscriptionState.addDesired(ref)
         }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         val thrown = runCatching { core.unsubscribe(id, ref) }.exceptionOrNull()
@@ -558,7 +556,7 @@ class BleCoreWiringTest {
             "resolve 실패와 무관하게 subscriptions 에서 제거돼야 한다(D8)",
             core.registry.get(id)!!.subscriptionState.desiredSnapshot.isEmpty(),
         )
-        val diagnostic = acc.filterIsInstance<BleEvent.Diagnostic>()
+        val diagnostic = acc.filterIsInstance<OfficialBleClientEvent.Diagnostic>()
             .firstOrNull { it.code == "CHARACTERISTIC_NOT_FOUND" }
         assertTrue("CHARACTERISTIC_NOT_FOUND Diagnostic 이 나와야 한다: $acc", diagnostic != null)
     }
@@ -652,8 +650,8 @@ class BleCoreWiringTest {
             subscriptionState.addDesired(ref2)
         }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.emitMtuSettled(id, 247, 244)
@@ -663,7 +661,7 @@ class BleCoreWiringTest {
         assertEquals(
             "Connected 공개 뒤에는 restore를 재시작하면 안 된다: $acc",
             0,
-            acc.filterIsInstance<BleEvent.Diagnostic>().count { it.code.startsWith("RESUBSCRIBE") },
+            acc.filterIsInstance<OfficialBleClientEvent.Diagnostic>().count { it.code.startsWith("RESUBSCRIBE") },
         )
         assertEquals(
             "desired intent는 pre-Ready restore만 변경할 수 있다",
@@ -681,8 +679,8 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.DiscoveringServices) }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.emitMtuSettled(id, 247, 244)
@@ -691,7 +689,7 @@ class BleCoreWiringTest {
 
         assertEquals(
             0,
-            acc.filterIsInstance<BleEvent.Diagnostic>().count { it.code == "RESUBSCRIBE_FAILED" },
+            acc.filterIsInstance<OfficialBleClientEvent.Diagnostic>().count { it.code == "RESUBSCRIBE_FAILED" },
         )
     }
 
@@ -711,8 +709,8 @@ class BleCoreWiringTest {
             subscriptionState.addDesired(ref2)
         }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.emit(BleEvent.ConnStateChanged(id, ConnectionState.Ready))
@@ -722,7 +720,7 @@ class BleCoreWiringTest {
         assertEquals(
             "stale Connected 이벤트가 restore를 시작하면 안 된다",
             0,
-            acc.filterIsInstance<BleEvent.Diagnostic>().count { it.code == "RESUBSCRIBE_FAILED" },
+            acc.filterIsInstance<OfficialBleClientEvent.Diagnostic>().count { it.code == "RESUBSCRIBE_FAILED" },
         )
         assertEquals(
             "stale 이벤트는 desired intent를 바꾸면 안 된다",
@@ -768,8 +766,8 @@ class BleCoreWiringTest {
         )
         sessionB.gattOperationScheduler.startNext()
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.sweepSessions(AdapterState.PoweredOff)
@@ -792,7 +790,7 @@ class BleCoreWiringTest {
         assertTrue("queued A가 종결돼야 한다(D4)", queuedA.completion.isCompleted)
         assertTrue("pending B가 종결돼야 한다(D4)", pendingB.completion.isCompleted)
 
-        val connStateChangedEvents = acc.filterIsInstance<BleEvent.ConnStateChanged>()
+        val connStateChangedEvents = acc.filterIsInstance<OfficialBleClientEvent.Connection>()
         assertEquals("세션 2개분 ConnStateChanged 가 나와야 한다(D4)", 2, connStateChangedEvents.size)
     }
 
@@ -810,8 +808,8 @@ class BleCoreWiringTest {
             suppressReconnect = false
         }
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        val acc = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(acc) }
         runCurrent()
 
         core.sweepSessions(AdapterState.PoweredOff)
@@ -1235,8 +1233,8 @@ class BleCoreWiringTest {
         var restoreJobAtReady: kotlinx.coroutines.Job? = null
         backgroundScope.launch { core.officialEvents.toList(officialEvents) }
         backgroundScope.launch {
-            core.events.collect { event ->
-                if (event == BleEvent.ConnStateChanged(id, ConnectionState.Ready)) {
+            core.officialEvents.collect { event ->
+                if (event == OfficialBleClientEvent.Connection(id, ConnectionState.Ready)) {
                     restoreJobAtReady = core.linkSetup.restoreJob(session)
                 }
             }
@@ -1285,8 +1283,8 @@ class BleCoreWiringTest {
     fun `Slice2 duplicate connect의 options mismatch와 disconnecting connect는 generation을 바꾸지 않는다`() = runTest {
         val core = newCore(linkTimeoutMillis = 100)
         val id = testDeviceId("A4")
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val session = core.registry.getOrCreate(id).apply {
             autoConnect = false
@@ -1299,7 +1297,7 @@ class BleCoreWiringTest {
         }.exceptionOrNull()
 
         assertEquals("CONNECTION_OPTIONS_CONFLICT", optionsConflict?.message)
-        assertTrue(events.filterIsInstance<BleEvent.Diagnostic>().any { it.code == "CONNECTION_OPTIONS_CONFLICT" })
+        assertTrue(events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().any { it.code == "CONNECTION_OPTIONS_CONFLICT" })
         assertEquals(generation, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
         assertEquals(ConnectionState.Connecting, session.connectionState.value)
@@ -1316,7 +1314,7 @@ class BleCoreWiringTest {
         }.exceptionOrNull()
 
         assertEquals("CONNECT_DURING_DISCONNECT", disconnectConflict?.message)
-        assertTrue(events.filterIsInstance<BleEvent.Diagnostic>().any { it.code == "CONNECT_DURING_DISCONNECT" })
+        assertTrue(events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().any { it.code == "CONNECT_DURING_DISCONNECT" })
         assertEquals(generation, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Disconnecting, session.connectionCoordinator.stage)
         assertEquals(ConnectionState.Disconnecting, session.connectionState.value)
@@ -1459,8 +1457,8 @@ class BleCoreWiringTest {
             nextStage = ConnectionStage.Ready,
             scope = this,
         )
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         return PublicGattFixture(
             core = core,
@@ -1507,7 +1505,7 @@ class BleCoreWiringTest {
         assertFailureCode("OPERATION_INVALIDATED", queued.await())
         assertEquals(expectedCommands, fixture.driver.commands)
         assertTrue(
-            fixture.events.filterIsInstance<BleEvent.Diagnostic>()
+            fixture.events.filterIsInstance<OfficialBleClientEvent.Diagnostic>()
                 .any { it.code == "GATT_OPERATION_DUPLICATE_CALLBACK" },
         )
     }
@@ -1519,7 +1517,7 @@ class BleCoreWiringTest {
         val queuedRef: CharacteristicRef,
         val session: Session,
         val driver: PublicFakeGattDriver,
-        val events: List<BleEvent>,
+        val events: List<BleClientEvent>,
         val generation: Long,
     )
 
@@ -1710,7 +1708,7 @@ class BleCoreWiringTest {
     }
 }
 
-private val BleEvent.Diagnostic.code: String
+private val OfficialBleClientEvent.Diagnostic.code: String
     get() = failure.code.value
 
 /**
@@ -1723,10 +1721,11 @@ private fun BleRuntime.publishStateAs(id: PeripheralId, state: ConnectionState) 
     emit(BleEvent.ConnStateChanged(id, session.connectionState.value))
 }
 
-/** lifecycle 의 MTU 발행 지점을 흉내 낸다 — 발행 후 `onMtuSettled`. */
+/** lifecycle 의 MTU 확정 지점을 흉내 낸다 — 세션 mtu/chunkSize 반영 후 `onMtuSettled`. */
 private fun BleRuntime.emitMtuSettled(id: PeripheralId, mtu: Int, chunkSize: Int) {
-    emit(BleEvent.MtuChanged(id, mtu, chunkSize))
     val session = registry.get(id) ?: return
+    session.mtu = mtu
+    session.chunkSize = chunkSize
     linkSetup.onMtuSettled(session, session.connectionCoordinator.generation)
 }
 

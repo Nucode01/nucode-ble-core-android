@@ -12,7 +12,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.scan.ScanObservation
-import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -56,28 +55,28 @@ class ScanContractTest {
         retryability = Retryability.Unknown,
     )
 
-    private fun TestScope.collectEvents(core: BleRuntime): List<BleEvent> {
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+    private fun TestScope.collectEvents(core: BleRuntime): List<BleClientEvent> {
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         return events
     }
 
-    private fun List<BleEvent>.diagnosticCodes(): List<String> =
-        filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
+    private fun List<BleClientEvent>.diagnosticCodes(): List<String> =
+        filterIsInstance<OfficialBleClientEvent.Diagnostic>().map { it.failure.code.value }
 
     @Test
     fun `a 다른 요청으로 재시작하면 SCAN_ALREADY_RUNNING 을 던지고 상태와 Diagnostic 은 유지된다`() = runTest {
         val core = newCore()
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         core.startScan(first)
         val thrown = runCatching { core.startScan(second) }.exceptionOrNull()
         runCurrent()
         assertEquals("SCAN_ALREADY_RUNNING", (thrown as? BleException)?.failure?.code?.value)
         assertEquals(ScanState.Scanning(ScanRequest(first, BleScanOptions())), core.scanState.value)
-        assertTrue(events.any { it is BleEvent.Diagnostic && it.failure.code.value == "SCAN_ALREADY_RUNNING" })
+        assertTrue(events.any { it is OfficialBleClientEvent.Diagnostic && it.failure.code.value == "SCAN_ALREADY_RUNNING" })
     }
 
     @Test
@@ -135,7 +134,7 @@ class ScanContractTest {
         stale.onFailure(failure("SCAN_RUNTIME_FAILED"))
         runCurrent()
         assertEquals(ScanState.Scanning(ScanRequest(second, BleScanOptions())), core.scanState.value)
-        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
+        val diagnostic = events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
         assertEquals(Severity.Warning, diagnostic.severity)
     }
 
@@ -149,7 +148,7 @@ class ScanContractTest {
         started.onFailure(failure("SCAN_RUNTIME_FAILED"))
         runCurrent()
         assertEquals(ScanState.Idle(null), core.scanState.value)
-        assertEquals(Severity.Warning, events.filterIsInstance<BleEvent.Diagnostic>().single().severity)
+        assertEquals(Severity.Warning, events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single().severity)
     }
 
     @Test
@@ -200,7 +199,7 @@ class ScanContractTest {
         failedStart.onFailure(failure("SCAN_RUNTIME_FAILED"))
         runCurrent()
         assertEquals(ScanState.Scanning(ScanRequest(first, BleScanOptions())), core.scanState.value)
-        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
+        val diagnostic = events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
         assertEquals(Severity.Warning, diagnostic.severity)
     }
 

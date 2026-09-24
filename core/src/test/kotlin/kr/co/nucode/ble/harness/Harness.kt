@@ -12,16 +12,17 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
+import kr.co.nucode.ble.BleClientEvent
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
-import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.fail
 
 /**
@@ -44,14 +45,14 @@ internal class Harness(
     /** scanState 의 모든 게시. */
     val scanStates: MutableList<ScanState> = mutableListOf()
 
-    /** core.events 의 모든 이벤트. */
-    val events: MutableList<BleEvent> = mutableListOf()
+    /** core.officialEvents 의 모든 이벤트. */
+    val events: MutableList<BleClientEvent> = mutableListOf()
 
     private val recorder = UnconfinedTestDispatcher(testScope.testScheduler)
 
     init {
         testScope.backgroundScope.launch(recorder) { client.scanState.collect { scanStates += it } }
-        testScope.backgroundScope.launch(recorder) { core.events.collect { events += it } }
+        testScope.backgroundScope.launch(recorder) { core.officialEvents.collect { events += it } }
     }
 
     fun session(id: PeripheralId): DefaultBleSession {
@@ -95,9 +96,9 @@ internal class Harness(
     /** connectionState·activeSubscriptions 를 도착 순서대로 합친 기록. */
     fun timeline(id: PeripheralId): List<TimelinePoint> = timelines[id].orEmpty()
 
-    /** core.events 의 ConnStateChanged 중 [id] 의 상태 순서(발행마다 하나 — StateFlow 처럼 합쳐지지 않는다). */
+    /** core.officialEvents 의 Connection 중 [id] 의 상태 순서(발행마다 하나 — StateFlow 처럼 합쳐지지 않는다). */
     fun connEvents(id: PeripheralId): List<ConnectionState> =
-        events.filterIsInstance<BleEvent.ConnStateChanged>().filter { it.deviceId == id }.map { it.state }
+        events.filterIsInstance<OfficialBleClientEvent.Connection>().filter { it.peripheralId == id }.map { it.state }
 
     /**
      * 공개 connect 를 걸고 현재 시점까지만 실행한다(Ready 를 기대하지 않는 시나리오용).

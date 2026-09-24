@@ -10,7 +10,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,7 +54,7 @@ class AdapterStateTransitionTest {
         val core: BleRuntime,
         val id: PeripheralId,
         val session: Session,
-        val events: MutableList<BleEvent>,
+        val events: MutableList<BleClientEvent>,
         val probe: ProbeHolder,
     )
 
@@ -70,8 +69,8 @@ class AdapterStateTransitionTest {
         val id = testDeviceId()
         val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
 
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
 
         probe.state = AdapterState.PoweredOff
@@ -103,7 +102,7 @@ class AdapterStateTransitionTest {
         assertEquals(
             "플립 이후 그 device 의 ConnStateChanged 는 정확히 1회여야 한다",
             1,
-            fx.events.filterIsInstance<BleEvent.ConnStateChanged>().count { it.deviceId == fx.id },
+            fx.events.filterIsInstance<OfficialBleClientEvent.Connection>().count { it.peripheralId == fx.id },
         )
         assertEquals(AdapterState.PoweredOff, fx.core.adapterState.value)
     }
@@ -158,8 +157,8 @@ class AdapterStateTransitionTest {
         val core = newCore { probe.state }
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
-        val events = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(events) }
+        val events = mutableListOf<BleClientEvent>()
+        backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
 
         probe.state = AdapterState.PoweredOff
@@ -167,7 +166,7 @@ class AdapterStateTransitionTest {
         runCurrent()
         assertFailureCode("ADAPTER_UNAVAILABLE", failure)
 
-        val changes = events.filterIsInstance<BleEvent.ConnStateChanged>().filter { it.deviceId == id }
+        val changes = events.filterIsInstance<OfficialBleClientEvent.Connection>().filter { it.peripheralId == id }
         assertEquals("op 관측 스윕은 ConnStateChanged 를 정확히 1회 낸다: $changes", 1, changes.size)
         val state = changes.single().state
         assertTrue(
@@ -177,7 +176,7 @@ class AdapterStateTransitionTest {
         )
         assertEquals(
             1,
-            events.filterIsInstance<BleEvent.Diagnostic>().count { it.failure.code == FailureCode("ADAPTER_UNAVAILABLE") },
+            events.filterIsInstance<OfficialBleClientEvent.Diagnostic>().count { it.failure.code == FailureCode("ADAPTER_UNAVAILABLE") },
         )
         assertEquals(AdapterState.PoweredOff, core.adapterState.value)
 
@@ -186,7 +185,7 @@ class AdapterStateTransitionTest {
         assertEquals(
             "이미 op 가 non-Ready 를 기록했으므로 refresh 는 재스윕하지 않는다",
             1,
-            events.filterIsInstance<BleEvent.ConnStateChanged>().count { it.deviceId == id },
+            events.filterIsInstance<OfficialBleClientEvent.Connection>().count { it.peripheralId == id },
         )
     }
 
@@ -211,7 +210,7 @@ class AdapterStateTransitionTest {
     @Test
     fun `c PoweredOff에서 Resetting으로 전이해도 스윕이 다시 돌지 않는다`() = runTest {
         val fx = fixtureAtPoweredOff()
-        val beforeCount = fx.events.filterIsInstance<BleEvent.ConnStateChanged>().size
+        val beforeCount = fx.events.filterIsInstance<OfficialBleClientEvent.Connection>().size
 
         fx.probe.state = AdapterState.Resetting
         fx.core.refreshAdapterState()
@@ -220,7 +219,7 @@ class AdapterStateTransitionTest {
         assertEquals(
             "이미 non-Ready 였으므로 추가 ConnStateChanged 가 없어야 한다(D4 — Ready→non-Ready 전이만 스윕)",
             beforeCount,
-            fx.events.filterIsInstance<BleEvent.ConnStateChanged>().size,
+            fx.events.filterIsInstance<OfficialBleClientEvent.Connection>().size,
         )
         assertEquals(AdapterState.Resetting, fx.core.adapterState.value)
     }
@@ -228,7 +227,7 @@ class AdapterStateTransitionTest {
     @Test
     fun `d PoweredOff에서 Ready로 전이하면 스윕 없이 회복되고 다음 connect는 ADAPTER_UNAVAILABLE로 막히지 않는다`() = runTest {
         val fx = fixtureAtPoweredOff()
-        val beforeCount = fx.events.filterIsInstance<BleEvent.ConnStateChanged>().size
+        val beforeCount = fx.events.filterIsInstance<OfficialBleClientEvent.Connection>().size
 
         fx.probe.state = AdapterState.Ready
         fx.core.refreshAdapterState()
@@ -237,7 +236,7 @@ class AdapterStateTransitionTest {
         assertEquals(
             "non-Ready 사이/복귀 전이는 스윕 대상이 아니다(D4/M-6)",
             beforeCount,
-            fx.events.filterIsInstance<BleEvent.ConnStateChanged>().size,
+            fx.events.filterIsInstance<OfficialBleClientEvent.Connection>().size,
         )
         assertEquals(AdapterState.Ready, fx.core.adapterState.value)
 

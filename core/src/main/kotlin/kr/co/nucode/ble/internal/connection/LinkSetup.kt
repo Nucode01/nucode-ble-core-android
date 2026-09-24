@@ -79,7 +79,7 @@ internal class LinkSetup(
         steps.requestMtu(session, session.requestedMtu)
     }
 
-    /** `MtuChanged` 발행 직후(협상 성공·폴백 모두). */
+    /** MTU 확정(세션 반영) 직후(협상 성공·폴백 모두). */
     fun onMtuSettled(session: Session, generation: Long) {
         val wiring = wiring ?: return
         if (wiring.isClosed()) return

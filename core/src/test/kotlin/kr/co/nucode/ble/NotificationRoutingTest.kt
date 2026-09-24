@@ -49,7 +49,12 @@ class NotificationRoutingTest {
             if (received.size == 2) done.complete(Unit)
         }
         core.emit(BleEvent.CharValue(id, ch, byteArrayOf(1)))
-        repeat(100) { i -> core.emit(BleEvent.MtuChanged(PeripheralId("AA:BB:CC:DD:EF:%02X".format(i)), 23, 20)) }
+        // 무관한 세션 100개의 연결 이벤트로 공개 이벤트 흐름을 채운다(registry 에 있어야 officialEvents 로 나간다).
+        repeat(100) { i ->
+            val other = PeripheralId("AA:BB:CC:DD:EF:%02X".format(i))
+            core.registry.getOrCreate(other)
+            core.emit(BleEvent.ConnStateChanged(other, ConnectionState.Connecting))
+        }
         core.emit(BleEvent.CharValue(id, ch, byteArrayOf(2)))
         gate.complete(Unit)
         withTimeoutOrNull(1_000) { done.await() }

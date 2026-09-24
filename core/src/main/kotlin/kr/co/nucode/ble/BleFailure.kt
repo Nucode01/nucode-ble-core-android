@@ -196,6 +196,18 @@ internal object FailureMapper {
     private const val GATT_INSUFFICIENT_AUTHENTICATION = 5
     private const val GATT_INSUFFICIENT_AUTHORIZATION = 8
     private const val GATT_INSUFFICIENT_ENCRYPTION = 15
+    private const val HCI_AUTHENTICATION_FAILURE = 5
+
+    /** AOSP system/stack/include/gatt_api.h tGATT_DISCONN_REASON (onConnectionStateChange status). */
+    private val LINK_DISCONNECT_REASONS: Map<Int, String> = mapOf(
+        1 to "GATT_CONN_L2C_FAILURE",
+        8 to "GATT_CONN_TIMEOUT",
+        19 to "GATT_CONN_TERMINATE_PEER_USER",
+        22 to "GATT_CONN_TERMINATE_LOCAL_HOST",
+        34 to "GATT_CONN_LMP_TIMEOUT",
+        62 to "GATT_CONN_FAILED_ESTABLISHMENT",
+        133 to "GATT_ERROR",
+    )
 
     fun fromAdapterState(state: AdapterState): BleFailure = when (state) {
         AdapterState.Unsupported -> failure(
@@ -265,6 +277,11 @@ internal object FailureMapper {
         ),
     )
 
+    /**
+     * Maps a GATT callback status. For [FailurePhase.Link] the status comes from
+     * onConnectionStateChange and is a disconnect-reason (HCI) space distinct from GATT status;
+     * values overlap (0x08 = GATT_CONN_TIMEOUT vs GATT_INSUFFICIENT_AUTHORIZATION).
+     */
     fun gattStatusFailed(
         statusCode: Int,
         phase: FailurePhase,
@@ -288,7 +305,11 @@ internal object FailureMapper {
                 else -> error("validated above")
             },
             phase = phase,
-            retryability = retryabilityForGattStatus(statusCode),
+            retryability = if (phase == FailurePhase.Link) {
+                linkRetryability(statusCode)
+            } else {
+                retryabilityForGattStatus(statusCode)
+            },
             context = context,
             platformDetail = androidDetail(
                 domain = if (phase == FailurePhase.Link) {
@@ -299,7 +320,11 @@ internal object FailureMapper {
                 statusCode = statusCode,
                 reasonCode = reasonCode,
                 operation = operation,
-                symbolicName = symbolicName ?: symbolicNameForGattStatus(statusCode),
+                symbolicName = symbolicName ?: if (phase == FailurePhase.Link) {
+                    linkSymbolicName(statusCode)
+                } else {
+                    symbolicNameForGattStatus(statusCode)
+                },
             ),
         )
     }
@@ -321,13 +346,13 @@ internal object FailureMapper {
             category = "connection",
             code = "LINK_FAILED",
             phase = FailurePhase.Link,
-            retryability = retryabilityForGattStatus(statusCode),
+            retryability = linkRetryability(statusCode),
             context = context,
             platformDetail = androidDetail(
                 domain = "android.bluetooth.gatt.connection",
                 statusCode = statusCode,
                 operation = AndroidApiOperation.OnConnectionStateChange,
-                symbolicName = symbolicNameForGattStatus(statusCode),
+                symbolicName = linkSymbolicName(statusCode),
             ),
         )
     }
@@ -415,6 +440,13 @@ internal object FailureMapper {
         GATT_INSUFFICIENT_ENCRYPTION -> "GATT_INSUFFICIENT_ENCRYPTION"
         else -> null
     }
+
+    private fun linkRetryability(statusCode: Int): Retryability = when (statusCode) {
+        HCI_AUTHENTICATION_FAILURE -> Retryability.AfterEnvironmentChange
+        else -> Retryability.Unknown
+    }
+
+    private fun linkSymbolicName(statusCode: Int): String? = LINK_DISCONNECT_REASONS[statusCode]
 
     private fun invalidContext(message: String): Nothing = throw IllegalArgumentException(message)
 

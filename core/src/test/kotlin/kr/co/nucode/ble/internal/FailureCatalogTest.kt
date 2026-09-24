@@ -55,6 +55,14 @@ class FailureCatalogTest {
             "GATT_INSUFFICIENT_AUTHENTICATION",
             "GATT_INSUFFICIENT_AUTHORIZATION",
             "GATT_INSUFFICIENT_ENCRYPTION",
+            // platformDetail 에 싣는 연결 해제 이유 기호 이름이며 실패 코드가 아님
+            "GATT_CONN_L2C_FAILURE",
+            "GATT_CONN_TIMEOUT",
+            "GATT_CONN_TERMINATE_PEER_USER",
+            "GATT_CONN_TERMINATE_LOCAL_HOST",
+            "GATT_CONN_LMP_TIMEOUT",
+            "GATT_CONN_FAILED_ESTABLISHMENT",
+            "GATT_ERROR",
         )
 
         /** 비어 있어야 한다 — 새 항목이 생기면 규칙 위반이 새로 생긴 것. */

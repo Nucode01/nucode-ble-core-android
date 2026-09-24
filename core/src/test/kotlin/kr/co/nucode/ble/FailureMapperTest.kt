@@ -167,4 +167,62 @@ class FailureMapperTest {
         assertEquals("FUTURE_TRANSPORT_CODE", BleException(failure).message)
         assertNull(BleException(failure).cause)
     }
+
+    @Test
+    fun `연결 상태 콜백 status 는 연결 해제 이유 표로 해석한다`() {
+        val cases = listOf(
+            Triple(8, Retryability.Unknown, "GATT_CONN_TIMEOUT"),
+            Triple(19, Retryability.Unknown, "GATT_CONN_TERMINATE_PEER_USER"),
+            Triple(22, Retryability.Unknown, "GATT_CONN_TERMINATE_LOCAL_HOST"),
+            Triple(133, Retryability.Unknown, "GATT_ERROR"),
+            Triple(15, Retryability.Unknown, null),
+        )
+        for ((status, retryability, symbolicName) in cases) {
+            val failure = FailureMapper.gattStatusFailed(
+                statusCode = status,
+                phase = FailurePhase.Link,
+                operation = AndroidApiOperation.OnConnectionStateChange,
+            )
+            assertEquals("status=$status", FailureCode("LINK_FAILED"), failure.code)
+            assertEquals("status=$status", retryability, failure.retryability)
+            val detail = failure.platformDetail as PlatformDetail.Android
+            assertEquals("status=$status", symbolicName, detail.symbolicName)
+        }
+    }
+
+    @Test
+    fun `연결 해제 이유 5(인증 실패)만 환경 변경 뒤 재시도로 본다`() {
+        val failure = FailureMapper.gattStatusFailed(
+            statusCode = 5,
+            phase = FailurePhase.Link,
+            operation = AndroidApiOperation.OnConnectionStateChange,
+        )
+
+        assertEquals(Retryability.AfterEnvironmentChange, failure.retryability)
+    }
+
+    @Test
+    fun `귀속 없는 링크 끊김도 연결 해제 이유 표로 해석한다`() {
+        val timeout = FailureMapper.unattributedLinkDisconnect(8)
+        assertEquals(Retryability.Unknown, timeout.retryability)
+        assertEquals("GATT_CONN_TIMEOUT", (timeout.platformDetail as PlatformDetail.Android).symbolicName)
+
+        val success = FailureMapper.unattributedLinkDisconnect(0)
+        assertNull((success.platformDetail as PlatformDetail.Android).symbolicName)
+    }
+
+    @Test
+    fun `서비스 탐색 status 는 GATT status 표를 유지한다`() {
+        val failure = FailureMapper.gattStatusFailed(
+            statusCode = 8,
+            phase = FailurePhase.DiscoverServices,
+            operation = AndroidApiOperation.OnServicesDiscovered,
+        )
+
+        assertEquals(Retryability.AfterEnvironmentChange, failure.retryability)
+        assertEquals(
+            "GATT_INSUFFICIENT_AUTHORIZATION",
+            (failure.platformDetail as PlatformDetail.Android).symbolicName,
+        )
+    }
 }

@@ -46,6 +46,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- 연결 상태 콜백의 status 를 GATT 작업 status 표로 해석해 링크 끊김(8, 연결 타임아웃)이 `GATT_INSUFFICIENT_AUTHORIZATION`·`AfterEnvironmentChange` 로 보이던 것을 고쳤다. 이제 `LINK_FAILED` 의 `symbolicName` 은 `GATT_CONN_*` 이고 retryability 는 `Unknown`(0x05 인증 실패만 `AfterEnvironmentChange`).
 - 재연결 대기 중(끝난 연결)에 도착한 notify 가 `notifications()` 로 전달되던 문제를 고쳤다.
 - 재연결 대기 중 `unsubscribe()` 가 `IllegalStateException` 을 던지고 구독 의도를 지우지 못해 재연결 뒤 구독이 복원되던 문제를 고쳤다. 이제 링크가 없으면 로컬 해제만 한다.
 - 이전 스캔 요청의 늦은 `onScanFailed` 가 새 스캔을 멈추고 `scanState` 를 그 실패로 덮던 것을 고쳤다. 스캔마다 generation 을 붙여 다른 스캔·이미 멈춘 스캔의 실패는 `Diagnostic(Warning)` 으로만 남긴다.

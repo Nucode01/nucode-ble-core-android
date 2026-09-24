@@ -71,6 +71,21 @@ class GattConnectionLifecycleTest {
         assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"), offenders)
     }
 
+    /**
+     * 중복 connect 판정 코드("CONNECTION_OPTIONS_CONFLICT"/"CONNECT_DURING_DISCONNECT") 문자열 리터럴은 main 에서
+     * GattConnectionLifecycle.kt(admitConnect) 에만 있다 — FailureCatalog.kt 등록 항목은 예외.
+     */
+    @Test
+    fun `중복 connect 판정 코드는 GattConnectionLifecycle 에만 있다`() {
+        val literal = Regex("\"(CONNECTION_OPTIONS_CONFLICT|CONNECT_DURING_DISCONNECT)\"")
+        val offenders = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && it.name != "FailureCatalog.kt" }
+            .filter { literal.containsMatchIn(it.readText()) }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"), offenders)
+    }
+
     /** plan link-setup 불변식 ② — `ConnStateChanged` 는 GattConnectionLifecycle.publishState 한 곳에서만 만든다. */
     @Test
     fun `ConnStateChanged 는 lifecycle publishState 에서만 만든다`() {

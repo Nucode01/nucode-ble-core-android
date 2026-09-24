@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AdvertisementData
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.BleException
@@ -116,7 +117,21 @@ internal class Scanner(
         }
     }
 
-    /** 어댑터 이탈 등 외부 원인 — 모든 소비자를 끝낸다: 사용자 Idle([failure]), 재발견 Unavailable([failure]). */
+    /**
+     * 어댑터 이탈 — 스캔도 어댑터와 함께 죽는다(review L). 모든 소비자를 끝낸다: 사용자 Idle(실패),
+     * 재발견 Unavailable(실패). isScanning 잔류를 두면 BT 복귀 후 startScan() 이 조용한 no-op 이 된다.
+     * 소비자에게는 Diagnostic 으로 알린다(onScanFailed 는 이 경로에서 보장되지 않는다) — 단 사용자 스캔이
+     * 끊겼을 때만. 재발견만 돌던 플랫폼 스캔도 함께 끝나지만(재발견 Unavailable) Diagnostic 은 없다.
+     */
+    fun stopForAdapter(cause: AdapterState) {
+        val userWasScanning = isScanning
+        val failure = FailureMapper.fromAdapterState(cause)
+            .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
+        stopForAdapter(failure)
+        if (userWasScanning) emit(BleEvent.Diagnostic(Severity.Warning, failure))
+    }
+
+    /** 외부 원인 [failure] 로 모든 소비자를 끝낸다(Diagnostic 없음): 사용자 Idle([failure]), 재발견 Unavailable([failure]). */
     fun stopForAdapter(failure: BleFailure) = endAll(failure)
 
     /**

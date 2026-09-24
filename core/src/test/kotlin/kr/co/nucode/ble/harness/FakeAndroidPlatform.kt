@@ -116,7 +116,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     /** null 이면 시작 성공, 아니면 이 실패로 동기 거절(AndroidScanner.start 의 반환값 자리). */
     var scanStartFailure: BleFailure? = null
 
-    // 근거(코드 주석 BleRuntime.sweepSessions): "onScanFailed 는 이 경로에서 보장되지 않는다" — 기본은 오지 않음.
+    // 근거(코드 주석 Scanner.stopForAdapter): "onScanFailed 는 이 경로에서 보장되지 않는다" — 기본은 오지 않음.
     var onScanFailedAfterAdapterOff: CallbackVariant = CallbackVariant.Missing
 
     /** 성공한 플랫폼 스캔 시작 기록. 각 항목으로 그 시작 시점의 콜백에서 실패를 낼 수 있다(M1 의 늦은 실패). */

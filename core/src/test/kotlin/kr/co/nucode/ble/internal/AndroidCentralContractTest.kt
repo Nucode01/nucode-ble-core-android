@@ -1,6 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import java.lang.reflect.Modifier
+import kr.co.nucode.ble.internal.adapter.AdapterMonitor
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -26,7 +27,7 @@ class AndroidCentralContractTest {
         )
         assertTrue("adapter() is the per-call adapter query", "adapter" in methods)
         assertTrue("permissionState() is the per-call permission query", "permissionState" in methods)
-        assertFalse("state composition stays in BleRuntime", "adapterState" in methods)
+        assertFalse("state composition stays out of the platform adapter (AdapterMonitor owns it)", "adapterState" in methods)
     }
 
     @Test
@@ -38,6 +39,12 @@ class AndroidCentralContractTest {
         assertFalse("legacy BleRuntime.permissionState() remains", "permissionState" in methods)
         assertFalse("legacy BleRuntime.appContext field remains", "appContext" in fields)
         assertTrue("BleRuntime delegates through a single AndroidCentral handle", "central" in fields)
-        assertTrue("adapter-state composition stays in BleRuntime", "computeAdapterState" in methods)
+        // 어댑터 상태 조립은 오케스트레이션 소유자 AdapterMonitor 에 있다(plan runtime-split task 2) — 플랫폼 어댑터
+        // (AndroidCentral)나 런타임에 두 번째 계산이 생기지 않는다.
+        assertFalse("adapter-state composition moved out of BleRuntime", "computeAdapterState" in methods)
+        assertTrue(
+            "adapter-state composition lives in AdapterMonitor",
+            "computeAdapterState" in AdapterMonitor::class.java.declaredMethods.map { it.name },
+        )
     }
 }

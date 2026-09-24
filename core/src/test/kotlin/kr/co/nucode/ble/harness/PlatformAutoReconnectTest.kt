@@ -12,11 +12,13 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleDisconnectReason
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import org.junit.Assert.assertEquals
@@ -258,6 +260,29 @@ class PlatformAutoReconnectTest {
             h.session(id).connectionState.value,
         )
         assertNoViolations(history(h, userDisconnected = true, pastAllDeadlines = true))
+        h.close()
+    }
+
+    /**
+     * 대기 중 다른 effective options(requestedMtu)로 connect — 기존 대기에 합류할 수 없으므로
+     * CONNECTION_OPTIONS_CONFLICT 로 즉시 실패하고, 대기(Recovering·handle)는 그대로 둔다.
+     */
+    @Test
+    fun `f2 Recovering 중 다른 옵션 connect 는 CONNECTION_OPTIONS_CONFLICT 이고 대기를 유지한다`() = runTest {
+        val h = harness(config)
+        readyThenLinkLoss(h)
+        val callsBefore = h.fake.calls.size
+        val error = try {
+            h.core.connect(id, ConnectOptions(autoConnect = true, requestedMtu = 185))
+            null
+        } catch (e: BleException) {
+            e
+        }
+        runCurrent()
+        assertEquals("CONNECTION_OPTIONS_CONFLICT", error?.failure?.code?.value)
+        assertTrue("대기 handle 을 건드렸다: ${h.fake.calls.drop(callsBefore)}", h.fake.calls.drop(callsBefore).isEmpty())
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("대기가 끝났다 ${h.states(id)}")
+        assertTrue("대기 표시가 사라졌다", h.core.registry.get(id)?.awaitingPlatformRelink == true)
         h.close()
     }
 

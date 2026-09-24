@@ -1,13 +1,8 @@
 package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothAdapter
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
@@ -20,34 +15,28 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
+import kr.co.nucode.ble.internal.adapter.AdapterMonitor
+import kr.co.nucode.ble.internal.connection.LinkCacheWarmth
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSetupWiring
-import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
-import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.event.DiagnosticObservation
-import kr.co.nucode.ble.internal.event.NotificationHub
+import kr.co.nucode.ble.internal.event.ClientEventBus
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.linkDeadlineMillis
+import kr.co.nucode.ble.internal.gatt.ConnectAdmission
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
-import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
@@ -57,44 +46,6 @@ import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
-
-/**
- * D7(M-8+#16) 권한 판정 순수 함수 — `sdkInt`/매니페스트 선언 셋/런타임 grant 조회를 인자로
- * 받는다. `Build.VERSION.SDK_INT` 를 직접 참조하지 않는 이유는 테스트 JVM 에서 그 값이
- * 항상 0 이라 버전 매트릭스(31+/29~30/24~28)를 단위 테스트로 돌릴 수 없기 때문이다 —
- * Runtime 멤버가 아니라 파일 최상위 `internal` 함수로 둬 인스턴스 없이 테스트한다.
- *
- * 판정 순서(plan task 7 §구현②):
- * 1) 버전별 필요 권한 중 [declared] 에 없는 것이 있으면 → `Unauthorized(canRequest = false)`
- *    — 매니페스트 미선언. 요청 API 를 불러도 소용없다(앱 빌드 결함).
- * 2) 전부 선언은 됐는데 런타임 권한이 미허용이면 → `Unauthorized(canRequest = true)`.
- * 3) 전부 충족되면 → `null`(허용됨 — `Unauthorized` 아님. 어댑터 on/off 판정은 호출부 몫).
- *
- * pre-31 의 `BLUETOOTH`/`BLUETOOTH_ADMIN` 은 선언 여부만 본다 — 설치 시 부여되는 일반
- * 권한이라 grant 검사가 무의미하다(review #2 근거와 동일선상). 위치 권한은 선언+허용을
- * 모두 본다 — N~P 는 FINE/COARSE 어느 한쪽만 선언·허용돼도 충족된다(OR).
- *
- * [targetSdkInt] < 31 인 앱은 Android 12+ 기기에서도 legacy 권한 셋(BLUETOOTH/ADMIN+위치)으로
- * 합법 동작한다 — 그 조합을 SCAN/CONNECT 미선언 = "앱 빌드 결함(canRequest=false)" 으로
- * 오판하지 않도록 legacy 매트릭스로 내려보낸다(review L).
- *
- * ★ 알려진 한계(실기기 후 재검토): 31+ 에서 `BLUETOOTH_SCAN` 을 `neverForLocation` 없이
- * 선언한 앱은 스캔 결과 수신에 위치 권한도 필요하다 — 이 매트릭스는 그 플래그를 읽지
- * 않으므로(PackageInfo.requestedPermissionsFlags) 해당 조합을 통과로 오판할 수 있다.
- */
-internal fun evaluatePermissionState(
-    sdkInt: Int,
-    declared: Set<String>,
-    isGranted: (String) -> Boolean,
-    targetSdkInt: Int = sdkInt,
-): AdapterState.Unauthorized? = AndroidPermissionState.evaluate(
-    sdkInt = sdkInt,
-    targetSdkInt = targetSdkInt,
-    declared = declared,
-    isGranted = isGranted,
-)
 
 /**
  * 코어 진입점. 유일한 공개 진입점이다(설계 §3 규칙 4 — facade/Manager/Impl 겹 금지).
@@ -125,7 +76,7 @@ internal class BleRuntime private constructor(
     /** 테스트 opt-in — true 면 central 없이도 재발견을 실제 [scanner] 소비자로 배선한다(e2e 하네스용). */
     private val scannerRediscovery: Boolean = false,
     /**
-     * plan G task 1(G1) 어댑터 상태 probe seam — 있으면 [computeAdapterState] 가 실제
+     * plan G task 1(G1) 어댑터 상태 probe seam — 있으면 AdapterMonitor 의 상태 계산이 실제
      * 어댑터/권한 판정을 완전히 건너뛰고 이 람다 값을 그대로 쓴다. 프로덕션 생성자는
      * 이 파라미터를 절대 전달하지 않는다(항상 null) — 전달하면 권한 판정(D7)을 우회해
      * 실제 기기에서 미허용 상태를 Ready 로 오판할 수 있다. 테스트 생성자만
@@ -153,7 +104,7 @@ internal class BleRuntime private constructor(
     /**
      * 어댑터 획득 provider — 프로덕션 경로는 [central]에 매 호출 시 다시 위임해 BT off → on
      * 전환 사이에 갱신되지 않는 낡은 참조를 쓰지 않는다(GattBridge/Scanner 의 같은 계약,
-     * plan §접근 ①). [scanner]·[gattDriver]·[computeAdapterState] 가 초기화 블록에서 이
+     * plan §접근 ①). [scanner]·[gattDriver]·[adapterMonitor] 가 초기화 블록에서 이
      * 프로퍼티를 쓰므로 그것들보다 앞에 선언해야 한다(Kotlin 초기화 순서).
      */
     private val adapter: () -> BluetoothAdapter? = adapterProvider ?: { central?.adapter() }
@@ -174,9 +125,9 @@ internal class BleRuntime private constructor(
      * 배선 로직([linkSetup] 분기 · [emit] 발행 · [droppedEventCount])만
      * 검증한다 — task 6 이 이 생성자로 `BleCoreWiringTest` 를 만든다.
      *
-     * [central] 이 null 이라 [computeAdapterState] 는 항상 `evaluatePermissionState` 의
+     * [central] 이 null 이라 AdapterMonitor 의 상태 계산은 항상 `evaluatePermissionState` 의
      * 빈 선언 집합 경로를 타 `Unauthorized(canRequest = false)` 가 나오고, 브로드캐스트
-     * 리시버는 등록하지 않는다. (다만 [computeAdapterState] 가 어댑터 null 을 먼저 걸러 이
+     * 리시버는 등록하지 않는다. (다만 그 계산이 어댑터 null 을 먼저 걸러 이
      * 경로 자체를 안 탄다 — 아래 참고.) production `AndroidGattDriver.connect()` 는 null
      * context 를 만나면 typed adapter failure로 즉시 막는다(GattBridge KDoc, plan task 5
      * §작업① 선택 (a)) — [gattDriver]와 [gattOperationTargetResolver]를 함께 주입하면
@@ -216,9 +167,6 @@ internal class BleRuntime private constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun defaultDispatcher() = kotlinx.coroutines.Dispatchers.Default.limitedParallelism(1)
 
-    /** 진행 중 link attempt와 duplicate connect를 비교할 때 쓰는 정규화 기본값. */
-    private val defaultLinkTimeoutMillis: Long = config.linkTimeoutMillis
-
     /**
      * [coreScope] 구성에 쓴 디스패처를 Job 없이 그대로 뽑아둔 필드(plan task 5 §작업④) —
      * [close] 가 `CoroutineScope(coreDispatcherOnly).launch { … }` 로 정리 코드를 이
@@ -235,134 +183,55 @@ internal class BleRuntime private constructor(
     private val coreScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + coreDispatcherOnly)
 
-    // ── 배선 ② emit — 규칙 7: 방출 지점은 이 함수 하나뿐 ─────────────────────────────
-
-    private val _events = MutableSharedFlow<BleEvent>(
-        replay = 0,
-        extraBufferCapacity = config.eventBufferCapacity,
-        onBufferOverflow = BufferOverflow.SUSPEND,
-    )
+    // ── 배선 ② emit — 나가는 문은 [eventBus] 소유, 런타임은 같은 이름으로 위임만 한다 ──────────
 
     /**
-     * 내부 신호(연결 상태·서비스·MTU·진단)의 관찰 탭. production 소비자는 없다 — 테스트가 신호
-     * 순서를 관찰하는 자리다. notification 은 여기 오지 않는다([notifications], plan J).
+     * 나가는 문의 소유자. 워커들이 캡처하는 `::emit` 등이 이 객체에 위임하므로 워커보다 먼저
+     * 초기화돼야 한다(Kotlin 초기화 순서). 세션 조회는 람다로 미뤄 [registry] 선언 순서와 무관하다.
      */
-    public val events: Flow<BleEvent> = _events.asSharedFlow()
-
-    private val _officialEvents = MutableSharedFlow<BleClientEvent>(
-        replay = 0,
-        extraBufferCapacity = config.eventBufferCapacity,
-        onBufferOverflow = BufferOverflow.SUSPEND,
+    private val eventBus = ClientEventBus(
+        config = config,
+        isClosed = { closed },
+        sessionOf = { deviceId -> registry.get(deviceId) },
     )
-    internal val officialEvents: Flow<BleClientEvent> = _officialEvents.asSharedFlow()
 
-    /** Structured scan ingress. It is the only scan projection; no raw advertisement event exists. */
-    private val _scanObservations = MutableSharedFlow<ScanObservation>(
-        replay = 0,
-        extraBufferCapacity = config.eventBufferCapacity,
-        onBufferOverflow = BufferOverflow.SUSPEND,
-    )
-    internal val scanObservations: Flow<ScanObservation> = _scanObservations.asSharedFlow()
+    /** 내부 신호의 관찰 탭 — [ClientEventBus.events] 위임. */
+    public val events: Flow<BleEvent> get() = eventBus.events
 
-    private val dropped = AtomicLong(0)
+    internal val officialEvents: Flow<BleClientEvent> get() = eventBus.officialEvents
 
-    /** notification 은 [_events] 를 거치지 않고 수집자별 버퍼로 간다(plan J). */
-    private val notificationHub = NotificationHub(
-        capacity = config.eventBufferCapacity,
-        onDrop = { dropped.incrementAndGet() },
-    )
+    internal val scanObservations: Flow<ScanObservation> get() = eventBus.scanObservations
 
     /** [DefaultBleSession.notifications] 의 진입점. collect 시 동기 등록된다. */
     internal fun notifications(deviceId: PeripheralId, ref: CharacteristicRef): Flow<ByteArray> =
-        notificationHub.subscribe(deviceId, ref)
+        eventBus.notifications(deviceId, ref)
 
     /** 테스트 관찰용 — 등록된 notification 수집자 수. */
     internal val notificationCollectorCount: Int
-        get() = notificationHub.collectorCount
+        get() = eventBus.notificationCollectorCount
 
-    // Null logger is a genuine fast path: no queue and no worker are allocated by the dispatcher.
-    private val diagnosticDispatcher = DiagnosticDispatcher(
-        logger = config.logger,
-        capacity = config.diagnosticOptions.queueCapacity,
-    )
-    private val diagnosticReporter = DiagnosticReporter(
-        emitCompatibility = ::emitCompatibilityDiagnostic,
-        dispatcher = diagnosticDispatcher,
-        options = config.diagnosticOptions,
-    )
     /** Internal producer callback injected into GattBridge; it never enters the public event type. */
-    internal val diagnosticIngress: DiagnosticIngress = diagnosticReporter
+    internal val diagnosticIngress: DiagnosticIngress get() = eventBus.diagnosticIngress
 
-    /**
-     * 유실된 이벤트 수. `SUSPEND` + `tryEmit` 조합에서 버퍼가 찼을 때, 그리고 notification
-     * 수집자의 개별 버퍼([NotificationHub])가 찼을 때(수집자 하나당 한 번) 늘어난다.
-     * 유실이 관측 불가능하면 이 배선의 의미가 없다(plan §배선②).
-     */
+    /** 유실된 이벤트 수 — [ClientEventBus.droppedEventCount] 위임. */
     public val droppedEventCount: Long
-        get() = dropped.get()
+        get() = eventBus.droppedEventCount
 
     /**
-     * 이벤트 방출 진입점. 이 함수 하나로만 모은다(규칙 7) — 워커 4개는 생성자로
-     * 이 함수 참조(`::emit`)를 받을 뿐, `_events.tryEmit`을 직접 부르지 않는다.
-     *
-     * `SUSPEND` + `tryEmit` 조합이 의도다: 절대 블로킹하지 않으면서(GATT 콜백 스레드를
-     * 막지 않음) 버퍼가 차면 `tryEmit`이 `false`를 돌려줘 유실 사실을 알 수 있다.
-     * `DROP_OLDEST`로 바꾸면 `tryEmit`이 항상 `true`라 유실이 조용해진다(plan §배선②).
-     *
-     * 발행만 한다 — 제어를 일으키지 않는다(plan connect-sequence 불변식 ①). 붙은 뒤 절차는
-     * lifecycle 이 발행 **직후** [LinkSetup] 입력(`onLinkUp` · `onServicesDiscovered` ·
-     * `onMtuSettled`)을 불러 진행한다. 순서가 "발행 먼저, 진행 나중"
-     * 이어야 `MtuChanged` 뒤 절차가 발행하는 `Ready` 가 그 `MtuChanged` 보다 먼저 소비자에
-     * 닿지 않는다(설계 §6 런타임 flow).
-     *
-     * `internal` 로 올린 이유(plan task 5 §작업①) — 테스트 seam. 프로덕션 호출자는
-     * 워커 4개가 생성자로 받은 `::emit` 참조뿐이고(규칙 7 불변), task 6 배선 테스트가
-     * 공식 투영 · `dropped` 카운트를 직접 검증하려고 두드리는 자리다.
+     * 이벤트 방출 진입점([ClientEventBus.emit] 위임). `internal` 로 올린 이유(plan task 5 §작업①) —
+     * 테스트 seam. 프로덕션 호출자는 워커 4개가 생성자로 받은 `::emit` 참조뿐이고(규칙 7 불변),
+     * task 6 배선 테스트가 공식 투영 · `dropped` 카운트를 직접 검증하려고 두드리는 자리다.
      */
-    internal fun emit(e: BleEvent) {
-        if (closed) return
-        if (e is BleEvent.Diagnostic) {
-            diagnosticReporter.report(e.severity, e.failure)
-            return
-        }
-        if (e is BleEvent.CharValue) {
-            // notification 은 공용 버스에 넣지 않는다 — 무관한 이벤트가 버퍼를 채워 유실되는 것 방지.
-            notificationHub.deliver(e.deviceId, e.charRef, e.bytes)
-            return
-        }
-        emitCompatibility(e)
-    }
+    internal fun emit(e: BleEvent) = eventBus.emit(e)
 
     /** Same-module migration seam; external producers receive [diagnosticIngress] directly. */
-    internal fun emit(observation: DiagnosticObservation) {
-        if (closed) return
-        diagnosticIngress.report(observation.severity, observation.failure, observation::values)
-    }
+    internal fun emit(observation: DiagnosticObservation) = eventBus.emit(observation)
 
-    /** Emits an already-projected compatibility event without entering the reporter again. */
-    private fun emitCompatibilityDiagnostic(e: BleEvent.Diagnostic) = emitCompatibility(e)
-
-    private fun emitCompatibility(e: BleEvent) {
-        // Capture each edge on its owner before later transitions or collector
-        // scheduling can change the Session values it describes.
-        val official = when (e) {
-            is BleEvent.ConnStateChanged -> registry.get(e.deviceId)?.let {
-                OfficialBleClientEvent.Connection(e.deviceId, e.state)
-            }
-            is BleEvent.ServicesDiscovered -> registry.get(e.deviceId)?.let { session ->
-                OfficialBleClientEvent.Services(e.deviceId, session.services.value)
-            }
-            is BleEvent.Diagnostic -> OfficialBleClientEvent.Diagnostic(e.severity, e.failure)
-            else -> null
-        }
-        if (official != null && !_officialEvents.tryEmit(official)) dropped.incrementAndGet()
-        if (!_events.tryEmit(e)) dropped.incrementAndGet()
-    }
-
+    /** 순서: 닫힘 게이트 → 온기 mark → 발행. */
     private fun emitScanObservation(observation: ScanObservation) {
         if (closed) return
-        warmAddresses += observation.peripheralId
-        if (!_scanObservations.tryEmit(observation)) dropped.incrementAndGet()
+        linkCacheWarmth.mark(observation.peripheralId)
+        eventBus.emitScanObservation(observation)
     }
 
     // ── 워커 조립 — 상태는 registry 하나(규칙 2), 출구는 emit 하나(규칙 7) ───────────
@@ -375,10 +244,8 @@ internal class BleRuntime private constructor(
      */
     internal val registry = SessionRegistry()
 
-    /**
-     * 이 클라이언트가 마지막 adapter Ready 이후 광고나 링크로 본 주소. 없으면 connect 앞에 재발견 스캔.
-     */
-    private val warmAddresses = mutableSetOf<PeripheralId>()
+    /** 링크 캐시 온기 소유자 — 스캔 관측·LinkSetup·sweep 이 쓰고 lifecycle 이 읽는다. */
+    private val linkCacheWarmth = LinkCacheWarmth()
 
     /**
      * `internal` 인 이유 — 테스트 seam. 스캔 테스트가 `scanPort` fake 로 스캔을 시작하고
@@ -416,12 +283,12 @@ internal class BleRuntime private constructor(
             rediscoveryMillis = config.rediscoveryTimeoutMillis,
         ),
         rediscovery = rediscovery,
-        linkCacheWarm = { deviceId -> deviceId in warmAddresses },
+        linkCacheWarm = linkCacheWarmth::isWarm,
         // 붙은 뒤 절차(LinkSetup)는 bridge 가 lifecycle 옆에 조립한다 — 런타임은 제 소유만 람다로 준다.
         linkSetupWiring = LinkSetupWiring(
             isClosed = { closed },
-            markWarm = { deviceId -> warmAddresses += deviceId },
-            onRestoreFailed = ::emitRestoreFailure,
+            markWarm = linkCacheWarmth::mark,
+            onRestoreFailed = eventBus::emitRestoreFailure,
             failureOf = { e, deviceId, ref -> failureFromInternalException(e, FailurePhase.Configure, deviceId, ref) },
         ),
     )
@@ -439,194 +306,64 @@ internal class BleRuntime private constructor(
         writeCommand = gattBridge::writeCommand,
     )
 
-    // ── 배선 ③ 복원 실패 공개 이벤트 — 공개 이벤트 채널은 런타임 소유라 LinkSetup 에 주입한다 ──
-
-    private fun emitRestoreFailure(deviceId: PeripheralId, ref: CharacteristicRef, failure: BleFailure) {
-        if (!_officialEvents.tryEmit(
-                OfficialBleClientEvent.SubscriptionRestoreFailed(
-                    peripheralId = deviceId,
-                    characteristic = ref,
-                    failure = failure,
-                ),
-            )) dropped.incrementAndGet()
-    }
-
     // ── adapterState ────────────────────────────────────────────────────────────
 
-    private val _adapterState = MutableStateFlow(computeAdapterState())
+    private val adapterMonitor = AdapterMonitor(
+        scope = coreScope,
+        adapter = adapter,
+        central = central,
+        adapterStateProbe = adapterStateProbe,
+        context = central?.context?.takeIf { registerAdapterReceiver },
+        onAdapterLost = ::onAdapterLost,
+        onAdapterReturned = ::onAdapterReturned,
+    )
 
     /** 어댑터/권한 상태. `Unauthorized(canRequest)`로 요청 가능/미허용을 구분한다(설계 §5, D7). */
-    public val adapterState: StateFlow<AdapterState> = _adapterState.asStateFlow()
+    public val adapterState: StateFlow<AdapterState> get() = adapterMonitor.adapterState
 
-    /**
-     * 어댑터 검사가 권한 검사보다 먼저다(plan task 7 §테스트) — 내부 테스트 생성자
-     * (`adapter = { null }`)는 [central] 도 null 이라 권한 판정 경로를 타면 항상 빈 선언
-     * 집합으로 `Unauthorized(false)` 가 나오는데, 이 순서 덕분에 그 경로 자체를 안 타고
-     * `Unsupported` 로 먼저 끝난다 — `BleCoreWiringTest` 56개가 이 순서에 기대고 있다.
-     *
-     * 권한 판정 자체(D7/M-8+#16, BLE 스캔 결과 배달 조건 — review #2)는 [central] 이
-     * 있으면 [AndroidCentral.permissionState] 로, 없으면(테스트 생성자 경로) 파일 최상위
-     * [evaluatePermissionState] 에 빈 선언 집합/미허용을 직접 채워 위임한다 — 둘 다 최종
-     * 판정 로직은 [AndroidPermissionState.evaluate] 로 수렴한다.
-     */
-    private fun computeAdapterState(): AdapterState {
-        adapterStateProbe?.let { return it() }
-        val adapterInstance = adapter() ?: return AdapterState.Unsupported
-        val unauthorized = if (central != null) {
-            central.permissionState()
-        } else {
-            // 테스트 생성자 경로(Context 없음): 선언 집합이 비어 있고 grant 조회가 불가한 현재 동작과 동치.
-            evaluatePermissionState(sdkInt = Build.VERSION.SDK_INT, declared = emptySet(), isGranted = { false })
-        }
-        unauthorized?.let { return it }
-        return if (adapterInstance.isEnabled) AdapterState.Ready else AdapterState.PoweredOff
-    }
-
-    /**
-     * 어댑터 on/off 브로드캐스트(review #3 해동) — 잡는 즉시 [_adapterState] 를 다시
-     * 계산해 반영한다. `coreScope.launch` 로 홉하는 이유는 다른 워커 콜백과 동일하다
-     * (GattBridge/Scanner KDoc) — `onReceive` 는 브로드캐스트를 발송한 시스템 스레드에서
-     * 불리고, `_adapterState` 를 coreScope 단일 스레드 밖에서 직접 건드리면 그 확정이
-     * 깨진다.
-     *
-     * 시스템이 직접 보내는 브로드캐스트(앱이 아니라 플랫폼 발신)라 API 33+ 의
-     * `RECEIVER_EXPORTED`/`RECEIVER_NOT_EXPORTED` 플래그 요구가 면제된다 — 그 플래그는
-     * "다른 앱이 내 리시버로 브로드캐스트를 보낼 수 있는가"를 통제하는 것이라 발신자가
-     * 시스템 자신인 표준 브로드캐스트에는 적용되지 않는다(plan §미해결·전제 — 실기기
-     * 미검증). 그래서 `Context.registerReceiver(receiver, filter)` 2-인자로 충분하다.
-     */
-    private val adapterStateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
-            coreScope.launch { refreshAdapterState() }
-        }
-    }
-
-    /**
-     * [adapterStateReceiver] 본문 추출(plan G task 1) — 리시버는 등록이 안 되는 테스트
-     * 생성자 경로에서 검증할 수 없어(브로드캐스트 자체가 없다), 이 함수를 직접 호출해
-     * [adapterStateProbe] 플립 → [updateAdapterState] 전이(스윕 1회 규칙 포함)를 검증한다.
-     * 프로덕션에서는 항상 [coreScope] 위(코어 단일 스레드)에서만 불린다 — 이 함수 자체는
-     * 스레드 확정을 강제하지 않는다. `sweepSessions`(위 KDoc, plan task 6 지시)와 같은
-     * internal 테스트 seam 규약: 테스트는 이 함수를 코어 디스패처 밖(테스트 스레드)에서
-     * 직접 부른다 — [BleCoreWiringTest] 가 `core.sweepSessions(...)`를 같은 방식으로
-     * 직접 부르는 것과 동일 전례.
-     */
+    /** 테스트 seam — [AdapterMonitor.refreshAdapterState] 위임. */
     internal fun refreshAdapterState() {
-        updateAdapterState(computeAdapterState())
+        adapterMonitor.refreshAdapterState()
+    }
+
+    /** 테스트 seam — 어댑터 이탈 스윕을 직접 구동한다(규약은 [onAdapterLost]). */
+    internal fun sweepSessions(cause: AdapterState) {
+        onAdapterLost(cause)
     }
 
     /**
      * BT off/resetting 스윕(D4/M-6). 어댑터가 죽으면 모든 gatt 핸들은 회복 불가다 —
      * stale 핸들에 백오프를 소진하거나(off 중 재연결은 구조적으로 실패) 세션이 Connected 로
-     * 동결되는 것(콜백이 안 오는 기기)을 막는다. BT 복귀 시 자동 재연결은 하지 않는다 —
-     * 그건 정책이라 소비자가 connect() 재호출로(설계 §12 v0.2 미결정).
+     * 동결되는 것(콜백이 안 오는 기기)을 막는다. 이탈 판정과 스윕 1회 규칙은 [AdapterMonitor] 소유이고,
+     * 여기는 자원별 소유자를 순서대로(온기 → 스캔 → 세션) 부르는 배선만 한다. 세션별 skip 규칙·원인
+     * 매핑·종결은 GattConnectionLifecycle.onAdapterLost 에 있다.
      *
-     * [GattBridge] 의 `handleConnectionStateChange` STATE_DISCONNECTED 정리 블록과
-     * **중복되는 게 의도다** — 콜백이 오는 기기에서는 그 블록과 이 스윕이 둘 다 돌지만,
-     * 이 스윕이 먼저 `state` 를 `Disconnected` 로 바꿔두면 나중에 콜백이 와도(또는 콜백이
-     * 먼저 왔으면 이 스윕이) 이미 `Disconnected` 인 세션은 아래 continue 로 걸러진다 —
-     * 어느 순서로 오든 한쪽만 실제로 정리한다(plan §잠재에러 "D4 스윕 vs GATT 콜백" —
-     * 둘 다 coreScope 홉이라 직렬). 콜백 자체가 안 오는 기기(어댑터가 죽어 STATE_DISCONNECTED
-     * 가 발화하지 않는 케이스)에서는 이 스윕만 돈다 — 그게 D4 의 존재 이유다.
-     *
-     * `internal` 인 이유 — 테스트 seam(plan task 6 지시, `emit`/`registry` 와 같은 규약).
-     * 리시버 경로(`adapterStateReceiver`)는 등록이 안 되는 테스트 생성자에서 검증할 수
-     * 없어, 상태 전이 자체를 이 함수로 직접 구동해 검증한다.
+     * `internal` 테스트 seam [sweepSessions] 가 이 함수를 직접 부른다 — 리시버 경로는 등록이 안 되는
+     * 테스트 생성자에서 검증할 수 없어, 상태 전이 자체를 그 seam 으로 구동해 검증한다.
      *
      * registry 에서 세션을 제거하지 않는다 — 기기 자체는 여전히 유효하고, 소비자가
      * connect() 를 다시 불러 되살릴 수 있어야 한다(D4 원문 "BT 복귀 자동 재연결은 안 함").
      */
-    internal fun sweepSessions(cause: AdapterState) {
+    private fun onAdapterLost(cause: AdapterState) {
         // 어댑터가 Ready 를 벗어나면 스택 LE 캐시도 비워진다고 가정한다 — 다음 connect 는 재발견부터.
-        warmAddresses.clear()
-        // 스캔도 어댑터와 함께 죽는다(review L) — isScanning 잔류를 두면 BT 복귀 후
-        // startScan() 이 조용한 no-op 이 된다. 소비자에게는 Diagnostic 으로 알린다
-        // (onScanFailed 는 이 경로에서 보장되지 않는다).
-        // 재발견만 돌던 플랫폼 스캔도 함께 끝난다(재발견 Unavailable) — Diagnostic 은 사용자 스캔이 끊겼을 때만.
-        val userWasScanning = scanner.isScanning
-        val scanFailure = FailureMapper.fromAdapterState(cause)
-            .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
-        scanner.stopForAdapter(scanFailure)
-        if (userWasScanning) emit(diagnostic(Severity.Warning, scanFailure))
+        linkCacheWarmth.clear()
+        scanner.stopForAdapter(cause)
+        for (session in registry.all()) gattBridge.onAdapterLost(session, cause)
+    }
+
+    /** 어댑터 복귀 — 세션마다 lifecycle 에 넘긴다(재연결 판정·시작은 [GattBridge.resumeAfterAdapter] 소유). */
+    private fun onAdapterReturned() {
         for (session in registry.all()) {
-            // 이미 끝난 세션은 조용히(원인 유지). 단 플랫폼 재연결 대기 중(Recovering)이면 앱 관점에서
-            // 아직 종착이 아니다 — 어댑터 원인으로 대기를 끝낸다(lifecycle 이 close 와 같은 경로로 재게시,
-            // ConnectionCoordinator.supersedePlatformWait). handle 을 남기지 않는 표시(suppressReconnect)는
-            // lifecycle terminate 가 세운다.
-            if (session.stage == ConnectionStage.Disconnected && !session.awaitingPlatformRelink) continue
-            // 복원 job 정리(plan B)는 lifecycle terminate 가 한다.
-            val failure = FailureMapper.fromAdapterState(cause).copy(
-                context = session.lifecycleFailureContext(),
-            )
-            emit(diagnostic(Severity.Warning, failure))
-            // lifecycle 종결 API 로 끝낸다 — 원인 고정·handle close(suppressReconnect)·mtu/chunkSize
-            // 무효화(plan G)·게시를 lifecycle 완료 경로가 한 번에 한다. 이미 사용자 해제가 진행 중
-            // (Disconnecting)이면 먼저 고정된 Requested 가 남는다(first wins — 사용자가 끊기를 요청했다).
-            val reason = if (cause is AdapterState.Unauthorized) {
-                TerminalCleanupReason.PermissionDenied
-            } else {
-                TerminalCleanupReason.AdapterUnavailable
-            }
-            gattBridge.terminate(session, session.connectionCoordinator.generation, TerminalCause(reason, failure))
+            gattBridge.resumeAfterAdapter(session.deviceId) { adapterMonitor.adapterState.value is AdapterState.Ready }
         }
     }
 
     init {
-        if (registerAdapterReceiver) {
-            central?.context?.registerReceiver(adapterStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
-        }
+        adapterMonitor.start()
     }
 
-    /**
-     * 즉시 알 수 있는 실패는 throw 한다(plan §명령 실패의 두 갈래) — 권한 없음 · 어댑터 off.
-     * 끊김·재시도 같은 비동기 실패는 여기서 다루지 않고 events 로만 나간다.
-     *
-     * 매번 [computeAdapterState] 로 재계산한다(review #3 "냉동 해제") — [adapterStateReceiver]
-     * 는 `ACTION_STATE_CHANGED` 브로드캐스트만 잡는다. 사용자가 설정 앱에서 위치/BLUETOOTH
-     * 권한을 새로 허용하는 것처럼 그 리시버가 못 잡는 변화는, 늦어도 다음 명령 진입에서
-     * 이 재계산으로 반영된다.
-     */
-    /**
-     * adapterState 쓰기의 유일한 지점(review High). Ready → non-Ready 전이 감지를 쓰는 쪽
-     * (리시버·명령 재계산)이 아니라 여기서 한다 — 어느 경로가 먼저 전이를 관측하든 스윕이
-     * 정확히 1회 돈다. 감지가 리시버에만 있으면, BT off 직후 명령이 먼저 재계산해 값을
-     * 써버린 경우 리시버가 "이미 non-Ready 였다"고 읽어 스윕을 건너뛴다(콜백 안 오는
-     * 기기에서 세션 Connected 동결 — D4 가 막으려던 바로 그 상태).
-     *
-     * D4/M-6 — Ready 로 들어오거나 non-Ready 사이를 오가는 전이는 스윕 대상이 아니다
-     * (이미 스윕된 세션만 남아 Disconnected continue 가드로 no-op).
-     */
-    private fun updateAdapterState(newState: AdapterState) {
-        val wasReady = _adapterState.value is AdapterState.Ready
-        _adapterState.value = newState
-        if (wasReady && newState !is AdapterState.Ready) sweepSessions(newState)
-        if (!wasReady && newState is AdapterState.Ready) resumeAfterAdapter()
-    }
-
-    /** 어댑터 복귀 — 세션마다 lifecycle 에 넘긴다(재연결 판정·시작은 [GattBridge.resumeAfterAdapter] 소유). */
-    private fun resumeAfterAdapter() {
-        for (session in registry.all()) {
-            gattBridge.resumeAfterAdapter(session.deviceId) { _adapterState.value is AdapterState.Ready }
-        }
-    }
-
-    private fun ensureAdapterReady(
-        operation: AndroidApiOperation,
-    ) {
-        updateAdapterState(computeAdapterState())
-        when (val state = _adapterState.value) {
-            is AdapterState.Unauthorized -> throw BleException(
-                FailureMapper.permissionDenied(
-                    phase = FailurePhase.Adapter,
-                    operation = operation,
-                    canRequest = state.canRequest,
-                ),
-            )
-            AdapterState.Unsupported, AdapterState.PoweredOff, AdapterState.Resetting ->
-                throw BleException(FailureMapper.fromAdapterState(state))
-            AdapterState.Ready -> Unit
-        }
+    private fun ensureAdapterReady(operation: AndroidApiOperation) {
+        adapterMonitor.ensureAdapterReady(operation)
     }
 
     /** Converts remaining internal migration errors at the public command boundary only. */
@@ -800,39 +537,13 @@ internal class BleRuntime private constructor(
         transportCommand(FailurePhase.Connect, deviceId) {
         onCore {
             val existing = registry.get(deviceId)
+            // 중복 connect 판정은 연결 stage 소유자(lifecycle)가 한다 — 실패 구성·게시·throw 는 여기서 그대로.
             if (existing != null) {
-                when (existing.stage) {
-                    ConnectionStage.Disconnecting -> {
-                        emitConnectConflict(
-                            deviceId = deviceId,
-                            code = "CONNECT_DURING_DISCONNECT",
-                            message = "disconnect cleanup 중에는 새 connect를 시작할 수 없다: ${deviceId.value}",
-                        )
-                    }
-
-                    ConnectionStage.Connecting,
-                    ConnectionStage.DiscoveringServices,
-                    ConnectionStage.Configuring,
-                    ConnectionStage.Ready,
-                    -> {
-                        if (existing.hasSameEffectiveConnectOptions(options)) return@onCore
-                        emitConnectConflict(
-                            deviceId = deviceId,
-                            code = "CONNECTION_OPTIONS_CONFLICT",
-                            message = "진행 중인 연결의 effective options와 요청이 다르다: ${deviceId.value}",
-                        )
-                    }
-
-                    // 플랫폼 재연결 대기(autoConnect handle 열림) 중에는 같은 handle 위에 두 번째 연결을 시작하지
-                    // 않고 기존 대기를 유지한다(docs/v1 connection-lifecycle "duplicate connect").
-                    ConnectionStage.Disconnected -> if (existing.awaitingPlatformRelink) {
-                        if (existing.hasSameEffectiveConnectOptions(options)) return@onCore
-                        emitConnectConflict(
-                            deviceId = deviceId,
-                            code = "CONNECTION_OPTIONS_CONFLICT",
-                            message = "플랫폼 재연결 대기 중인 연결의 effective options와 요청이 다르다: ${deviceId.value}",
-                        )
-                    }
+                when (val admission = gattBridge.admitConnect(existing, options)) {
+                    ConnectAdmission.Proceed -> Unit
+                    ConnectAdmission.Joined -> return@onCore
+                    is ConnectAdmission.Conflict ->
+                        emitConnectConflict(deviceId = deviceId, code = admission.code)
                 }
             }
 
@@ -858,7 +569,7 @@ internal class BleRuntime private constructor(
      * 적용됐다고 오해한다. Slice 3의 typed failure model 전까지는 기존 즉시 실패 관례에 맞춰
      * deterministic IllegalStateException과 Diagnostic을 함께 남긴다.
      */
-    private fun emitConnectConflict(deviceId: PeripheralId, code: String, message: String): Nothing {
+    private fun emitConnectConflict(deviceId: PeripheralId, code: String): Nothing {
         val failure = transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never)
         emit(
             diagnostic(
@@ -867,22 +578,6 @@ internal class BleRuntime private constructor(
             ),
         )
         throw BleException(failure)
-    }
-
-    /**
-     * timeout은 link stage에서만 실제 lifecycle 동작을 바꾼다. discovery/configuration/Ready
-     * 단계에서는 이미 소진된 timeout을 options mismatch로 취급하지 않는다. generation 0의
-     * legacy seam에는 deadline snapshot이 없으므로 기존 autoConnect/MTU 의미만 보존한다.
-     */
-    private fun Session.hasSameEffectiveConnectOptions(requested: ConnectOptions): Boolean {
-        if (autoConnect != requested.autoConnect || requestedMtu != requested.requestedMtu) return false
-        if (
-            connectionCoordinator.stage != ConnectionStage.Connecting
-        ) return true
-
-        // autoConnect 첫 연결은 deadline 이 없다(null) — 같은 규칙(linkDeadlineMillis)으로 비교한다.
-        return connectionCoordinator.activeDeadline?.timeoutMillis ==
-            requested.linkDeadlineMillis(defaultLinkTimeoutMillis)
     }
 
     public suspend fun disconnect(deviceId: PeripheralId): Unit = transportCommand(FailurePhase.Close, deviceId) {
@@ -990,7 +685,7 @@ internal class BleRuntime private constructor(
                 return@withContext requireNotNull(closedOfficialSnapshot)
             }
             ClientSnapshot(
-            adapterState = _adapterState.value,
+            adapterState = adapterMonitor.adapterState.value,
             isScanning = scanner.isScanning,
             sessions = registry.all().map { session ->
                 SessionSnapshot(
@@ -1031,15 +726,15 @@ internal class BleRuntime private constructor(
             // 이 typed 결과로 끝나려면 폴백이라도 세워야 한다.
             if (closedOfficialSnapshot == null) {
                 closedOfficialSnapshot = ClientSnapshot(
-                    adapterState = _adapterState.value,
+                    adapterState = adapterMonitor.adapterState.value,
                     isScanning = false,
                     sessions = emptyList(),
                 )
             }
         } finally {
             // receiver·디스패처·스코프 정리는 정상·실패 공통으로 딱 한 번 — 보고 뒤라 디스패처 close 가 보고를 삼키지 않는다.
-            runCatching { if (registerAdapterReceiver) central?.context?.unregisterReceiver(adapterStateReceiver) }
-            runCatching { diagnosticDispatcher.close() }
+            runCatching { adapterMonitor.close() }
+            runCatching { eventBus.close() }
             runCatching { coreScope.cancel() }
             closeCompleted.complete(Unit)
         }
@@ -1048,11 +743,11 @@ internal class BleRuntime private constructor(
     /**
      * plan v3 review MEDIUM Fix 2 — 세션별로 `runCatching`(fault-isolate)한다. 한 세션의
      * `gattBridge.close`(driver.close)가 던지면 v2 코드는 그 예외가 이 함수 전체를 끝내
-     * 뒤 세션들이 정리되지 않고(GATT 핸들 누수) `unregisterReceiver`/`diagnosticDispatcher.close()`/
+     * 뒤 세션들이 정리되지 않고(GATT 핸들 누수) `adapterMonitor.close()`/`eventBus.close()`/
      * `coreScope.cancel()` 꼬리까지 스킵됐다 — 한 핸들의 실패가 나머지 정리를 막으면 안 된다.
      * 첫 예외만 [firstFailure] 에 모아 반환한다 — 호출자인 [runCloseCleanup] 이 그 값을
      * [closeFailure] 에 기록하고 로거로 보고한다(호출자에게는 절대 전파되지 않는다). 스냅샷
-     * 구성은 세션 실패 여부와 무관하게 항상 돌고, receiver 해제·`diagnosticDispatcher.close()`·
+     * 구성은 세션 실패 여부와 무관하게 항상 돌고, receiver 해제(`adapterMonitor.close()`)·`eventBus.close()`·
      * `coreScope.cancel()` 는 [runCloseCleanup] 의 finally 가 담당한다(예기치 못한 throw 에도 실행).
      */
     private fun runCloseCleanupBody(): Throwable? {
@@ -1071,7 +766,7 @@ internal class BleRuntime private constructor(
             }.onFailure { t -> if (firstFailure == null) firstFailure = t }
         }
         closedOfficialSnapshot = ClientSnapshot(
-            adapterState = _adapterState.value,
+            adapterState = adapterMonitor.adapterState.value,
             isScanning = false,
             sessions = sessions.map { session ->
                 SessionSnapshot(
@@ -1090,9 +785,9 @@ internal class BleRuntime private constructor(
 
     /**
      * 정리 실패를 [config]의 logger 로 보고한다(plan v2 review MEDIUM (a)) — 구성된 logger 가
-     * 있으면 [diagnosticReporter] 를 직접 부른다. `emit(diagnostic(...))` 을 쓰지 않는 이유:
+     * 있으면 진단 reporter([ClientEventBus.diagnosticIngress])를 직접 부른다. `emit(diagnostic(...))` 을 쓰지 않는 이유:
      * 그 공개 경로는 `closed` 게이트를 검사해 이미 닫힌 시점에는 조용히 버린다(위 [emit] 참고) —
-     * 정리는 게이트가 선 뒤에만 돌므로 그 경로로는 절대 보고되지 않는다. `diagnosticReporter.report`
+     * 정리는 게이트가 선 뒤에만 돌므로 그 경로로는 절대 보고되지 않는다. `diagnosticIngress.report`
      * 는 게이트를 보지 않고 이 실패를 호환 이벤트 스트림과(아직 열려 있으면) logger 워커 큐로
      * non-blocking 하게 흘린다 — [closeFailure] 는 logger 유무와 무관하게 항상 기록되는
      * 테스트/진단 보조 관측점이다.
@@ -1102,7 +797,7 @@ internal class BleRuntime private constructor(
         // 이유로 재시도 대상이 아니다: 재시도할 대상 client 자체가 더는 없다.
         val failure = transportFailure(code = "CLEANUP_FAILURE", phase = FailurePhase.Close, retryability = Retryability.Never)
         try {
-            diagnosticReporter.report(Severity.Error, failure) {
+            eventBus.diagnosticIngress.report(Severity.Error, failure) {
                 mapOf(
                     "cleanup_exception" to DiagnosticValue.Text(
                         (error.message ?: error::class.java.simpleName).take(DiagnosticValue.MAX_TEXT_LENGTH),

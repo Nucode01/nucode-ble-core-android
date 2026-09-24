@@ -39,15 +39,15 @@ internal object FailureCatalog {
         FailureSpec(
             "ADAPTER_UNAVAILABLE",
             listOf(
-                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:ensureAdapterReady"),
+                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), GattConnectionLifecycle.kt:onAdapterLost, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
             "BLE_UNSUPPORTED",
             listOf(
-                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:ensureAdapterReady"),
+                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, BleRuntime.kt:connect"),
             ),
         ),
@@ -56,7 +56,7 @@ internal object FailureCatalog {
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:subscribe, GattOperationEngine.kt:startNextOperation, OperationQueue.kt:write"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe, GattOperationEngine.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, BleRuntime.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, ClientEventBus.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
         FailureSpec(
@@ -86,13 +86,13 @@ internal object FailureCatalog {
         FailureSpec(
             "CONNECTION_OPTIONS_CONFLICT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "BleRuntime.kt:emitConnectConflict"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "GattConnectionLifecycle.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
             "CONNECT_DURING_DISCONNECT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "BleRuntime.kt:emitConnectConflict"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "GattConnectionLifecycle.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
@@ -215,7 +215,7 @@ internal object FailureCatalog {
         FailureSpec(
             "PERMISSION_DENIED",
             listOf(
-                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:ensureAdapterReady"),
+                Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattConnectionLifecycle.kt:beginCleanup"),
@@ -223,7 +223,7 @@ internal object FailureCatalog {
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, GattConnectionLifecycle.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), GattConnectionLifecycle.kt:onAdapterLost, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -257,7 +257,7 @@ internal object FailureCatalog {
         FailureSpec(
             "SCAN_STOPPED_BY_ADAPTER",
             listOf(
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, Scanner.kt:stopForAdapter(scanState=Idle(failure)) — ScanContractTest"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), Scanner.kt:stopForAdapter(scanState=Idle(failure)) — ScanContractTest"),
             ),
         ),
         FailureSpec(

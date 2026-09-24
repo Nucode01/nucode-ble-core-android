@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
@@ -180,11 +181,17 @@ internal class GattBridge(
 
     suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) = lifecycle.connect(deviceId, options)
 
+    /** 중복 connect 판정 — lifecycle 이 한다. */
+    fun admitConnect(session: Session, options: ConnectOptions): ConnectAdmission = lifecycle.admitConnect(session, options)
+
     fun disconnect(deviceId: PeripheralId) = lifecycle.disconnect(deviceId)
 
     /** 어댑터 복귀 재연결 — lifecycle 이 판정·시작한다. */
     fun resumeAfterAdapter(deviceId: PeripheralId, adapterReady: () -> Boolean) =
         lifecycle.resumeAfterAdapter(deviceId, adapterReady)
+
+    /** 어댑터 이탈 — 세션별 skip 판정·Diagnostic·종결은 lifecycle 이 한다. */
+    fun onAdapterLost(session: Session, cause: AdapterState) = lifecycle.onAdapterLost(session, cause)
 
     fun discoverServices(deviceId: PeripheralId) = lifecycle.discoverServices(deviceId)
 

@@ -1,5 +1,6 @@
 package kr.co.nucode.ble
 
+import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.BufferOverflow
@@ -129,5 +130,20 @@ class EventEmissionTest {
         assertTrue(results.all { it })
 
         job.cancel()
+    }
+
+    /**
+     * plan runtime-split 불변식 ② — main 의 `tryEmit` 호출은 전부 event/ClientEventBus.kt 에만 있다
+     * (나가는 흐름 이름에 한정하지 않는다 — 다른 흐름 이름으로 우회해도 잡힌다).
+     */
+    @Test
+    fun `나가는 흐름 tryEmit 은 ClientEventBus 에만 있다`() {
+        val outbound = Regex("""\.tryEmit\(""")
+        val sites = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { outbound.containsMatchIn(it.readText()) }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/event/ClientEventBus.kt"), sites)
     }
 }

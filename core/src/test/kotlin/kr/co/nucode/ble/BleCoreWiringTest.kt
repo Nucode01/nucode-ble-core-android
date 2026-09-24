@@ -28,7 +28,7 @@ import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.WriteResult
 import kr.co.nucode.ble.internal.WriteType
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.evaluatePermissionState
+import kr.co.nucode.ble.internal.adapter.evaluatePermissionState
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource

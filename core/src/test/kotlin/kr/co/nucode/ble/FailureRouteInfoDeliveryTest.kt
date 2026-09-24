@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -130,7 +132,7 @@ class FailureRouteInfoDeliveryTest {
             events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value }
     }
 
-    private fun TestScope.fixture(rediscovery: PeripheralRediscovery? = null): Fixture {
+    private fun TestScope.fixture(rediscovery: PeripheralRediscovery? = null, logger: BleLogger? = null): Fixture {
         val driver = Driver()
         val core = BleRuntime(
             config = BleConfig(
@@ -141,6 +143,7 @@ class FailureRouteInfoDeliveryTest {
                 configurationTimeoutMillis = STAGE_TIMEOUT,
                 disconnectCleanupTimeoutMillis = CLEANUP_TIMEOUT,
                 rediscoveryTimeoutMillis = STAGE_TIMEOUT,
+                logger = logger,
             ),
             adapter = { null },
             gattDriver = driver,
@@ -295,6 +298,34 @@ class FailureRouteInfoDeliveryTest {
         runCurrent()
 
         assertTrue(f.diagnosticCodes().toString(), f.diagnostics("CLEANUP_FAILURE").isNotEmpty())
+    }
+
+    /**
+     * close 정리 실패 보고는 진단 디스패처 close 보다 먼저다 — 그래야 CLEANUP_FAILURE 가 호환 스트림뿐 아니라
+     * 구성된 logger 에도 닿는다(순서가 뒤집히면 닫힌 디스패처가 보고를 버린다).
+     */
+    @Test
+    fun `close cleanup driver failure reaches configured logger before dispatcher closes`() = runTest {
+        val logged = mutableListOf<DiagnosticRecord>()
+        val loggerLatch = CountDownLatch(1)
+        val f = fixture(
+            logger = BleLogger { record ->
+                synchronized(logged) { logged += record }
+                if (record.failure.code.value == "CLEANUP_FAILURE") loggerLatch.countDown()
+            },
+        )
+        connectToReady(f)
+        f.driver.closeFailure = IllegalStateException("close failed")
+
+        f.core.close()
+        runCurrent()
+        f.core.awaitClosed()
+        runCurrent()
+
+        assertTrue(
+            "logger 가 CLEANUP_FAILURE 를 받지 못했다: ${synchronized(logged) { logged.map { it.failure.code.value } }}",
+            loggerLatch.await(2, TimeUnit.SECONDS),
+        )
     }
 
     @Test

@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
@@ -15,6 +16,7 @@ import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.DisconnectReason
+import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
@@ -565,7 +567,52 @@ internal class GattConnectionLifecycle(
         return properties
     }
 
+    /**
+     * 이미 세션이 있을 때의 중복 connect 판정(순수 결정). 실패 구성·게시·throw 는 호출자(BleRuntime)가 한다.
+     * - Disconnecting: 정리 중에는 새 connect 를 시작할 수 없다.
+     * - Connecting/DiscoveringServices/Configuring/Ready: 같은 effective options 면 no-op, 아니면 충돌.
+     * - Disconnected 이고 플랫폼 재연결 대기(autoConnect handle 열림) 중이면 같은 handle 위에 두 번째 연결을
+     *   시작하지 않고 기존 대기를 유지한다(docs/v1 connection-lifecycle "duplicate connect").
+     */
+    fun admitConnect(session: Session, options: ConnectOptions): ConnectAdmission {
+        return when (session.stage) {
+            ConnectionStage.Disconnecting -> ConnectAdmission.Conflict(code = "CONNECT_DURING_DISCONNECT")
+
+            ConnectionStage.Connecting,
+            ConnectionStage.DiscoveringServices,
+            ConnectionStage.Configuring,
+            ConnectionStage.Ready,
+            -> if (session.hasSameEffectiveConnectOptions(options)) {
+                ConnectAdmission.Joined
+            } else {
+                ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT")
+            }
+
+            ConnectionStage.Disconnected -> when {
+                !session.awaitingPlatformRelink -> ConnectAdmission.Proceed
+                session.hasSameEffectiveConnectOptions(options) -> ConnectAdmission.Joined
+                else -> ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT")
+            }
+        }
+    }
+
     // ── 진입 함수(실제 플랫폼 호출) ──────────────────────────────────────────
+
+    /**
+     * timeout은 link stage에서만 실제 lifecycle 동작을 바꾼다. discovery/configuration/Ready
+     * 단계에서는 이미 소진된 timeout을 options mismatch로 취급하지 않는다. generation 0의
+     * legacy seam에는 deadline snapshot이 없으므로 기존 autoConnect/MTU 의미만 보존한다.
+     */
+    private fun Session.hasSameEffectiveConnectOptions(requested: ConnectOptions): Boolean {
+        if (autoConnect != requested.autoConnect || requestedMtu != requested.requestedMtu) return false
+        if (
+            connectionCoordinator.stage != ConnectionStage.Connecting
+        ) return true
+
+        // autoConnect 첫 연결은 deadline 이 없다(null) — 같은 규칙(linkDeadlineMillis)으로 비교한다.
+        return connectionCoordinator.activeDeadline?.timeoutMillis ==
+            requested.linkDeadlineMillis(readinessTimeouts.linkMillis)
+    }
 
     /**
      * 연결 시작. production [GattDriver]가 adapter를 매 호출 시 조회한다 — BT off/on 사이에도
@@ -785,6 +832,33 @@ internal class GattConnectionLifecycle(
     }
 
     /**
+     * 어댑터 이탈 스윕의 세션 몫(복귀의 [resumeAfterAdapter] 와 짝). 이미 끝난 세션은 조용히(원인 유지).
+     * 단 플랫폼 재연결 대기 중(Recovering)이면 앱 관점에서 아직 종착이 아니다 — 어댑터 원인으로 대기를
+     * 끝낸다(close 와 같은 경로로 재게시, ConnectionCoordinator.supersedePlatformWait).
+     *
+     * 이 스윕은 STATE_DISCONNECTED 정리 블록과 **중복되는 게 의도다** — 콜백이 오는 기기에서는 둘 다
+     * 돌지만, 먼저 도는 쪽이 세션을 Disconnected 로 바꿔두면 다른 쪽은 아래 skip 으로 걸러진다(둘 다
+     * coreScope 홉이라 직렬). 콜백 자체가 안 오는 기기에서는 이 스윕만 돈다 — 그게 D4 의 존재 이유다.
+     *
+     * 종결은 [terminate] 로 한다 — 원인 고정·handle close(suppressReconnect)·mtu/chunkSize 무효화(plan G)·
+     * 복원 job 정리(plan B)·게시를 완료 경로가 한 번에 한다. 이미 사용자 해제가 진행 중(Disconnecting)이면
+     * 먼저 고정된 Requested 가 남는다(first wins — 사용자가 끊기를 요청했다).
+     */
+    fun onAdapterLost(session: Session, cause: AdapterState) {
+        if (session.stage == ConnectionStage.Disconnected && !session.awaitingPlatformRelink) return
+        val failure = FailureMapper.fromAdapterState(cause).copy(
+            context = session.lifecycleFailureContext(),
+        )
+        emitDiagnostic(Severity.Warning, failure)
+        val reason = if (cause is AdapterState.Unauthorized) {
+            TerminalCleanupReason.PermissionDenied
+        } else {
+            TerminalCleanupReason.AdapterUnavailable
+        }
+        terminate(session, session.connectionCoordinator.generation, TerminalCause(reason, failure))
+    }
+
+    /**
      * 연결 해제. `gatt.close()` 는 여기서 하지 않는다 — `onConnectionStateChange` 로
      * `STATE_DISCONNECTED` 가 도착한 뒤 [handleConnectionStateChange] 에서
      * [Session.suppressReconnect] == true 일 때 정리한다(plan §잠재에러 — close() 를
@@ -987,7 +1061,19 @@ internal class GattConnectionLifecycle(
 /**
  * 이번 연결의 link deadline. 명시 [ConnectOptions.timeoutMillis] 가 있으면 그 값, 없으면 autoConnect 는
  * deadline 없음(null — OS 무기한 대기가 autoConnect 의 의미, 취소는 disconnect()), 아니면 [defaultLinkMillis].
- * 중복 connect 판정(BleRuntime)도 이 값으로 비교한다.
+ * 중복 connect 판정([GattConnectionLifecycle.admitConnect])도 이 값으로 비교한다.
  */
 internal fun ConnectOptions.linkDeadlineMillis(defaultLinkMillis: Long): Long? =
     timeoutMillis ?: if (autoConnect) null else defaultLinkMillis
+
+/** 이미 세션이 있을 때의 중복 connect 판정 결과([GattConnectionLifecycle.admitConnect]). */
+internal sealed interface ConnectAdmission {
+    /** 새 연결을 시작한다. */
+    data object Proceed : ConnectAdmission
+
+    /** 같은 effective options 로 이미 진행·대기 중 — 기존 연결·대기에 합류한다(no-op). */
+    data object Joined : ConnectAdmission
+
+    /** 충돌 — 호출자가 [code] 로 실패를 만들어 게시하고 던진다. */
+    data class Conflict(val code: String) : ConnectAdmission
+}

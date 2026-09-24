@@ -26,7 +26,6 @@ import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticPolicy
 import kr.co.nucode.ble.internal.diagnostics.PayloadDirection
 import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
@@ -112,8 +111,8 @@ private class QueuedCccdWrite(
  * scheduler FIFO(생명주기: 시작·ack·poison)를 소유한다.
  *
  * lifecycle 절반과는 [GattLifecycleHooks]로만 통신한다(op → lifecycle) — `connectionCoordinator`의
- * 쓰기(beginCleanup/completeCleanup/beginReconnect)와 `driver.connect/disconnect/close`는 여기서
- * 직접 호출하지 않는다. 읽기(generation/stage/accepts/attemptOrigin)는 허용한다. 반대 방향은
+ * 쓰기(beginCleanup/completeCleanup/beginPlatformRelink)와 `driver.connect/disconnect/close`는 여기서
+ * 직접 호출하지 않는다. 읽기(generation/stage/accepts)는 허용한다. 반대 방향은
  * [GattOperationHooks]를 이 클래스가 구현해 제공한다.
  */
 internal class GattOperationEngine(
@@ -652,8 +651,7 @@ internal class GattOperationEngine(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,
                     cause = attributedFailure,
-                    suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                        ConnectionAttemptOrigin.Reconnect,
+                    suppressReconnect = true,
                 )
                 return
             }

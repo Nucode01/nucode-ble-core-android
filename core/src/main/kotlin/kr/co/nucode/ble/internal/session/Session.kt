@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.DisconnectReason
@@ -70,41 +69,36 @@ internal class Session(val deviceId: PeripheralId) {
 
 
     /**
-     * Projects a bounded retry delay without introducing a second connection-state owner.
-     * The next coordinator stage transition replaces this transient projection atomically on the
-     * core's single-session dispatcher.
-     */
-    fun publishRecovering(
-        attempt: Int,
-        retryAfterMillis: Long,
-        lastFailure: BleFailure,
-    ) {
-        _connectionState.value = ConnectionState.Recovering(
-            attempt = attempt,
-            retryAfterMillis = retryAfterMillis,
-            lastFailure = lastFailure,
-        )
-    }
-
-    /**
      * Slice 2 connection lifecycle의 단일 소유자. connection generation, readiness stage,
      * stage deadline, terminal cleanup reason을 별도 PeripheralId map으로 흩뜨리지 않고 Session과
      * 함께 폐기한다. 기존 GattBridge/BleRuntime routing은 후속 수직 이관 task가 이 API로 옮긴다.
      */
     val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
 
-    private fun publishStage(stage: ConnectionStage) {
+    /**
+     * [stageEvent] = false 는 stage 는 그대로이고 플랫폼 재연결 대기만 바뀐 재파생이다([beginPlatformWait]/
+     * [endPlatformWait]) — generation 경계 부수효과 없이 공개 상태만 다시 계산한다.
+     */
+    private fun publishStage(stage: ConnectionStage, stageEvent: Boolean = true) {
         // CCCD 활성 집합의 generation 경계는 stage 이벤트 하나가 정한다(호출자별 beginGeneration 금지).
         // Connecting = 새 generation 시작 — Disconnected 에서만 beginAttempt 가 generation 을 올린 뒤 들어오므로
-        // 어떤 경로(명시 connect·라이브러리 재연결·플랫폼 자발 재연결)든 여기서 새 generation 이 열린다.
+        // 어떤 경로(명시 connect·플랫폼 자발 재연결)든 여기서 새 generation 이 열린다.
         // Disconnecting/Disconnected = 링크를 떠나는 순간 활성 집합도 끝난다 — 다음 generation 까지 기다리면
         // 끊긴 동안 activeSubscriptions 가 꺼진 구독을 켜진 것으로 보여준다. 구독 의도(desired)는 유지한다.
-        if (stage == ConnectionStage.Connecting) {
+        if (stageEvent && stage == ConnectionStage.Connecting) {
             subscriptionState.beginGeneration(connectionCoordinator.generation)
-        } else if (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected) {
+        } else if (stageEvent && (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected)) {
             subscriptionState.clearActive()
         }
-        _connectionState.value = stage.toPublicConnectionState(disconnectReason)
+        _connectionState.value = if (stage == ConnectionStage.Disconnected && awaitingPlatformRelink) {
+            // 플랫폼 재연결 대기 — 공개 상태는 Recovering 으로 파생한다(plan autoconnect-reconnect v2).
+            ConnectionState.Recovering(
+                lastFailure = (disconnectReason as? DisconnectReason.Failed)?.failure
+                    ?: GattFailureFactory.unattributedLinkDisconnect(this, status = 0),
+            )
+        } else {
+            stage.toPublicConnectionState(disconnectReason)
+        }
     }
 
     /**
@@ -120,8 +114,13 @@ internal class Session(val deviceId: PeripheralId) {
      */
     var gatt: BluetoothGatt? = null
 
-    /** Official connect request의 effective policy. A session owns this value across retries. */
-    var effectiveReconnectPolicy: BleReconnectPolicy = BleReconnectPolicy.Disabled
+    /**
+     * driver.connect 가 성공해 platform handle 이 열렸고 아직 close 하지 않았다. [gatt] 로 대신하지 않는
+     * 이유: GattDriver 계약상 시작에 성공한 driver 가 null handle 을 돌려줄 수 있다(테스트 driver).
+     * 쓰는 곳은 lifecycle 의 handle 열기·닫기 지점뿐이다([gatt] 대입과 같은 자리). 읽는 곳은 종결 완료 시
+     * 플랫폼 재연결 대기를 시작할지(남길 handle 이 있는가) 한 곳이다 — 대기 여부 자체는 [awaitingPlatformRelink].
+     */
+    var platformHandleOpen: Boolean = false
 
     /** Desired intent and current-generation active CCCD state share this one session owner. */
     val subscriptionState: SubscriptionState = SubscriptionState()
@@ -129,49 +128,75 @@ internal class Session(val deviceId: PeripheralId) {
     fun isConfiguringGeneration(generation: Long): Boolean =
         connectionCoordinator.accepts(generation, ConnectionStage.Configuring)
 
-    /** 재연결 시도 횟수. Reconnector(plan task 5)가 읽고 쓴다. */
-    var retryCount: Int = 0
-
-
     /**
-     * 코어가 되붙이면 안 되는 상태 — ① 사용자가 disconnect() 를 불렀다 ② connect
-     * 타임아웃으로 포기했다(D2, review M-4) ③ connect 시작 자체가 실패했다(D6, review
-     * M-7). Reconnector 가 "의도적 해제/포기"와 "예기치 못한 끊김"을 구분하는 유일한
-     * 근거다 — 없으면 이 세 경우에도 재연결이 돈다. 재시도는 소비자가 connect() 재호출로
-     * (정책은 밖 — 규칙 3 정신). iOS 구현의 disconnectRequested 딕셔너리(설계 §1 원인②)가
-     * 병렬 맵이 아니라 Session 필드로 들어온 것이다.
+     * 이 handle 을 OS 재연결 대기용으로 남기지 않는다 — autoConnect 가 아닌 연결(연결 시작 시점에 세운다),
+     * 또는 사용자 해제·client close·어댑터 꺼짐·시작 실패·Ready 전 실패(첫 연결·플랫폼 재연결 generation 모두)로
+     * 끝난 연결. true 면 종결 완료 경로가 handle 을 닫고 대기를 시작하지 않는다. 대기 판정 자체는
+     * [awaitingPlatformRelink] 의 몫이다. 쓰는 곳은 lifecycle 뿐이다.
      */
     var suppressReconnect: Boolean = false
 
     /**
      * 이번 연결의 모드 — connect 시작 시점에 확정된다(plan app-tunables v3).
      * true 면 재연결 소유권이 **플랫폼**이다(autoConnect gatt 는 링크가 떨어져도 시스템이
-     * 기기 재등장 시 되붙인다) — Reconnector 는 예약도 실행도 하지 않는다.
-     * 재연결 주체는 어느 시점에도 하나여야 한다: 플랫폼 / Reconnector / 사용자 connect.
+     * 기기 재등장 시 되붙인다). 라이브러리는 링크 재시작을 스스로 예약하지 않는다.
      */
     var autoConnect: Boolean = false
 
     /**
-     * 예약된 Reconnector 백오프 job. 기기당 하나(규칙 2 — Job 을 PeripheralId 맵으로 밖에 두면
-     * §1 원인② 의 connectionTimeoutTasks 재현이다). 이 손잡이가 있어야 연결 시작·해제·스윕이
-     * 예약을 **취소**할 수 있다 — 실행 시점 가드만으로는 이미 큐에 든 시도를 못 막는다.
+     * 플랫폼 재연결 대기 중인가 — autoConnect 연결이 끝났는데 lifecycle 이 handle 을 OS 대기용으로 남겼다
+     * ([beginPlatformWait]). 공개 상태 Recovering 의 유일한 근거이고, Bootstrap 귀속(CallbackAttribution)과
+     * 사용자 해제·client close·어댑터 꺼짐 스윕이 대기를 끝낼지(ConnectionCoordinator.supersedePlatformWait)의 근거다.
+     * handle 열림·suppressReconnect 같은 파생 입력으로 계산하지 않는다 — 입력이 게시 없이 바뀌면 공개 상태와
+     * 어긋난다(review H1). 쓰는 곳은 lifecycle 의 [beginPlatformWait]/[endPlatformWait] 뿐이다(generation 이 다시
+     * 시작되면 stage 가 Disconnected 가 아니므로 false).
      */
-    var reconnectJob: Job? = null
+    val awaitingPlatformRelink: Boolean
+        get() = platformWait && connectionCoordinator.stage == ConnectionStage.Disconnected
+
+    private var platformWait: Boolean = false
 
     /**
-     * 재연결을 기다리는 중인가 — 예약된 reconnect job 이 있거나 공개 상태가 [ConnectionState.Recovering].
-     * coordinator 는 Disconnected 지만 앱 관점에서는 아직 종착이 아니다. 이 판정을 쓰는 곳은
-     * client close 와 어댑터 꺼짐 스윕 둘뿐이다(ConnectionCoordinator.supersedeRetryPending).
+     * lifecycle 전용 — 대기를 세운 채 [complete](끝나지 않은 generation 의 종결 — coordinator 가 Disconnected 를
+     * 게시한다)를 실행한다. 게시 시점에 대기가 이미 서 있으므로 Recovering 이 한 번에 게시된다(중간 Disconnected 없음).
+     * 종결되지 않았으면 대기를 되돌린다. 끝에 공개 상태를 다시 파생한다.
      */
-    val isRetryPending: Boolean
-        get() = reconnectJob != null || connectionState.value is ConnectionState.Recovering
+    fun beginPlatformWait(complete: () -> Boolean): Boolean {
+        check(connectionCoordinator.stage != ConnectionStage.Disconnected) {
+            "플랫폼 재연결 대기는 종결 전이와 함께 시작한다: ${connectionCoordinator.stage}"
+        }
+        platformWait = true
+        val completed = complete()
+        if (!completed) platformWait = false
+        publishStage(connectionCoordinator.stage, stageEvent = false)
+        return completed
+    }
+
+    /**
+     * lifecycle 전용 — 대기를 끝낸다(handle close·재연결 generation 시작·대기 종결 원인 대체). [transition] 은
+     * 대기를 내린 뒤 실행되므로 그 안의 게시도 대기 없는 상태에서 파생된다. 대기가 아니었으면 [transition] 만
+     * 실행한다. 끝에 공개 상태를 다시 파생한다.
+     */
+    fun endPlatformWait(transition: () -> Unit = {}) {
+        val wasWaiting = platformWait
+        platformWait = false
+        transition()
+        if (wasWaiting) publishStage(connectionCoordinator.stage, stageEvent = false)
+    }
+
+    /**
+     * 어댑터 복귀 때 한 번 다시 걸 autoConnect 세션인가 — 어댑터 꺼짐 스윕이 autoConnect 세션을
+     * 끝냈을 때 lifecycle 이 세우고, 사용자 해제·close·새 connect 가 내린다. BleRuntime 이 어댑터
+     * Ready 복귀를 관측하면 이 세션에만 connectGatt(autoConnect = true) 를 한 번 건다(예약·재시도 없음).
+     */
+    var relinkAfterAdapter: Boolean = false
 
     /**
      * 예약된 configuring-phase subscription restore `coreScope.launch` 손잡이,
      * 규칙 8 — delay·await 를 품은 코루틴은 손잡이를 Session/BleRuntime 가 쥔다). 손잡이가
      * 없으면 fire-and-forget 이라 새 `Connected` 가 구 재구독 루프를 대체(cancel)할 수
      * 없고, disconnect·sweep·시작 리셋 시점에도 이미 죽은 링크 위에서 재구독이 계속
-     * 돈다 — `reconnectJob` 과 같은 규약으로 정리 지점마다 cancel 한다.
+     * 돈다 — 정리 지점마다 cancel 한다.
      */
     var resubscribeJob: Job? = null
 

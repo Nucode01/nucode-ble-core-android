@@ -7,7 +7,7 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleReconnectPolicy
+import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
@@ -110,41 +110,14 @@ class TerminalCauseLifecycleTest {
         assertEquals(h.states(id).toString(), "LINK_TIMEOUT", failure(h.states(id).last())?.code?.value)
     }
 
-    private fun testFailure(code: String) = BleFailure(
-        category = FailureCategory("connection"),
-        code = FailureCode(code),
-        phase = FailurePhase.Connect,
-        retryability = Retryability.TransientMayHelp,
-    )
-
-    /** 소진 질의가 항상 [exhausted] 를 돌려주는 lifecycle(Reconnector 없이 선판정 경로만 본다). */
-    private fun kotlinx.coroutines.test.TestScope.directLifecycle(
-        registry: SessionRegistry,
-        events: MutableList<BleEvent>,
-        exhausted: BleFailure,
-    ) = GattConnectionLifecycle(
-        registry = registry,
-        emit = { events += it },
-        scope = this,
-        driver = NoopGattDriver(),
-        readinessTimeouts = ConnectionReadinessTimeouts(linkMillis = 100, discoveryMillis = 100, configurationMillis = 100),
-        rediscovery = null,
-        linkCacheWarm = null,
-        operations = object : GattOperationHooks {
-            override fun invalidateAll(session: Session, failure: BleFailure) = Unit
-            override fun beginGenerationIfPoisoned(session: Session) = Unit
-        },
-        reconnectExhaustion = { _, _ -> exhausted },
-    )
-
     @Test
-    fun `재연결 백오프 중 close 는 Recovering 을 Disconnected(ClientClosed) 로 끝낸다`() = runTest {
-        val h = harness(reconnect = BleReconnectPolicy.ExponentialBackoff(2, 100, 200))
+    fun `autoReconnect 대기 중 close 는 Recovering 을 Disconnected(ClientClosed) 로 끝낸다`() = runTest {
+        val h = harness(options = BleConnectOptions(autoReconnect = true))
         h.connectToReady(id)
         h.fake.linkLoss(id, status = 8)
         runCurrent()
         assertTrue(h.states(id).toString(), h.states(id).last() is ConnectionState.Recovering)
-        val retainedBefore = h.fake.calls.count { it == "retainedConnect" }
+        val connectsBefore = h.fake.calls.count { it == "connect" }
 
         h.close()
         h.advancePastAllDeadlines()
@@ -153,18 +126,18 @@ class TerminalCauseLifecycleTest {
         assertEquals(h.states(id).toString(), closed, h.states(id).last())
         // 닫힌 런타임은 이벤트 버스를 닫는다(BleRuntime.emit 의 closed 게이트) — 공개 상태로만 확인한다.
         assertEquals(1, h.states(id).count { it == closed })
-        assertEquals(retainedBefore, h.fake.calls.count { it == "retainedConnect" })
+        assertEquals(connectsBefore, h.fake.calls.count { it == "connect" })
         assertEquals(closed, h.core.officialSnapshot().sessions.single().connectionState)
     }
 
     @Test
-    fun `재연결 백오프 중 adapter off 는 Recovering 을 Disconnected(Failed ADAPTER_UNAVAILABLE) 로 끝낸다`() = runTest {
-        val h = harness(reconnect = BleReconnectPolicy.ExponentialBackoff(2, 100, 200))
+    fun `autoReconnect 대기 중 adapter off 는 Recovering 을 Disconnected(Failed ADAPTER_UNAVAILABLE) 로 끝낸다`() = runTest {
+        val h = harness(options = BleConnectOptions(autoReconnect = true))
         h.connectToReady(id)
         h.fake.linkLoss(id, status = 8)
         runCurrent()
         assertTrue(h.states(id).toString(), h.states(id).last() is ConnectionState.Recovering)
-        val retainedBefore = h.fake.calls.count { it == "retainedConnect" }
+        val connectsBefore = h.fake.calls.count { it == "connect" }
         val eventsBefore = h.events.size
 
         h.fake.setAdapter(AdapterState.PoweredOff)
@@ -173,7 +146,7 @@ class TerminalCauseLifecycleTest {
         val last = h.states(id).last()
         assertEquals(h.states(id).toString(), "ADAPTER_UNAVAILABLE", failure(last)?.code?.value)
         assertEquals(1, h.states(id).count { failure(it)?.code?.value == "ADAPTER_UNAVAILABLE" })
-        assertEquals(retainedBefore, h.fake.calls.count { it == "retainedConnect" })
+        assertEquals(connectsBefore, h.fake.calls.count { it == "connect" })
         assertTrue(h.core.registry.get(id)!!.suppressReconnect)
         assertTrue(
             h.events.drop(eventsBefore).toString(),
@@ -197,37 +170,4 @@ class TerminalCauseLifecycleTest {
         assertEquals(failed, h.states(id).last())
     }
 
-    @Test
-    fun `소진 선판정은 client close 원인을 소진으로 바꾸지 않는다`() = runTest {
-        val registry = SessionRegistry()
-        val session = registry.getOrCreate(id)
-        val events = mutableListOf<BleEvent>()
-        val lifecycle = directLifecycle(registry, events, testFailure("RECONNECT_EXHAUSTED"))
-        session.connectionCoordinator.beginConnection(this, 100) {}
-
-        lifecycle.close(session)
-
-        assertEquals(TerminalCause(TerminalCleanupReason.ClientClosed, null), session.connectionCoordinator.terminalCause)
-        assertTrue(events.toString(), events.none { it is BleEvent.Diagnostic })
-    }
-
-    @Test
-    fun `operation 무효화 종결은 원인 Diagnostic 을 소진 Diagnostic 보다 먼저 낸다`() = runTest {
-        val registry = SessionRegistry()
-        val session = registry.getOrCreate(id)
-        val events = mutableListOf<BleEvent>()
-        val exhausted = testFailure("RECONNECT_EXHAUSTED")
-        val lifecycle = directLifecycle(registry, events, exhausted)
-        val cause = testFailure("OPERATION_TIMEOUT")
-        session.connectionCoordinator.beginConnection(this, 100) {}
-
-        lifecycle.terminateForOperationInvalidation(session, cause, suppressReconnect = false)
-
-        val diagnostics = events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure }
-        assertEquals(listOf(cause, exhausted), diagnostics)
-        assertEquals(
-            TerminalCause(TerminalCleanupReason.OperationInvalidated, exhausted),
-            session.connectionCoordinator.terminalCause,
-        )
-    }
 }

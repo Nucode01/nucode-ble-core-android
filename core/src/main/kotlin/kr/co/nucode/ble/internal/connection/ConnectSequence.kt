@@ -1,7 +1,5 @@
 package kr.co.nucode.ble.internal.connection
 
-import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
@@ -21,7 +19,7 @@ internal interface ConnectSequenceHooks {
     /** `MtuChanged` 발행 직후(협상 성공·폴백 모두). */
     fun onMtuSettled(deviceId: PeripheralId)
 
-    /** 아무 것도 하지 않는다 — 런타임 없이 bridge/reconnector 를 만드는 테스트의 기본값. */
+    /** 아무 것도 하지 않는다 — 런타임 없이 bridge 를 만드는 테스트의 기본값. */
     object None : ConnectSequenceHooks {
         override fun onStatePublished(deviceId: PeripheralId) = Unit
         override fun onServicesDiscovered(deviceId: PeripheralId) = Unit
@@ -32,12 +30,12 @@ internal interface ConnectSequenceHooks {
 /**
  * GATT 표준 연결 절차의 호출 순서(이전에는 `BleRuntime.emit` 이 이벤트를 재해석해 구동했다).
  * ★ 상태 기계가 아니다(규칙 1) — 이벤트를 해석하지 않고 발행 시점의 세션 상태·stage 만 보고
- *   "이 절차 다음에 뭘 부르는가"를 정한다. 재시도 횟수·백오프 정책은 [Reconnector] 몫이다.
+ *   "이 절차 다음에 뭘 부르는가"를 정한다. 링크 재시작은 예약하지 않는다(plan autoconnect-reconnect v2 —
+ *   끊긴 뒤 다시 붙이는 것은 플랫폼 autoConnect 또는 앱 몫).
  *
  * 체인: DiscoveringServices 발행 → [discoverServices]
  *      → `ServicesDiscovered` → (Configuring 이면 상태 발행) → [requestMtu] (`Session.requestedMtu`)
  *      → `MtuChanged` → (Configuring 이면) [restoreSubscriptionsBeforeReady] → Ready 발행
- *      → Ready 발행 시 retryCount 리셋. Disconnected 발행 시 `suppressReconnect` 가 아니면 재연결 예약.
  *
  * 런타임이 닫혔으면 모든 hook 은 아무 것도 하지 않는다(닫힌 뒤 emit 이 발행을 버리던 것과 대칭).
  * BleRuntime 이 소유하고, 협력자는 함수 참조로 받는다(순환 조립 회피).
@@ -48,7 +46,6 @@ internal class ConnectSequence(
     private val markWarm: (PeripheralId) -> Unit,
     private val discoverServices: (PeripheralId) -> Unit,
     private val requestMtu: (PeripheralId, Int) -> Unit,
-    private val scheduleReconnect: (PeripheralId, BleFailure?) -> Unit,
     private val publishState: (Session) -> Unit,
     private val restoreSubscriptionsBeforeReady: (Session) -> Unit,
 ) : ConnectSequenceHooks {
@@ -60,13 +57,6 @@ internal class ConnectSequence(
             ConnectionStage.DiscoveringServices -> {
                 markWarm(deviceId)
                 discoverServices(deviceId)
-            }
-
-            // 방어적 중복: BleRuntime 이 Ready 발행 전에 이미 리셋한다.
-            ConnectionStage.Ready -> session.retryCount = 0
-
-            ConnectionStage.Disconnected -> if (!session.suppressReconnect) {
-                scheduleReconnect(deviceId, (session.disconnectReason as? DisconnectReason.Failed)?.failure)
             }
 
             else -> Unit

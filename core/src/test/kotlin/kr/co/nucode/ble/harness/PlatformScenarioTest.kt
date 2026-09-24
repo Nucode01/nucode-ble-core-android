@@ -8,19 +8,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.AdapterState
-import kr.co.nucode.ble.AndroidApiOperation
-import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleConfig
+import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.FailureMapper
-import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
-import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import org.junit.Assert.fail
@@ -46,8 +41,8 @@ class PlatformScenarioTest {
     private class Scenario(
         val name: String,
         val variant: String,
-        val reconnect: BleReconnectPolicy = BleReconnectPolicy.Disabled,
-        val legacy: ReconnectPolicy = ReconnectPolicy(),
+        /** 하네스 기본 연결 옵션(autoReconnect 여부). */
+        val options: BleConnectOptions = BleConnectOptions(),
         /** I9 대조 실행 — 같은 시나리오에서 늦은 콜백만 뺀 본문. null 이면 I9 대상 아님. */
         val control: (kotlinx.coroutines.test.TestScope.(Harness) -> Outcome)? = null,
         val body: kotlinx.coroutines.test.TestScope.(Harness) -> Outcome,
@@ -68,7 +63,7 @@ class PlatformScenarioTest {
         rediscoveryTimeoutMillis = 50,
     )
 
-    private val backoff = BleReconnectPolicy.ExponentialBackoff(2, 100, 200)
+    private val auto = BleConnectOptions(autoReconnect = true)
 
     /** 표·위반 문자열용 짧은 상태 이름(실패는 코드만). */
     private fun short(state: ConnectionState?): String = when (state) {
@@ -76,7 +71,7 @@ class PlatformScenarioTest {
             is BleDisconnectReason.Failed -> "Disconnected(${r.failure.code.value})"
             else -> "Disconnected($r)"
         }
-        is ConnectionState.Recovering -> "Recovering(${state.attempt})"
+        is ConnectionState.Recovering -> "Recovering(${state.lastFailure.code.value})"
         else -> state.toString()
     }
 
@@ -88,7 +83,7 @@ class PlatformScenarioTest {
         is CallbackVariant.Duplicate -> "Duplicate(${v.status})"
     }
 
-    private fun policyName(p: BleReconnectPolicy) = if (p is BleReconnectPolicy.Disabled) "reconnect=off" else "reconnect=backoff(2,100,200)"
+    private fun policyName(p: BleConnectOptions) = if (p.autoReconnect) "autoReconnect" else "autoReconnect=off"
 
     /** 정리 해제(driver.disconnect) 콜백이 올지 모르는 경로의 두 변형. */
     private val cleanupDisconnect = listOf(CallbackVariant.Arrive(0), CallbackVariant.Missing)
@@ -100,39 +95,44 @@ class PlatformScenarioTest {
         if (h.session(id).activeSubscriptions.value.isEmpty()) fail("전제 실패: subscribe 뒤 activeSubscriptions 가 비어 있음")
     }
 
-    /** 첫 재연결 시작이 나갈 때까지 진행(상한 있음). */
-    private fun awaitRetainedConnects(h: Harness, count: Int) =
-        h.waitUntil("retainedConnect $count 회") { h.fake.calls.count { it == "retainedConnect" } >= count }
-
     /** I9 비교용 세대 통계(모든 deadline 이 지난 뒤 본다). */
     private fun statsOf(h: Harness) = GenerationStats(
-        retainedConnects = h.fake.calls.count { it == "retainedConnect" },
+        connectCalls = h.fake.calls.count { it == "connect" },
         connectingEntries = h.states(id).count { it is ConnectionState.Connecting },
-        recoveringAttempts = h.states(id).filterIsInstance<ConnectionState.Recovering>().map { it.attempt },
         last = h.states(id).lastOrNull(),
     )
 
+    /** 플랫폼 재연결 대기(Recovering)를 시나리오 전제로 단언한다. */
+    private fun requireRecovering(h: Harness) {
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+    }
+
+    /** OS autoConnect 흉내 — 같은 handle(epoch)에서 STATE_CONNECTED 를 내고 Ready 까지 진행. */
+    private fun relinkToReady(h: Harness) {
+        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
+        h.waitUntil("플랫폼 재연결이 Ready 에 도달") { h.session(id).connectionState.value == ConnectionState.Ready }
+    }
+
     /**
-     * Ready → 링크 끊김(8) → 재시도 대기(백오프) 중, 다음 재연결 시작 전에 현재 handle 에서
-     * STATE_DISCONNECTED([late]) 를 낸다. [late] 가 null 이면 대조 실행(I9).
+     * autoReconnect: Ready → 링크 끊김(8) → 플랫폼 재연결 대기 중 현재 handle 에서 STATE_DISCONNECTED([late]) →
+     * 플랫폼 재연결(STATE_CONNECTED) → Ready. [late] 가 null 이면 대조 실행(I9).
      */
-    private fun lateInBackoff(late: Int?, attemptsFail: Boolean = false): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
+    private fun lateInWait(late: Int?): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
         h.connectToReady(id)
-        // 모든 재연결 시도가 실패하면 소진(Failed)으로 끝난다 — I9 가 Failed 최종 상태에서 오탐하지 않는지 본다.
-        if (attemptsFail) h.fake.reconnectFailStatus = 133
         h.fake.linkLoss(id, 8)
         runCurrent()
-        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
-        if (h.fake.calls.any { it == "retainedConnect" }) fail("전제 실패: 백오프 대기 전에 재연결 시작 calls=${h.fake.calls}")
+        requireRecovering(h)
         if (late != null) h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, late)
+        runCurrent()
+        relinkToReady(h)
         Outcome()
     }
 
     /**
-     * 이전(닫히지 않은 채 대체된) handle 을 남긴 뒤 Ready → 링크 끊김 → 재연결 시도가 시작된 뒤
-     * 이전 handle 에서 STATE_DISCONNECTED(0) 를 낸다. [late] 가 false 면 대조 실행(I9).
+     * autoReconnect: 이전(사용자 해제로 닫힌) handle 을 남긴 뒤 새 연결 Ready → 링크 끊김 → 플랫폼 재연결이
+     * 시작된 뒤 이전 handle 에서 STATE_DISCONNECTED(0) 를 낸다. [late] 가 false 면 대조 실행(I9).
      */
-    private fun oldHandleDuringAttempt(late: Boolean): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
+    private fun oldHandleDuringRelink(late: Boolean): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
         h.connectToReady(id)
         val oldHandle = h.fake.epoch
         h.disconnect(id)
@@ -140,7 +140,10 @@ class PlatformScenarioTest {
         h.connectToReady(id)
         if (h.fake.epoch == oldHandle) fail("전제 실패: 새 connect 가 handle 을 바꾸지 않음 calls=${h.fake.calls}")
         h.fake.linkLoss(id, 8)
-        awaitRetainedConnects(h, 1)
+        runCurrent()
+        requireRecovering(h)
+        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
+        runCurrent()
         if (late) h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0, fromEpoch = oldHandle)
         Outcome()
     }
@@ -172,24 +175,31 @@ class PlatformScenarioTest {
                 Outcome(userDisconnected = true)
             })
         }
-        // S Ready 중 링크 끊김(재연결 on/off)
-        for (status in listOf(8, 19)) for (p in listOf(BleReconnectPolicy.Disabled, backoff)) {
-            add(Scenario("link loss while Ready", "status=$status ${policyName(p)}", p) { h ->
+        // S Ready 중 링크 끊김 — autoReconnect=off 는 종결, autoReconnect 는 대기 뒤 플랫폼 재연결로 Ready.
+        // (autoReconnect status=8 + 구독 복원은 PlatformAutoReconnectTest b)
+        for (status in listOf(8, 19)) {
+            add(Scenario("link loss while Ready", "status=$status ${policyName(BleConnectOptions())}") { h ->
                 h.connectToReady(id)
                 h.fake.linkLoss(id, status)
                 Outcome()
             })
         }
-        // S 구독 → 링크 끊김(재연결 on/off) — I4 를 결합 기록의 모든 점에서 본다.
-        for (p in listOf(BleReconnectPolicy.Disabled, backoff)) {
-            add(Scenario("subscribe→link loss", policyName(p), p) { h ->
-                h.fake.services = listOf(serviceSnapshot())
-                h.connectToReady(id)
-                subscribeOrFail(h)
-                h.fake.linkLoss(id, 8)
-                Outcome()
-            })
-        }
+        add(Scenario("link loss while Ready", "status=19 ${policyName(auto)} +platform re-link", auto) { h ->
+            h.connectToReady(id)
+            h.fake.linkLoss(id, 19)
+            runCurrent()
+            requireRecovering(h)
+            relinkToReady(h)
+            Outcome(expectedLast = ConnectionState.Ready)
+        })
+        // S 구독 → 링크 끊김 — I4 를 결합 기록의 모든 점에서 본다(autoReconnect 판은 PlatformAutoReconnectTest b).
+        add(Scenario("subscribe→link loss", policyName(BleConnectOptions())) { h ->
+            h.fake.services = listOf(serviceSnapshot())
+            h.connectToReady(id)
+            subscribeOrFail(h)
+            h.fake.linkLoss(id, 8)
+            Outcome()
+        })
         // S 링크 timeout / 탐색 timeout / MTU 누락 — 정리 해제 콜백이 오는지 모르므로 두 변형.
         for (d in cleanupDisconnect) {
             add(Scenario("link timeout", "onConnect=Missing onDisconnect=${label(d)}") { h ->
@@ -211,96 +221,8 @@ class PlatformScenarioTest {
                 Outcome()
             })
         }
-        // S 재연결 시도 성공
-        add(Scenario("reconnect attempt", "success", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.linkLoss(id, 8)
-            Outcome()
-        })
-        // S 재연결 시도 실패 후 성공 — 두 번째 시도에서 Ready 까지 가야 시나리오가 성립한다.
-        add(Scenario("reconnect attempt", "fail(133) then success", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.reconnectFailStatus = 133
-            h.fake.linkLoss(id, 8)
-            // 실패 status 는 시작 시점에 캡처되므로 첫 시작이 나간 직후 스크립트를 성공으로 바꾼다.
-            awaitRetainedConnects(h, 1)
-            h.fake.reconnectFailStatus = null
-            awaitRetainedConnects(h, 2)
-            h.waitUntil("두 번째 재연결 시도가 Ready") { h.session(id).connectionState.value == ConnectionState.Ready }
-            if (h.states(id).none { it is ConnectionState.Recovering && it.attempt == 2 }) {
-                fail("전제 실패: Recovering(2) 를 거치지 않음 ${h.states(id)}")
-            }
-            Outcome()
-        })
-        // S 재연결 소진
-        add(Scenario("reconnect attempt", "exhaustion(133 always)", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.reconnectFailStatus = 133
-            h.fake.linkLoss(id, 8)
-            Outcome()
-        })
-        // S 재연결 콜백 누락(attempt/link deadline)
-        add(Scenario("reconnect attempt", "onReconnect=Missing", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.onReconnect = CallbackVariant.Missing
-            h.fake.linkLoss(id, 8)
-            Outcome()
-        })
-        // S 재연결 시작 거부
-        add(Scenario("reconnect attempt", "start rejected", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.rejectReconnectStart = true
-            h.fake.linkLoss(id, 8)
-            h.advancePastAllDeadlines()
-            // 시작 거부도 시도 하나다 — 정책 maxAttempts 만큼 재연결 시작이 나가야 한다(잃은 시도·빈 generation 없음).
-            val starts = h.fake.calls.count { it == "retainedConnect" }
-            println("start rejected trail: ${h.states(id).joinToString(" > ") { short(it) }} calls=${h.fake.calls}")
-            if (starts != backoff.maxAttempts) fail("재연결 시작 $starts 회 != maxAttempts ${backoff.maxAttempts} trail=${h.states(id).map { short(it) }}")
-            Outcome()
-        })
-        // S 재연결 시작이 권한 예외를 던진다 — 크래시 없이 PERMISSION_DENIED 로 끝나고 더 시도하지 않는다.
-        add(Scenario("reconnect attempt", "start throws PERMISSION_DENIED", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.reconnectThrows = BleException(
-                FailureMapper.permissionDenied(FailurePhase.Connect, AndroidApiOperation.Connect),
-            )
-            h.fake.linkLoss(id, 8)
-            h.advancePastAllDeadlines()
-            val last = short(h.states(id).last())
-            if (last != "Disconnected(PERMISSION_DENIED)") fail("권한 예외 최종 상태 $last trail=${h.states(id).map { short(it) }}")
-            val starts = h.fake.calls.count { it == "retainedConnect" }
-            if (starts != 1) fail("권한 실패 뒤 재시도 $starts 회 calls=${h.fake.calls}")
-            Outcome()
-        })
-        // S 재연결 시작이 예기치 않은 예외를 던진다 — 시작 거부와 같이 닫히고 예산대로 재시도한다.
-        add(Scenario("reconnect attempt", "start throws RuntimeException", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.reconnectThrows = RuntimeException("boom")
-            h.fake.linkLoss(id, 8)
-            h.advancePastAllDeadlines()
-            if (h.states(id).none { short(it) == "Disconnected(RECONNECT_CONNECT_START_FAILED)" }) {
-                fail("시작 거부 원인 없음 trail=${h.states(id).map { short(it) }}")
-            }
-            val starts = h.fake.calls.count { it == "retainedConnect" }
-            if (starts != backoff.maxAttempts) fail("재연결 시작 $starts 회 != maxAttempts calls=${h.fake.calls}")
-            Outcome()
-        })
-        // S 재연결 콜백이 시작 반환 전에 큐에 들어가는 경합(production 에선 마이크로초 창) — 일부러 고정한다.
-        add(Scenario("reconnect race", "onReconnect=ArriveBeforeStartReturns(0)", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.onReconnect = CallbackVariant.ArriveBeforeStartReturns(0)
-            h.fake.linkLoss(id, 8)
-            Outcome()
-        })
-        add(Scenario("reconnect race", "onReconnect=ArriveBeforeStartReturns fail(133) always", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.onReconnect = CallbackVariant.ArriveBeforeStartReturns(0)
-            h.fake.reconnectFailStatus = 133
-            h.fake.linkLoss(id, 8)
-            Outcome()
-        })
         // S Ready 중 어댑터 off — 뒤이어 STATE_DISCONNECTED 가 오지 않는 경우와 오는 경우(status 0·8).
-        for (p in listOf(BleReconnectPolicy.Disabled, backoff)) for (late in listOf<Int?>(null, 0, 8)) {
+        for (p in listOf(BleConnectOptions(), auto)) for (late in listOf<Int?>(null, 0, 8)) {
             val variant = policyName(p) + if (late == null) "" else " +STATE_DISCONNECTED($late)"
             add(Scenario("adapter off while Ready", variant, p) { h ->
                 h.connectToReady(id)
@@ -340,28 +262,20 @@ class PlatformScenarioTest {
             h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0)
             Outcome(userDisconnected = true)
         })
-        add(Scenario("late STATE_DISCONNECTED", "after link loss ended", BleReconnectPolicy.Disabled) { h ->
+        add(Scenario("late STATE_DISCONNECTED", "after link loss ended") { h ->
             h.connectToReady(id)
             h.fake.linkLoss(id, 8)
             h.advancePastAllDeadlines()
             h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0)
             Outcome()
         })
-        add(Scenario("late STATE_DISCONNECTED", "during reconnect backoff", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.linkLoss(id, 8)
-            runCurrent()
-            h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0)
-            Outcome()
-        })
-        // S 재시도 대기(백오프) 중 현재 handle 의 늦은 STATE_DISCONNECTED — H1 phantom generation(I9).
+        // S 플랫폼 재연결 대기 중 현재 handle 의 늦은 STATE_DISCONNECTED — 재연결 뒤 세대 통계가 대조와 같아야 한다(I9).
+        // (재연결 없이 대기가 유지되는지는 PlatformAutoReconnectTest h)
         for (late in listOf(0, 8)) {
-            add(Scenario("late STATE_DISCONNECTED", "pure backoff wait status=$late (current handle)", backoff, body = lateInBackoff(late), control = lateInBackoff(null)))
+            add(Scenario("late STATE_DISCONNECTED", "platform re-link wait status=$late (current handle)", auto, body = lateInWait(late), control = lateInWait(null)))
         }
-        // S 같은 늦은 콜백이지만 모든 시도가 실패해 Failed 로 끝난다 — I9 최종 상태 비교 오탐 없음.
-        add(Scenario("late STATE_DISCONNECTED", "pure backoff wait status=0, attempts fail (current handle)", backoff, body = lateInBackoff(0, attemptsFail = true), control = lateInBackoff(null, attemptsFail = true)))
-        // S 재연결 시도 중 이전 handle 의 늦은 STATE_DISCONNECTED — 출처 식별로 버려져야 한다(I9).
-        add(Scenario("late STATE_DISCONNECTED", "during attempt (previous handle)", backoff, body = oldHandleDuringAttempt(true), control = oldHandleDuringAttempt(false)))
+        // S 플랫폼 재연결 진행 중 이전 handle 의 늦은 STATE_DISCONNECTED — 출처 식별로 버려져야 한다(I9).
+        add(Scenario("late STATE_DISCONNECTED", "during platform re-link (previous handle)", auto, body = oldHandleDuringRelink(true), control = oldHandleDuringRelink(false)))
         // S close — 시나리오 안에서 close 하고 그 뒤 상태를 본다(I8). 종결되지 않았거나 재연결 대기 중이면 ClientClosed.
         add(Scenario("close", "while Ready") { h ->
             h.connectToReady(id)
@@ -379,13 +293,6 @@ class PlatformScenarioTest {
             if (h.session(id).connectionState.value != ConnectionState.Disconnecting) fail("전제 실패: Disconnecting 아님 ${h.states(id)}")
             Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
         })
-        add(Scenario("close", "while Recovering (backoff)", backoff) { h ->
-            h.connectToReady(id)
-            h.fake.linkLoss(id, 8)
-            runCurrent()
-            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
-            Outcome(closedAt = closeInScenario(h), expectedLast = clientClosed)
-        })
         add(Scenario("close", "after failed terminal (no retry)") { h ->
             h.connectToReady(id)
             h.fake.linkLoss(id, 8)
@@ -394,33 +301,19 @@ class PlatformScenarioTest {
             if (failed !is ConnectionState.Disconnected) fail("전제 실패: 종결되지 않음 ${h.states(id)}")
             Outcome(closedAt = closeInScenario(h), expectedLast = failed)
         })
-        // S 재연결 백오프 대기 중 notification — 끝난 연결 generation 의 값은 앱에 전달되지 않아야 한다(I10).
-        add(Scenario("notify during backoff", policyName(backoff), backoff) { h ->
+        // S 플랫폼 재연결 대기 중 notification — 끝난 연결 generation 의 값은 앱에 전달되지 않아야 한다(I10).
+        add(Scenario("notify during platform re-link wait", policyName(auto), auto) { h ->
             h.connectToReady(id)
             subscribeOrFail(h)
             h.recordNotifications(id, ref)
             runCurrent()
             h.fake.linkLoss(id, 8)
             runCurrent()
-            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+            requireRecovering(h)
             h.fake.emitNotification(id, ref, byteArrayOf(7))
             runCurrent()
-            Outcome()
-        })
-        // S 재연결 백오프 대기 중 어댑터 off — 회복이 끝나 ADAPTER_UNAVAILABLE 종착, 예약된 재연결은 취소.
-        add(Scenario("adapter off during reconnect backoff", policyName(backoff), backoff) { h ->
-            h.connectToReady(id)
-            h.fake.linkLoss(id, 8)
-            runCurrent()
-            if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
-            val retainedBefore = h.fake.calls.count { it == "retainedConnect" }
-            h.fake.setAdapter(AdapterState.PoweredOff)
-            h.advancePastAllDeadlines()
-            if (h.fake.calls.count { it == "retainedConnect" } != retainedBefore) fail("adapter off 뒤 재연결 시작 calls=${h.fake.calls}")
-            val last = h.session(id).connectionState.value
-            val code = ((last as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
-            if (code != "ADAPTER_UNAVAILABLE") fail("adapter off 가 회복을 끝내지 않음: ${h.states(id)}")
-            Outcome(expectedLast = last)
+            relinkToReady(h)
+            Outcome(expectedLast = ConnectionState.Ready)
         })
         // S 사용자 해제 진행 중(Disconnecting) 어댑터 off — 먼저 고정된 Requested 유지, handle 은 닫힌다.
         add(Scenario("adapter off during Disconnecting", "onDisconnect=Missing") { h ->
@@ -432,16 +325,6 @@ class PlatformScenarioTest {
             h.advancePastAllDeadlines()
             if (h.fake.epoch == handle) fail("adapter off 가 handle 을 닫지 않음 calls=${h.fake.calls}")
             Outcome(userDisconnected = true, expectedLast = ConnectionState.Disconnected(BleDisconnectReason.Requested))
-        })
-        // S legacy 정책(런타임 ReconnectPolicy) 재연결 소진 — GIVE_UP 종착 한 번(I3).
-        add(Scenario("reconnect attempt", "legacy exhaustion(133 always)", legacy = ReconnectPolicy(maxAttempts = 1, baseDelayMillis = 50, maxDelayMillis = 50)) { h ->
-            h.connectLegacyToReady(id)
-            h.fake.reconnectFailStatus = 133
-            h.fake.linkLoss(id, 8)
-            h.advancePastAllDeadlines()
-            val code = ((h.session(id).connectionState.value as? ConnectionState.Disconnected)?.reason as? BleDisconnectReason.Failed)?.failure?.code?.value
-            if (code != "RECONNECT_GIVE_UP") fail("legacy 소진이 GIVE_UP 이 아님: ${h.states(id)}")
-            Outcome()
         })
     }
 
@@ -457,10 +340,10 @@ class PlatformScenarioTest {
         ),
     )
 
-    /** 재연결 대기(Recovering) 중 unsubscribe 는 예외 없이 끝나고, 재연결 뒤 구독을 되살리지 않는다. */
+    /** 플랫폼 재연결 대기(Recovering) 중 unsubscribe 는 예외 없이 끝나고, 재연결 뒤 구독을 되살리지 않는다. */
     @Test
     fun `재연결 대기 중 unsubscribe 는 로컬 해제만 하고 재연결 뒤 CCCD 를 쓰지 않는다`() = runTest {
-        val h = harness(config, backoff)
+        val h = harness(config, auto)
         h.connectToReady(id)
         subscribeOrFail(h)
         h.fake.linkLoss(id, 8)
@@ -471,7 +354,7 @@ class PlatformScenarioTest {
         runCurrent()
         if (!job.isCompleted) fail("Recovering 중 unsubscribe 가 끝나지 않음")
         job.getCompleted().exceptionOrNull()?.let { fail("Recovering 중 unsubscribe 가 예외를 던짐: $it") }
-        h.waitUntil("재연결이 Ready 에 도달") { h.session(id).connectionState.value == ConnectionState.Ready }
+        relinkToReady(h)
         runCurrent()
         val descriptorsAfter = h.fake.calls.count { it == "descriptor" } - descriptorsBefore
         if (descriptorsAfter != 0) fail("unsubscribe 뒤 CCCD write $descriptorsAfter 회 calls=${h.fake.calls}")
@@ -484,7 +367,7 @@ class PlatformScenarioTest {
     /** 양성 대조 — Ready 에서 온 notify 는 전달된다. */
     @Test
     fun `Ready 중 notify 는 한 번 전달된다`() = runTest {
-        val h = harness(config, backoff)
+        val h = harness(config)
         h.connectToReady(id)
         subscribeOrFail(h)
         h.recordNotifications(id, ref)
@@ -495,10 +378,10 @@ class PlatformScenarioTest {
         h.close()
     }
 
-    /** 양성 대조 — 재연결 시도의 새 generation(Ready 전, 서비스 탐색 대기) 에서 온 notify 는 전달된다. */
+    /** 양성 대조 — 플랫폼 재연결의 새 generation(Ready 전, 서비스 탐색 대기) 에서 온 notify 는 전달된다. */
     @Test
-    fun `재연결 시도 새 generation 의 notify 는 전달된다`() = runTest {
-        val h = harness(config, backoff)
+    fun `플랫폼 재연결 새 generation 의 notify 는 전달된다`() = runTest {
+        val h = harness(config, auto)
         h.connectToReady(id)
         subscribeOrFail(h)
         h.recordNotifications(id, ref)
@@ -507,9 +390,9 @@ class PlatformScenarioTest {
         runCurrent()
         // 재연결 뒤 서비스 탐색 콜백을 붙잡아 Ready 전 단계에 머물게 한다.
         h.fake.onDiscover = CallbackVariant.Missing
-        h.waitUntil("재연결 뒤 서비스 탐색 시작") {
-            h.fake.calls.count { it == "retainedConnect" } >= 1 && h.fake.calls.count { it == "discover" } >= 2
-        }
+        requireRecovering(h)
+        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
+        h.waitUntil("재연결 뒤 서비스 탐색 시작") { h.fake.calls.count { it == "discover" } >= 2 }
         val state = h.session(id).connectionState.value
         if (state is ConnectionState.Ready || state is ConnectionState.Recovering || state is ConnectionState.Disconnected) {
             fail("전제 실패: 재연결 시도 진행 중(Connecting 이후·Ready 전) 아님 $state ${h.states(id)}")
@@ -523,7 +406,7 @@ class PlatformScenarioTest {
     /** 대조 — 사용자 disconnect 가 끝난 뒤 온 notify 는 전달되지 않는다. */
     @Test
     fun `사용자 disconnect 완료 뒤 notify 는 전달되지 않는다`() = runTest {
-        val h = harness(config, backoff)
+        val h = harness(config)
         h.connectToReady(id)
         subscribeOrFail(h)
         h.recordNotifications(id, ref)
@@ -539,31 +422,6 @@ class PlatformScenarioTest {
         h.close()
     }
 
-    /**
-     * Recovering 중 플랫폼이 같은 handle 로 스스로 재연결(STATE_CONNECTED)해도 새 generation 에서 구독이 복원된다.
-     * 라이브러리 재연결이 먼저 나가지 않도록 백오프를 길게 둔다.
-     */
-    @Test
-    fun `Recovering 중 플랫폼 자발 재연결 뒤 구독이 복원된다`() = runTest {
-        val h = harness(config, BleReconnectPolicy.ExponentialBackoff(2, 1000, 2000))
-        h.connectToReady(id)
-        subscribeOrFail(h)
-        h.fake.linkLoss(id, 8)
-        runCurrent()
-        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
-        val descriptorsBefore = h.fake.calls.count { it == "descriptor" }
-        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
-        runCurrent()
-        h.waitUntil("플랫폼 재연결이 Ready 에 도달") { h.session(id).connectionState.value == ConnectionState.Ready }
-        runCurrent()
-        val descriptorsAfter = h.fake.calls.count { it == "descriptor" } - descriptorsBefore
-        if (descriptorsAfter == 0) fail("재연결 뒤 CCCD write 없음 calls=${h.fake.calls}")
-        if (ref !in h.session(id).activeSubscriptions.value) {
-            fail("재연결 뒤 activeSubscriptions 에 $ref 없음: ${h.session(id).activeSubscriptions.value} states=${h.states(id)}")
-        }
-        h.close()
-    }
-
     @Test
     fun `시나리오 x 변형의 불변식 위반 집합은 고정 기준선과 같다`() {
         val observed = sortedSetOf<String>()
@@ -573,7 +431,7 @@ class PlatformScenarioTest {
             var control: GenerationStats? = null
             var controlTrail = ""
             if (s.control != null) runTest {
-                val h = harness(config, s.reconnect, s.legacy)
+                val h = harness(config, s.options)
                 h.session(id)
                 s.control.invoke(this, h)
                 h.advancePastAllDeadlines()
@@ -582,7 +440,7 @@ class PlatformScenarioTest {
                 h.close()
             }
             runTest {
-                val h = harness(config, s.reconnect, s.legacy)
+                val h = harness(config, s.options)
                 h.session(id)
                 val outcome = s.body(this, h)
                 h.advancePastAllDeadlines()

@@ -77,7 +77,7 @@ class TerminalCauseLatchTest {
         val g1 = c.beginConnection(this, 100) {}
         c.completeCleanup(g1, timeoutCause)
 
-        val g2 = c.beginReconnect(this, 100) {}
+        val g2 = c.beginPlatformRelink(this)
         assertNull(c.terminalCause)
         assertTrue(c.completeCleanup(g2, platformFallback))
         assertEquals(platformFallback, c.terminalCause)
@@ -134,67 +134,35 @@ class TerminalCauseLatchTest {
     }
 
     @Test
-    fun `재연결 대기 중인 Disconnected generation은 supersedeRetryPending으로 ClientClosed를 다시 게시한다`() = runTest {
+    fun `재연결 대기 중인 Disconnected generation은 supersedePlatformWait으로 ClientClosed를 다시 게시한다`() = runTest {
         val published = mutableListOf<ConnectionStage>()
         val c = ConnectionCoordinator { published += it }
         val g = c.beginConnection(this, 100) {}
         c.completeCleanup(g, TerminalCause(TerminalCleanupReason.PlatformDisconnected, failure("LINK_FAILED")))
         published.clear()
 
-        assertTrue(c.supersedeRetryPending(g, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
+        assertTrue(c.supersedePlatformWait(g, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
         assertEquals(TerminalCause(TerminalCleanupReason.ClientClosed, null), c.terminalCause)
         assertEquals(listOf(ConnectionStage.Disconnected), published)
     }
 
     @Test
-    fun `연결 시도 전 generation은 supersedeRetryPending하지 않는다`() {
+    fun `연결 시도 전 generation은 supersedePlatformWait하지 않는다`() {
         val c = ConnectionCoordinator()
-        assertFalse(c.supersedeRetryPending(0L, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
+        assertFalse(c.supersedePlatformWait(0L, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
         assertNull(c.terminalCause)
     }
 
     @Test
-    fun `supersedeRetryPending은 adapter 원인을 받고 소유자가 아닌 원인은 거부한다`() = runTest {
+    fun `supersedePlatformWait은 adapter 원인을 받고 소유자가 아닌 원인은 거부한다`() = runTest {
         val c = ConnectionCoordinator()
         val g = c.beginConnection(this, 100) {}
         c.completeCleanup(g, TerminalCause(TerminalCleanupReason.PlatformDisconnected, failure("LINK_FAILED")))
         val adapterOff = TerminalCause(TerminalCleanupReason.AdapterUnavailable, failure("ADAPTER_UNAVAILABLE"))
 
-        assertTrue(runCatching { c.supersedeRetryPending(g, timeoutCause) }.exceptionOrNull() is IllegalArgumentException)
-        assertTrue(c.supersedeRetryPending(g, adapterOff))
+        assertTrue(runCatching { c.supersedePlatformWait(g, timeoutCause) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(c.supersedePlatformWait(g, adapterOff))
         assertEquals(adapterOff, c.terminalCause)
-    }
-
-    @Test
-    fun `latchExhaustion은 reason을 유지하고 failure만 바꾼다`() = runTest {
-        val c = ConnectionCoordinator()
-        val g = c.beginConnection(this, 100) {}
-        c.beginCleanup(g, timeoutCause, this, 100) {}
-        val exhausted = failure("RECONNECT_EXHAUSTED")
-
-        assertTrue(c.latchExhaustion(g, platformFallback, exhausted))
-        assertEquals(TerminalCause(TerminalCleanupReason.LinkTimeout, exhausted), c.terminalCause)
-        c.completeCleanup(g, platformFallback)
-        assertFalse(c.latchExhaustion(g, platformFallback, exhausted))
-    }
-
-    @Test
-    fun `latchExhaustion은 사용자 해제와 client close를 거부한다`() = runTest {
-        val exhausted = failure("RECONNECT_EXHAUSTED")
-        for (reason in listOf(TerminalCleanupReason.UserRequested, TerminalCleanupReason.ClientClosed)) {
-            val latched = ConnectionCoordinator()
-            val g1 = latched.beginConnection(this, 100) {}
-            latched.beginCleanup(g1, TerminalCause(reason, null), this, 100) {}
-            assertFalse(latched.latchExhaustion(g1, platformFallback, exhausted))
-            assertEquals(TerminalCause(reason, null), latched.terminalCause)
-            latched.completeCleanup(g1, platformFallback)
-
-            val fromFallback = ConnectionCoordinator()
-            val g2 = fromFallback.beginConnection(this, 100) {}
-            assertFalse(fromFallback.latchExhaustion(g2, TerminalCause(reason, null), exhausted))
-            assertNull(fromFallback.terminalCause)
-            fromFallback.completeCleanup(g2, platformFallback)
-        }
     }
 
     @Test

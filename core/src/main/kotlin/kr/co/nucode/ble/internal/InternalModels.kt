@@ -51,8 +51,8 @@ internal sealed interface WriteResult {
 internal data class ConnectOptions(
     /**
      * true 면 플랫폼 백그라운드 연결 — 기기가 전파 범위에 나타날 때까지 시스템이 대기·재연결한다.
-     * **재연결 소유권이 플랫폼으로 넘어간다**: 코어 Reconnector(BleConfig.reconnectPolicy)는
-     * 이 연결에 대해 예약·실행 모두 하지 않는다(배타 — plan app-tunables v3).
+     * **재연결 소유권은 플랫폼이다**: 라이브러리는 링크 재시작을 스스로 예약하지 않는다(plan
+     * autoconnect-reconnect v2) — 링크가 끊겨도 handle 을 열어 두고 OS 재연결을 기다린다.
      *
      * 주의: ① [timeoutMillis] 와의 조합 — autoConnect 의 존재 이유가 무기한 대기인데
      * 타임아웃은 그 대기를 포기시킨다. 의도가 아니면 함께 쓰지 마라.
@@ -70,35 +70,3 @@ internal data class ConnectOptions(
     }
 }
 
-/**
- * 연결 시도에 적용할 link deadline. `null`은 "deadline 없음"이 아니라 [BleConfig]의
- * 기본값을 사용한다는 뜻이므로, 진행 중인 connect의 중복 여부는 원본 nullable 값이 아닌
- * 이 정규화된 값으로 판단해야 한다.
- *
- * link가 이미 성공한 뒤에는 이 값이 현재 연결 동작에 영향을 주지 않는다. 그 시점의
- * duplicate connect 비교는 autoConnect와 requestedMtu만으로 충분하며, `BleRuntime`가 그
- * lifecycle 경계를 적용한다.
- */
-internal fun ConnectOptions.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis: Long): Long =
-    timeoutMillis ?: defaultLinkTimeoutMillis
-
-/**
- * 재연결 정책. 최대 시도 횟수 · 지수 백오프의 밑변 · 상한만 둔다(과설계 금지).
- * 기본값은 스켈레톤 단계의 추정치이고, 설계 §12-5 "재시도 기본값"이 실기기로 확정한다.
- *
- * 설계 §4 "재연결 정책(횟수·백오프·조건)은 주입" 의 주입구다(plan 결정②) — 이전에는
- * `internal` 이라 [BleConfig] 에서 주입할 수 없었다.
- */
-internal data class ReconnectPolicy(
-    val maxAttempts: Int = 5,
-    val baseDelayMillis: Long = 1_000L,
-    val maxDelayMillis: Long = 30_000L,
-) {
-    init {
-        require(maxAttempts >= 0) { "maxAttempts 는 음수일 수 없다: $maxAttempts" }
-        require(baseDelayMillis > 0) { "baseDelayMillis 는 0보다 커야 한다: $baseDelayMillis" }
-        require(maxDelayMillis >= baseDelayMillis) {
-            "maxDelayMillis($maxDelayMillis) 는 baseDelayMillis($baseDelayMillis) 이상이어야 한다"
-        }
-    }
-}

@@ -76,7 +76,6 @@ import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleException
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleUuid
@@ -158,7 +157,7 @@ class NusRepository(
 
     suspend fun connect(id: PeripheralId) {
         disconnect()
-        val opened = client.connect(id, BleConnectOptions(reconnectPolicy = reconnectPolicy))
+        val opened = client.connect(id, BleConnectOptions(autoReconnect = true))
         session.value = opened
         try {
             awaitReady(opened) // §5 — 실패하면 던진다
@@ -186,14 +185,6 @@ class NusRepository(
         notificationJob = null
         session.value?.disconnect()
         session.value = null
-    }
-
-    private companion object {
-        val reconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
-            maxAttempts = 3,
-            initialDelayMillis = 1_000,
-            maxDelayMillis = 10_000,
-        )
     }
 
     private fun append(message: Message) {

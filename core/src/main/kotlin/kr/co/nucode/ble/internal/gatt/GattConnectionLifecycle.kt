@@ -25,7 +25,6 @@ import kr.co.nucode.ble.internal.connection.ConnectSequenceHooks
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
-import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
@@ -48,7 +47,7 @@ internal interface GattOperationHooks {
 }
 
 /**
- * `GattBridge`의 연결-생애주기 절반(plan D task 1) — retained reconnect, connect/disconnect,
+ * `GattBridge`의 연결-생애주기 절반(plan D task 1) — 플랫폼 재연결 귀속, connect/disconnect,
  * service discovery, MTU 협상, lifecycle deadline/cleanup을 소유한다.
  *
  * operation 절반(scheduler FIFO)과는 [GattOperationHooks]로만 통신한다 — scheduler 필드를
@@ -65,12 +64,6 @@ internal class GattConnectionLifecycle(
     private val linkCacheWarm: ((PeripheralId) -> Boolean)?,
     private val operations: GattOperationHooks,
     private val sequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
-    /**
-     * 재연결 예산 소진 질의(Reconnector.exhaustedFailure 함수 참조). 종결 게시 직전에 물어,
-     * 예산이 다해 재시도가 없을 세션이면 소진 실패를 돌려받는다 — 그 외(재시도함·suppress·
-     * Never·autoConnect)는 null. Reconnector 타입에 의존하지 않도록 함수로 받는다.
-     */
-    private val reconnectExhaustion: (Session, BleFailure?) -> BleFailure? = { _, _ -> null },
 ) : GattLifecycleHooks {
 
     /** 상태 발행의 유일한 경로 — 발행 뒤 연결 절차 hook 을 부른다(plan connect-sequence 불변식 ②). */
@@ -79,22 +72,18 @@ internal class GattConnectionLifecycle(
         sequence.onStatePublished(session.deviceId)
     }
 
-    /** Retained `BluetoothGatt.connect()` 성공 직후 coordinator generation과 link deadline을 연다. */
-    private fun beginRetainedReconnectLifecycle(session: Session): Long? {
-        val timeouts = readinessTimeouts
-        if (session.suppressReconnect) return null
-        if (session.connectionCoordinator.stage != ConnectionStage.Disconnected) return null
-
-        return session.connectionCoordinator.beginReconnect(
-            scope = scope,
-            linkTimeoutMillis = timeouts.linkMillis,
-            onTimeout = { onLifecycleDeadline(session.deviceId, it) },
-        )
+    /**
+     * 플랫폼 재연결 대기 중인 handle 에 OS 가 다시 붙였을 때(Bootstrap) 새 generation 을 연다.
+     * 플랫폼 재연결 대기([Session.awaitingPlatformRelink])가 아닌 세션이면 열지 않는다 — 귀속 판정과 같은 술어다.
+     */
+    private fun beginPlatformRelinkLifecycle(session: Session): Long? {
+        if (!session.awaitingPlatformRelink) return null
+        // 대기는 새 generation 시작과 함께 끝난다 — 이 generation 이 Ready 전에 실패하면 첫 연결 실패와 같은
+        // 규칙으로 handle 을 닫고 Disconnected(Failed) 로 끝난다(대기로 돌아가지 않는다, review H3 결정 A).
+        var generation = 0L
+        session.endPlatformWait { generation = session.connectionCoordinator.beginPlatformRelink(scope) }
+        return generation
     }
-
-    /** Reconnector 가 platform start 직전에 부르는 lifecycle-only seam — 재연결 generation 을 여는 유일한 코어 경로. */
-    internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? =
-        registry.get(deviceId)?.let(::beginRetainedReconnectLifecycle)
 
     private fun onLifecycleDeadline(
         deviceId: PeripheralId,
@@ -124,7 +113,7 @@ internal class GattConnectionLifecycle(
             session = session,
             reason = deadline.timeoutReason,
             cause = lifecycleFailure,
-            suppressReconnect = coordinator.attemptOrigin != ConnectionAttemptOrigin.Reconnect,
+            suppressReconnect = true,
         )
     }
 
@@ -148,8 +137,6 @@ internal class GattConnectionLifecycle(
 
         if (suppressReconnect) session.suppressReconnect = true
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
-        session.reconnectJob?.cancel()
-        session.reconnectJob = null
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
         publishState(session)
@@ -174,35 +161,56 @@ internal class GattConnectionLifecycle(
      * generation 을 Disconnected 로 확정한 뒤 한 번 게시한다. 이미 고정된 원인이 있으면 그 원인이 이긴다.
      */
     fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean {
-        // adapter off 스윕은 재연결 대기 중(이미 Disconnected)인 세션도 끝낸다 — close 와 같은 경로.
-        if (cause.reason == TerminalCleanupReason.AdapterUnavailable ||
+        val adapterLost = cause.reason == TerminalCleanupReason.AdapterUnavailable ||
             cause.reason == TerminalCleanupReason.PermissionDenied
-        ) {
-            if (endRetryPending(session, generation, cause)) return true
+        // adapter off 스윕은 플랫폼 재연결 대기 중(이미 Disconnected)인 세션도 끝낸다 — close 와 같은 경로.
+        val terminated = (adapterLost && endPlatformWait(session, generation, cause)) || run {
+            // 어댑터가 죽은 링크의 handle 은 OS 대기용으로 남기지 않는다(복귀 재연결은 새 handle 로 건다).
+            if (adapterLost) session.suppressReconnect = true
+            completeLifecycleCleanup(
+                session = session,
+                generation = generation,
+                fallback = cause,
+            )
         }
-        return completeLifecycleCleanup(
-            session = session,
-            generation = generation,
-            fallback = cause,
-        )
+        // autoConnect 세션이 어댑터 꺼짐으로 끝났으면 어댑터 복귀 때 한 번 다시 건다(BleRuntime 이 소비).
+        // 요청 원인이 아니라 고정된 최종 원인으로 판정한다 — 먼저 고정된 사용자 해제(Requested)가 이긴
+        // generation 은 복귀 재연결 대상이 아니다(review H2).
+        if (
+            terminated &&
+            session.autoConnect &&
+            session.connectionCoordinator.terminalCleanupReason == TerminalCleanupReason.AdapterUnavailable
+        ) {
+            session.relinkAfterAdapter = true
+        }
+        return terminated
     }
 
     /**
-     * 재연결 대기 중인 세션을 [cause] 로 끝낸다 — client close 와 adapter off 스윕의 공유 경로
-     * ([ConnectionCoordinator.supersedeRetryPending] KDoc 의 두 소유자). 이미 Disconnected 인
-     * generation 에서 reconnect job 이 예약됐거나 공개 상태가 Recovering 일 때만 동작한다.
-     * suppressReconnect 를 세우고 job 을 취소한 뒤 coordinator 재게시와 ConnStateChanged 를 낸다.
-     * 재시도 대기가 없으면 아무 것도 하지 않고 false(원래 원인 유지).
+     * 플랫폼 재연결 대기 중인 세션을 [cause] 로 끝낸다 — 사용자 해제·client close·adapter off 스윕의 공유 경로
+     * ([ConnectionCoordinator.supersedePlatformWait] KDoc 의 소유자). 이미 Disconnected 인 generation 이
+     * [Session.awaitingPlatformRelink] 일 때만 동작한다. suppressReconnect 를 세우고 대기 종료와 coordinator
+     * 재게시를 한 번에 한 뒤 OS 대기를 취소하고(driver.disconnect + close — 열어 둔 autoConnect handle 이 다시 붙지 않게)
+     * ConnStateChanged 를 낸다. 대기가 없으면 아무 것도 하지 않고 false(원래 원인 유지).
      */
-    private fun endRetryPending(session: Session, generation: Long, cause: TerminalCause): Boolean {
+    private fun endPlatformWait(session: Session, generation: Long, cause: TerminalCause): Boolean {
         val coordinator = session.connectionCoordinator
         if (generation != coordinator.generation || coordinator.stage != ConnectionStage.Disconnected) return false
-        // 취소 전에 판정한다 — 재연결 대기 중이던 세션은 앱 관점에서 아직 종착이 아니었다.
-        if (!session.isRetryPending) return false
+        // 대기 중이던 세션만 — 대기 중이던 세션은 앱 관점에서 아직 종착이 아니었다.
+        if (!session.awaitingPlatformRelink) return false
         session.suppressReconnect = true
-        session.reconnectJob?.cancel()
-        session.reconnectJob = null
-        if (!coordinator.supersedeRetryPending(generation, cause)) return false
+        // 대기 종료와 원인 대체를 한 번에 게시한다 — 중간에 옛 원인의 Disconnected 가 보이지 않는다.
+        var superseded = false
+        session.endPlatformWait { superseded = coordinator.supersedePlatformWait(generation, cause) }
+        if (!superseded) return false
+        try {
+            driver.disconnect(session.deviceId, session.gatt)
+        } catch (_: Exception) {
+            // beginCleanup 과 같은 규칙 — 대기 취소 시작 실패는 진단으로만 남기고 handle 은 그대로 닫는다
+            // (스윕 루프를 끊지 않는다).
+            emitDiagnostic(Severity.Warning, GattFailureFactory.disconnectStartFailed(session))
+        }
+        closeHandle(session)
         emit(BleEvent.ConnStateChanged(session.deviceId, session.connectionState.value))
         return true
     }
@@ -217,14 +225,8 @@ internal class GattConnectionLifecycle(
     }
 
     /**
-     * 재연결 소진 선판정(plan terminal-cause v3 §접근) — 게시 **전에** 이 종결 뒤 재시도가 있을지
-     * 묻는다. ConnectSequence 의 Disconnected hook(scheduleReconnect)과 같은 질의(같은 retryCount·
-     * policy·suppress·retryability)를 쓰므로 둘의 판정이 어긋나지 않는다.
-     *
-     * 순서(원인 → 결과): 원인 없는 플랫폼 해제면 status 를 담은 LINK_FAILED 를 먼저 고정하고
-     * Diagnostic 으로 낸다. 그 뒤 예산 소진이면 [ConnectionCoordinator.latchExhaustion] 으로 failure 만
-     * 소진 실패(원 실패를 감싼 것)로 바꾸고 소진 Diagnostic 을 낸 뒤 suppressReconnect 를 세워, 뒤따르는
-     * 게시가 종착 한 번이 되게 한다. 사용자 해제·client close 는 latchExhaustion 이 거부한다.
+     * 종결 게시 **전에** 원인을 확정한다 — 원인 없는 플랫폼 해제면 status 를 담은 LINK_FAILED 를 고정하고
+     * Diagnostic 으로 낸다(게시 시점 파생에 status 가 필요 없게).
      */
     private fun finalizeTerminalCause(session: Session, generation: Long, fallback: TerminalCause, status: Int) {
         val coordinator = session.connectionCoordinator
@@ -238,15 +240,9 @@ internal class GattConnectionLifecycle(
         if (candidate.failure == null && derivedFailure != null) {
             // 원인 없는 해제도 status 를 담은 실패 자체를 고정한다 — 게시 시점 파생에 status 가 필요 없다.
             coordinator.latchIfAbsent(generation, TerminalCause(candidate.reason, derivedFailure))
-            // LINK_FAILED 는 State 와 함께 Event 로도 전달한다(AsyncResource 규칙) — 소진이어도 원인으로 먼저.
+            // LINK_FAILED 는 State 와 함께 Event 로도 전달한다(AsyncResource 규칙).
             emitDiagnostic(Severity.Warning, derivedFailure)
         }
-        val exhausted = reconnectExhaustion(session, derivedFailure) ?: return
-        if (!coordinator.latchExhaustion(generation, fallback, exhausted)) return
-        emitDiagnostic(Severity.Warning, exhausted)
-        // 포기는 종착이다 — 이 게시가 onStatePublished 로 scheduleReconnect 에 재진입하지 않고,
-        // 완료 경로가 재사용하려 열어둔 handle 을 close 한다(슬롯 누수 방지, plan E).
-        session.suppressReconnect = true
     }
 
     /** Callback 또는 cleanup deadline이 현재 generation을 정확히 한 번 terminal로 만든다. */
@@ -257,7 +253,19 @@ internal class GattConnectionLifecycle(
         status: Int = 0,
     ): Boolean {
         finalizeTerminalCause(session, generation, fallback, status)
-        val completed = session.connectionCoordinator.completeCleanup(generation, fallback)
+        val coordinator = session.connectionCoordinator
+        // 링크가 끊긴 autoConnect generation 의 열린 handle 은 OS 재연결 대기용으로 남긴다 — 대기 시작과
+        // Disconnected 전이를 한 번에 게시한다(Recovering 은 이 명시 상태에서만 파생, review H1).
+        val keepForPlatformWait = session.autoConnect &&
+            !session.suppressReconnect &&
+            session.platformHandleOpen &&
+            generation == coordinator.generation &&
+            coordinator.stage != ConnectionStage.Disconnected
+        val completed = if (keepForPlatformWait) {
+            session.beginPlatformWait { coordinator.completeCleanup(generation, fallback) }
+        } else {
+            coordinator.completeCleanup(generation, fallback)
+        }
         if (!completed) return false
 
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
@@ -280,7 +288,7 @@ internal class GattConnectionLifecycle(
     private fun attributedGeneration(session: Session, event: GattDriverEvent): Long? =
         when (val attribution = CallbackAttribution.attribute(session, event)) {
             is Attribution.Current -> attribution.generation
-            Attribution.Bootstrap -> beginRetainedReconnectLifecycle(session)
+            Attribution.Bootstrap -> beginPlatformRelinkLifecycle(session)
             is Attribution.Drop -> {
                 // 끝난 generation 에 늦게 온 실패 status 는 lifecycle 을 건드리지 않지만 사실로는 남긴다
                 // (late non-terminal link status 와 같은 AsyncInfo). 성공 status 는 조용히 버린다.
@@ -327,8 +335,8 @@ internal class GattConnectionLifecycle(
                 }
                 val preReadyFailure = coordinator.stage != ConnectionStage.Ready &&
                     coordinator.stage != ConnectionStage.Disconnecting
-                val suppressReconnect = preReadyFailure &&
-                    coordinator.attemptOrigin != ConnectionAttemptOrigin.Reconnect
+                // Ready 전 실패는 첫 연결이든 플랫폼 재연결 generation 이든 handle 을 닫는다(review H3 결정 A).
+                val suppressReconnect = preReadyFailure
                 val failureReason = if (preReadyFailure) {
                     TerminalCleanupReason.LinkStatusFailure
                 } else {
@@ -422,8 +430,7 @@ internal class GattConnectionLifecycle(
                 session = session,
                 reason = TerminalCleanupReason.ServiceDiscoveryStatusFailure,
                 cause = failure,
-                suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                    ConnectionAttemptOrigin.Reconnect,
+                suppressReconnect = true,
             )
             return
         }
@@ -560,13 +567,38 @@ internal class GattConnectionLifecycle(
      * [rediscovery] 로 주소 필터 스캔 1회를 선행해 BT 재시작으로 비워진 스택 캐시를 채운다.
      */
     suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) {
+        try {
+            startConnect(deviceId, options)
+        } catch (e: BleException) {
+            // 유령 Connecting 방지(D6/M-7): 시작 자체가 실패했으면 상태·스트림 둘 다 종결시킨다.
+            // throw 는 호출자에게 가지만(두 갈래 규약), events 만 보는 다른 소비자도
+            // Connecting 이 끝났음을 알아야 한다.
+            //
+            // connect 시작 실패는 OS 대기 대상이 아니다(D6) — 게시 전에 suppressReconnect 를 세워
+            // handle 을 남기지 않는다. 다음 connect() 가 startConnect 에서 모드로 다시 정한다.
+            val session = registry.get(deviceId) ?: throw e
+            session.suppressReconnect = true
+            val failure = e.failure
+            // 보통은 startConnect 가 throw 전에 이 generation 을 이미 종결(원인 고정)했으므로 게시만
+            // 남는다. 아직 열려 있으면 종결 API 가 고정·게시까지 한다.
+            val terminated = terminate(
+                session,
+                session.connectionCoordinator.generation,
+                TerminalCause(TerminalCleanupReason.LinkStartRejected, failure),
+            )
+            if (!terminated) publishState(session)
+            throw BleException(failure)
+        }
+    }
+
+    private suspend fun startConnect(deviceId: PeripheralId, options: ConnectOptions) {
         // 조용한 반환 금지(review L — KDoc "조용한 실패 경로를 없앤다" 와 코드 일치).
         // BleRuntime.connect 가 getOrCreate 직후 부르므로 정상 경로에선 도달 불가지만,
         // 도달하면 정확히 M-7 유령 Connecting 이다.
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val connectionGeneration = session.connectionCoordinator.beginConnection(
             scope = scope,
-            linkTimeoutMillis = options.timeoutMillis ?: readinessTimeouts.linkMillis,
+            linkTimeoutMillis = options.linkDeadlineMillis(readinessTimeouts.linkMillis),
             onTimeout = { onLifecycleDeadline(deviceId, it) },
         )
         publishState(session)
@@ -585,25 +617,22 @@ internal class GattConnectionLifecycle(
         // 여기 도달한 기존 핸들은 전부 죽은(Disconnected) 것이다.
         session.gatt?.let { driver.close(deviceId, it) }
         session.gatt = null
-        // D2/D6 — 이 재설정은 connectGatt 직전이어야 한다. 이전 시도가 사용자 disconnect()
-        // ·타임아웃 포기·connect 시작 실패(BleRuntime.connect 의 catch) 중 무엇으로든
-        // suppressReconnect 를 true 로 남겼더라도, 지금 시작하는 이 시도는 새 시도라
-        // "포기 상태"를 물려받으면 안 된다. connectGatt 호출 뒤로 미루면 그 사이 콜백이
-        // (이례적으로) 동기 재진입해 stale 한 suppressReconnect 값을 보는 창이 생긴다.
-        session.suppressReconnect = false
-        // 배타(plan v3): 사용자 connect 는 이전 생애주기의 예약 재연결을 대체한다 —
-        // 취소 없이 두면 대기 중이던 백오프 job 이 새 gatt 위에서 뒤늦게 발화한다.
-        // 모드도 여기서 확정 — 이후 scheduleReconnect/reconnect 분기의 유일한 근거.
-        session.reconnectJob?.cancel()
-        session.reconnectJob = null
+        session.platformHandleOpen = false
+        // 이전 handle 을 닫았으니 플랫폼 재연결 대기도 끝난다(이미 Connecting 이라 공개 상태는 그대로다).
+        session.endPlatformWait()
+        // D2/D6 — 이 설정은 connectGatt 직전이어야 한다. 이전 시도가 사용자 disconnect()
+        // ·타임아웃 포기·connect 시작 실패(connect 의 catch) 중 무엇으로든 suppressReconnect 를 true 로
+        // 남겼더라도, 지금 시작하는 이 시도는 새 시도라 그 상태를 물려받지 않는다 — 모드로 다시 정한다.
+        // autoConnect 가 아니면 이 handle 은 처음부터 OS 대기용이 아니다(링크가 끊기면 닫고 Disconnected).
+        // connectGatt 호출 뒤로 미루면 그 사이 콜백이 (이례적으로) 동기 재진입해 stale 한 값을 보는 창이 생긴다.
+        session.suppressReconnect = !options.autoConnect
         // resubscribeJob 정리(plan B) — 새 연결 시도가 시작되는데 이전 생애주기의 재구독
-        // 루프가 살아 있으면 안 된다. reconnectJob 과 같은 취소 지점 3곳 중 하나.
+        // 루프가 살아 있으면 안 된다.
         session.resubscribeJob?.cancel()
         session.resubscribeJob = null
-        // retryCount 리셋(plan D) — 새 생애주기 = 새 재연결 예산. give-up 잔재(이전 시도가
-        // maxAttempts 까지 소진했던 값)가 이번 시도로 넘어오면 안 된다.
-        session.retryCount = 0
         session.autoConnect = options.autoConnect
+        // 새 시도는 어댑터 복귀 재연결 대상이 아니다 — 이 시도 자체가 그 재연결이거나 사용자가 새로 건 것이다.
+        session.relinkAfterAdapter = false
         // plan blecore-app-tunables 결정① — 이번 연결 시도의 옵션값을 Session 에 보존한다.
         // ConnectSequence.onServicesDiscovered 가 이 값을 그대로 읽어
         // requestMtu 를 부른다(Session.requestedMtu KDoc, 구 상수 REQUESTED_MTU 대체).
@@ -709,33 +738,64 @@ internal class GattConnectionLifecycle(
             throw BleException(failure)
         }
         session.gatt = gatt
+        session.platformHandleOpen = true
 
         // #15 — 연결 타임아웃. STATE_CONNECTED 가 오면(위 handleConnectionStateChange) 취소된다.
     }
 
     /**
+     * 어댑터 복귀 — 어댑터 꺼짐 스윕이 끝낸 autoConnect 세션([Session.relinkAfterAdapter], 사용자 해제·
+     * close 가 아직 내리지 않음)에 connectGatt(autoConnect = true) 를 한 번 건다(새 handle). 예약·재시도는
+     * 없다 — 시작이 실패하면 connect 의 즉시 실패 경로가 Disconnected(Failed) 로 끝낸다.
+     * 전이 관측 경로가 명령 안(ensureAdapterReady)일 수도 있으므로 코어 디스패처에 한 홉 미룬 뒤 다시 판정한다
+     * — 세션 조건과 함께 어댑터가 아직 Ready 인지([adapterReady])도 본다.
+     */
+    fun resumeAfterAdapter(deviceId: PeripheralId, adapterReady: () -> Boolean) {
+        if (registry.get(deviceId)?.relinkAfterAdapter != true) return
+        scope.launch {
+            val session = registry.get(deviceId) ?: return@launch
+            if (!session.relinkAfterAdapter || session.stage != ConnectionStage.Disconnected) return@launch
+            // 홉 사이에 어댑터가 다시 꺼졌으면 걸지 않는다 — 다음 Ready 복귀가 다시 판정한다.
+            if (!adapterReady()) return@launch
+            try {
+                connect(deviceId, ConnectOptions(autoConnect = true, requestedMtu = session.requestedMtu))
+            } catch (_: BleException) {
+                // 시작 실패는 connect 가 이미 종결·게시했다(재연결 대상 아님) — 재던진 예외만 삼킨다.
+            }
+        }
+    }
+
+    /**
      * 연결 해제. `gatt.close()` 는 여기서 하지 않는다 — `onConnectionStateChange` 로
      * `STATE_DISCONNECTED` 가 도착한 뒤 [handleConnectionStateChange] 에서
-     * [Session.suppressReconnect] == true 일 때만 정리한다(plan §잠재에러 — close() 를
-     * 놓치면 핸들이 누수된다). 재연결 후보(suppressReconnect == false)라면 여기서 close 하지
-     * 않는다 — Reconnector(task 5)가 같은 gatt 로 `gatt.connect()` 재사용을 시도한다.
+     * [Session.suppressReconnect] == true 일 때 정리한다(plan §잠재에러 — close() 를
+     * 놓치면 핸들이 누수된다). 사용자 해제는 suppressReconnect 를 세우므로 항상 닫힌다.
+     * 플랫폼 재연결 대기 중이면 [endPlatformWait] 가 대기를 끝내고 handle 을 닫는다.
      */
     fun disconnect(deviceId: PeripheralId) {
         val session = registry.get(deviceId) ?: return
-        val started = beginCleanup(
+        session.relinkAfterAdapter = false
+        // 플랫폼 재연결 대기 중(이미 Disconnected)이면 사용자 해제가 대기를 끝낸다 — Disconnected(Requested).
+        val coordinator = session.connectionCoordinator
+        if (endPlatformWait(session, coordinator.generation, TerminalCause(TerminalCleanupReason.UserRequested, null))) {
+            session.resubscribeJob?.cancel()
+            session.resubscribeJob = null
+            return
+        }
+        if (coordinator.stage == ConnectionStage.Disconnected) {
+            // 이미 끝났고 대기도 없다 — 대기가 아닌 종결 generation 의 handle 은 lifecycle 이 이미 닫았다.
+            // 정리할 것은 재구독 job 뿐이다(plan B — 사용자 해제 의도에 진행 중 재구독이 남으면 안 된다).
+            session.suppressReconnect = true
+            session.resubscribeJob?.cancel()
+            session.resubscribeJob = null
+            return
+        }
+        beginCleanup(
             session = session,
             reason = TerminalCleanupReason.UserRequested,
             cause = null,
             suppressReconnect = true,
         )
-        if (started || session.connectionCoordinator.stage != ConnectionStage.Disconnected) return
-        operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
-        session.suppressReconnect = true // Reconnector 가 "의도적 해제"를 구분하는 근거(task 5 가 소비)
-        session.reconnectJob?.cancel() // 배타(plan v3) — 백오프 대기 중이던 예약도 즉시 종료
-        session.reconnectJob = null
-        session.resubscribeJob?.cancel() // plan B — 사용자 해제 의도에 진행 중 재구독이 남으면 안 된다.
-        session.resubscribeJob = null
-        driver.disconnect(deviceId, session.gatt)
     }
 
     /**
@@ -771,8 +831,7 @@ internal class GattConnectionLifecycle(
                     TerminalCleanupReason.ServiceDiscoveryStartRejected
                 },
                 cause = failure,
-                suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                    ConnectionAttemptOrigin.Reconnect,
+                suppressReconnect = true,
             )
         }
     }
@@ -807,8 +866,7 @@ internal class GattConnectionLifecycle(
                     session = session,
                     reason = TerminalCleanupReason.PermissionDenied,
                     cause = failure,
-                    suppressReconnect = session.connectionCoordinator.attemptOrigin !=
-                        ConnectionAttemptOrigin.Reconnect,
+                    suppressReconnect = true,
                 )
                 return
             }
@@ -824,26 +882,25 @@ internal class GattConnectionLifecycle(
      * Client close — 세션을 `Disconnected(ClientClosed)` 로 끝내고 platform handle 을 닫는다.
      *
      * 원인 대체 규칙은 [ConnectionCoordinator.supersedeForClose](종결되지 않은 generation)와
-     * [endRetryPending]([ConnectionCoordinator.supersedeRetryPending]): 재연결 대기 중(공개 상태 Recovering 이거나 reconnect job 예약됨)인 generation 은 ClientClosed 로
-     * 끝난다. 재시도 대기가 없는 이미 종결된 generation 은 원래 원인(예: Failed)을 유지한다.
+     * [endPlatformWait]([ConnectionCoordinator.supersedePlatformWait]): 플랫폼 재연결 대기 중(공개 상태 Recovering)인
+     * generation 은 ClientClosed 로 끝난다. 대기가 없는 이미 종결된 generation 은 원래 원인(예: Failed)을 유지한다.
      * 연결 시도 전(generation 0) 세션은 닫힘이 첫 원인이다.
      *
-     * close 는 종착이다 — suppressReconnect 를 세우고 예약된 reconnect 를 취소한다. 공개 상태는
+     * close 는 종착이다 — suppressReconnect 를 세운다. 공개 상태는
      * coordinator 게시(onStageChanged → Session.connectionState)로 한 번 바뀌고, 시작된 generation 은
      * ConnStateChanged 도 낸다(BleRuntime 경유 시 close 게이트 뒤라 이벤트 버스에서는 버려진다 —
      * 닫힌 클라이언트의 최종 상태는 connectionState·closed snapshot 이 전달한다). 연결 절차
      * hook(onStatePublished)은 부르지 않는다(닫힌 런타임에서 다음 단계를 진행할 이유가 없다).
      */
     fun close(session: Session) {
+        session.relinkAfterAdapter = false
         val coordinator = session.connectionCoordinator
         val generation = coordinator.generation
-        if (endRetryPending(session, generation, TerminalCause(TerminalCleanupReason.ClientClosed, null))) {
-            closeHandle(session)
+        if (endPlatformWait(session, generation, TerminalCause(TerminalCleanupReason.ClientClosed, null))) {
+            // endPlatformWait 가 이미 handle 을 닫았다 — 두 번 닫지 않는다.
             return
         }
         session.suppressReconnect = true
-        session.reconnectJob?.cancel()
-        session.reconnectJob = null
         val superseded = coordinator.supersedeForClose(generation)
         val completed = completeWithoutPublish(
             session,
@@ -864,6 +921,8 @@ internal class GattConnectionLifecycle(
         operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
         driver.close(session.deviceId, session.gatt)
         session.gatt = null
+        session.platformHandleOpen = false
+        session.endPlatformWait()
     }
 
     /** Operation 절반의 poison 꼬리(plan §접근) — completeCleanup이 driver.disconnect/close보다
@@ -874,11 +933,10 @@ internal class GattConnectionLifecycle(
         suppressReconnect: Boolean,
     ) {
         val connectionGeneration = session.connectionCoordinator.generation
-        session.suppressReconnect = suppressReconnect
+        if (suppressReconnect) session.suppressReconnect = true
         // Platform disconnect/close보다 먼저 connection generation을 terminalize한다.
         // disconnect가 callback을 동기 재진입시키더라도 OperationInvalidated 원인이
         // PlatformDisconnected로 먼저 확정되거나 coordinator가 Ready에 남지 않는다.
-        // 원인(무효화) Diagnostic 을 결과(소진 판정 Diagnostic)보다 먼저 낸다.
         emitDiagnostic(Severity.Warning, cause)
         completeWithoutPublish(
             session,
@@ -891,6 +949,8 @@ internal class GattConnectionLifecycle(
         driver.disconnect(session.deviceId, oldGatt)
         driver.close(session.deviceId, oldGatt)
         session.gatt = null
+        session.platformHandleOpen = false
+        session.endPlatformWait()
         session.mtu = null
         session.chunkSize = null
 
@@ -910,3 +970,11 @@ internal class GattConnectionLifecycle(
         const val DEFAULT_MTU = 23
     }
 }
+
+/**
+ * 이번 연결의 link deadline. 명시 [ConnectOptions.timeoutMillis] 가 있으면 그 값, 없으면 autoConnect 는
+ * deadline 없음(null — OS 무기한 대기가 autoConnect 의 의미, 취소는 disconnect()), 아니면 [defaultLinkMillis].
+ * 중복 connect 판정(BleRuntime)도 이 값으로 비교한다.
+ */
+internal fun ConnectOptions.linkDeadlineMillis(defaultLinkMillis: Long): Long? =
+    timeoutMillis ?: if (autoConnect) null else defaultLinkMillis

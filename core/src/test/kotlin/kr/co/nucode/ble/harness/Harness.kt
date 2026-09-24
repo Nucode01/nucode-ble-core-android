@@ -14,7 +14,6 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleConnectOptions
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
@@ -22,7 +21,6 @@ import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
-import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.fail
 
@@ -36,7 +34,7 @@ internal class Harness(
     val core: BleRuntime,
     val client: DefaultBleClient,
     val fake: FakeAndroidPlatform,
-    private val reconnect: BleReconnectPolicy,
+    private val defaultOptions: BleConnectOptions,
     private val fakeJob: Job,
 ) {
     private val stateHistory = mutableMapOf<PeripheralId, MutableList<ConnectionState>>()
@@ -101,28 +99,24 @@ internal class Harness(
     fun connEvents(id: PeripheralId): List<ConnectionState> =
         events.filterIsInstance<BleEvent.ConnStateChanged>().filter { it.deviceId == id }.map { it.state }
 
-    /** 공개 connect 를 걸고 현재 시점까지만 실행한다(Ready 를 기대하지 않는 시나리오용). */
-    fun connect(id: PeripheralId): ConnectionState {
+    /**
+     * 공개 connect 를 걸고 현재 시점까지만 실행한다(Ready 를 기대하지 않는 시나리오용).
+     * [options] 가 null 이면 하네스 생성 시의 기본 연결 옵션으로 건다.
+     */
+    fun connect(id: PeripheralId, options: BleConnectOptions? = null): ConnectionState {
         val session = session(id)
-        testScope.launch { session.connect(BleConnectOptions(reconnectPolicy = reconnect)) }
+        val effective = options ?: defaultOptions
+        testScope.launch { session.connect(effective) }
         testScope.runCurrent()
         return session.connectionState.value
-    }
-
-    /** legacy 런타임 connect(effective 정책 없음 → 런타임 [ReconnectPolicy] 사용)를 걸고 Ready 까지 진행. */
-    fun connectLegacyToReady(id: PeripheralId): ConnectionState {
-        session(id)
-        testScope.launch { core.connect(id) }
-        waitUntil("legacy connect 가 Ready 에 도달") { session(id).connectionState.value == ConnectionState.Ready }
-        return session(id).connectionState.value
     }
 
     /**
      * 공개 connect → 스크립트대로 콜백 → Ready 까지 진행. 10ms 씩 최대 [MAX_WAIT_STEPS] 번 진행해도
      * Ready 가 아니면 테스트를 실패시킨다(불변식 판정과 별개인 시나리오 전제).
      */
-    fun connectToReady(id: PeripheralId): ConnectionState {
-        connect(id)
+    fun connectToReady(id: PeripheralId, options: BleConnectOptions? = null): ConnectionState {
+        connect(id, options)
         waitUntil("connect 가 Ready 에 도달") { session(id).connectionState.value == ConnectionState.Ready }
         return session(id).connectionState.value
     }
@@ -183,9 +177,8 @@ internal sealed interface TimelinePoint {
 /** 하네스 생성. [config] 의 dispatcher 는 테스트 스케줄러의 StandardTestDispatcher 로 덮어쓴다. */
 internal fun TestScope.harness(
     config: BleConfig = BleConfig(),
-    reconnect: BleReconnectPolicy = BleReconnectPolicy.Disabled,
-    /** legacy connect([Harness.connectLegacyToReady])가 쓰는 런타임 재연결 정책. */
-    legacyReconnect: ReconnectPolicy = ReconnectPolicy(),
+    /** [Harness.connect]·[Harness.connectToReady] 에 옵션을 주지 않았을 때 쓰는 연결 옵션. */
+    options: BleConnectOptions = BleConnectOptions(),
 ): Harness {
     val dispatcher = StandardTestDispatcher(testScheduler)
     // fake 콜백 scope — Harness.close() 가 취소한다.
@@ -194,14 +187,13 @@ internal fun TestScope.harness(
     val core = BleRuntime(
         config = config.copy(dispatcher = dispatcher),
         adapter = { null },
-        reconnectPolicy = legacyReconnect,
         gattDriver = fake,
         gattOperationTargetResolver = fake.resolver,
         adapterState = fake.adapterProbe,
     )
     fake.runtime = core
     fake.installScanner()
-    val harness = Harness(this, core, DefaultBleClient(core), fake, reconnect, fakeJob)
+    val harness = Harness(this, core, DefaultBleClient(core), fake, options, fakeJob)
     runCurrent()
     return harness
 }

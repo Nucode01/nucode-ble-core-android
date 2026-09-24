@@ -45,8 +45,15 @@ class CallbackAttributionTest {
         Kind.Mtu -> GattDriverEvent.MtuChanged(deviceId, source, 185, BluetoothGatt.GATT_SUCCESS, gen)
     }
 
+    /**
+     * Bootstrap 술어(awaitingPlatformRelink)의 세션 입력 — 플랫폼 재연결 대기 여부.
+     * 대기는 종결 전이와 함께만 세워지므로(Session.beginPlatformWait) Disconnected 에서만 의미가 있다.
+     * 끝나지 않은 stage 에서는 두 값이 같은 세션이다(awaitingPlatformRelink 는 stage 가 Disconnected 일 때만 true).
+     */
+    private enum class Wait { Waiting, NotWaiting }
+
     /** generation 1 을 연 뒤 [stage] 에 도달한 세션. */
-    private fun TestScope.sessionAt(stage: ConnectionStage, suppress: Boolean): Session {
+    private fun TestScope.sessionAt(stage: ConnectionStage, wait: Wait): Session {
         val session = Session(deviceId)
         val c = session.connectionCoordinator
         val g = c.beginConnection(this, 10_000) {}
@@ -59,11 +66,14 @@ class CallbackAttributionTest {
             }
             ConnectionStage.Disconnecting ->
                 c.beginCleanup(g, cause(), this, 10_000) {}
-            ConnectionStage.Disconnected -> c.completeCleanup(g, cause())
+            ConnectionStage.Disconnected -> when (wait) {
+                Wait.Waiting -> session.beginPlatformWait { c.completeCleanup(g, cause()) }
+                Wait.NotWaiting -> c.completeCleanup(g, cause())
+            }
             else -> error("unused stage $stage")
         }
         assertEquals(stage, c.stage)
-        session.suppressReconnect = suppress
+        assertEquals(wait == Wait.Waiting && stage == ConnectionStage.Disconnected, session.awaitingPlatformRelink)
         return session
     }
 
@@ -74,7 +84,7 @@ class CallbackAttributionTest {
         gen: Gen,
         stage: ConnectionStage,
         kind: Kind,
-        suppress: Boolean,
+        wait: Wait,
     ): Attribution {
         if (!sourceCurrent) return Attribution.Drop(DropReason.StaleHandle)
         val ended = stage == ConnectionStage.Disconnected
@@ -83,14 +93,16 @@ class CallbackAttributionTest {
             Gen.Different -> Attribution.Drop(DropReason.StaleGeneration)
             Gen.Null -> when {
                 !ended -> Attribution.Current(1L)
-                kind == Kind.LinkUp && !suppress -> Attribution.Bootstrap
+                // Bootstrap 은 링크 성공이고 세션이 명시적 플랫폼 재연결 대기(awaitingPlatformRelink)일 때만.
+                kind == Kind.LinkUp && wait == Wait.Waiting ->
+                    Attribution.Bootstrap
                 else -> Attribution.Drop(DropReason.EndedGeneration)
             }
         }
     }
 
     @Test
-    fun `귀속 판정 표 — 출처 x generation x stage x 콜백 종류 x suppressReconnect`() = runTest {
+    fun `귀속 판정 표 — 출처 x generation x stage x 콜백 종류 x 플랫폼 재연결 대기`() = runTest {
         val stages = listOf(
             ConnectionStage.Connecting,
             ConnectionStage.Ready,
@@ -99,8 +111,8 @@ class CallbackAttributionTest {
         )
         var cases = 0
         for (sourceCurrent in listOf(true, false)) for (gen in Gen.values()) for (stage in stages)
-            for (kind in Kind.values()) for (suppress in listOf(false, true)) {
-                val session = sessionAt(stage, suppress)
+            for (kind in Kind.values()) for (wait in Wait.values()) {
+                val session = sessionAt(stage, wait)
                 val explicit = when (gen) {
                     Gen.Same -> 1L
                     Gen.Different -> 7L
@@ -111,8 +123,8 @@ class CallbackAttributionTest {
                     event(kind, GattCallbackSource { sourceCurrent }, explicit),
                 )
                 assertEquals(
-                    "source=$sourceCurrent gen=$gen stage=$stage kind=$kind suppress=$suppress",
-                    expected(sourceCurrent, gen, stage, kind, suppress),
+                    "source=$sourceCurrent gen=$gen stage=$stage kind=$kind wait=$wait",
+                    expected(sourceCurrent, gen, stage, kind, wait),
                     actual,
                 )
                 // 판정은 상태를 바꾸지 않는다.
@@ -136,23 +148,23 @@ class CallbackAttributionTest {
             assertEquals(
                 "$event",
                 Attribution.Drop(DropReason.StaleHandle),
-                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, false), event),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, Wait.NotWaiting), event),
             )
         }
-        for (suppress in listOf(false, true)) for (event in operationEvents(GattCallbackSource { true })) {
+        for (wait in Wait.values()) for (event in operationEvents(GattCallbackSource { true })) {
             assertEquals(
-                "$event suppress=$suppress",
+                "$event wait=$wait",
                 Attribution.Drop(DropReason.EndedGeneration),
-                CallbackAttribution.attribute(sessionAt(ConnectionStage.Disconnected, suppress), event),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Disconnected, wait), event),
             )
             assertEquals(
                 "$event",
                 Attribution.Current(1L),
-                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, suppress), event),
+                CallbackAttribution.attribute(sessionAt(ConnectionStage.Ready, wait), event),
             )
         }
         // 끝난 세션이 새 재연결 generation 을 열어 Connecting 이면 그 generation 의 사실이다.
-        val reconnecting = sessionAt(ConnectionStage.Disconnected, false)
+        val reconnecting = sessionAt(ConnectionStage.Disconnected, Wait.Waiting)
         val next = reconnecting.connectionCoordinator.beginConnection(this, 10_000) {}
         assertEquals(ConnectionStage.Connecting, reconnecting.connectionCoordinator.stage)
         for (event in operationEvents(GattCallbackSource { true })) {

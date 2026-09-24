@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
 import kr.co.nucode.ble.internal.connection.ConnectSequence
-import kr.co.nucode.ble.internal.connection.Reconnector
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
@@ -41,6 +40,7 @@ import kr.co.nucode.ble.internal.event.DiagnosticObservation
 import kr.co.nucode.ble.internal.event.NotificationHub
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.linkDeadlineMillis
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
@@ -113,7 +113,6 @@ internal fun evaluatePermissionState(
 internal class BleRuntime private constructor(
     private val central: AndroidCentral?,
     config: BleConfig,
-    reconnectPolicy: ReconnectPolicy,
     adapterProvider: (() -> BluetoothAdapter?)?,
     private val registerAdapterReceiver: Boolean,
     private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
@@ -156,7 +155,6 @@ internal class BleRuntime private constructor(
     constructor(context: Context, config: BleConfig = BleConfig()) : this(
         central = AndroidCentral(context.applicationContext),
         config = config,
-        reconnectPolicy = ReconnectPolicy(),
         adapterProvider = null,
         registerAdapterReceiver = true,
         gattDriverFactory = null,
@@ -182,7 +180,6 @@ internal class BleRuntime private constructor(
     constructor(
         config: BleConfig,
         adapter: () -> BluetoothAdapter?,
-        reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
         rediscovery: PeripheralRediscovery? = null,
@@ -190,7 +187,6 @@ internal class BleRuntime private constructor(
     ) : this(
         central = null,
         config = config,
-        reconnectPolicy = reconnectPolicy,
         adapterProvider = adapter,
         registerAdapterReceiver = false,
         gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
@@ -391,7 +387,7 @@ internal class BleRuntime private constructor(
         ?: central?.let { c -> AndroidPeripheralRediscovery { c.adapter()?.bluetoothLeScanner } }
     /**
      * 연결 절차 진행([ConnectSequence]). emit 은 발행만 하고, 상태·서비스·MTU 발행 소유자가
-     * 발행 직후 이 hook 을 부른다. 협력자(bridge·reconnector)는 호출 시점에 평가되는
+     * 발행 직후 이 hook 을 부른다. 협력자(bridge)는 호출 시점에 평가되는
      * 람다로만 참조하므로 그들보다 먼저 조립해 직접 넘긴다. `internal` 인 이유 — 테스트 seam: 배선 테스트가 이벤트 발행 없이
      * 절차 분기를 직접 구동한다.
      */
@@ -401,7 +397,6 @@ internal class BleRuntime private constructor(
         markWarm = { deviceId -> warmAddresses += deviceId },
         discoverServices = { deviceId -> gattBridge.discoverServices(deviceId) },
         requestMtu = { deviceId, mtu -> gattBridge.requestMtu(deviceId, mtu) },
-        scheduleReconnect = { deviceId, failure -> reconnector.scheduleReconnect(deviceId, failure) },
         publishState = ::publishState,
         restoreSubscriptionsBeforeReady = ::restoreSubscriptionsBeforeReady,
     )
@@ -424,8 +419,6 @@ internal class BleRuntime private constructor(
         rediscovery = rediscovery,
         linkCacheWarm = { deviceId -> deviceId in warmAddresses },
         connectSequence = connectSequence,
-        // 소진 선판정 질의 — reconnector 는 아래에서 조립되므로 호출 시점에 평가되는 람다로 넘긴다.
-        reconnectExhaustion = { session, cause -> reconnector.exhaustedFailure(session, cause) },
     )
     private val operationQueue = OperationQueue(
         registry = registry,
@@ -433,17 +426,6 @@ internal class BleRuntime private constructor(
         ackTimeoutMillis = config.operationTimeoutMillis,
         writeCommand = gattBridge::writeCommand,
     )
-    internal val reconnector = Reconnector(registry, ::emit, coreScope, connectSequence)
-
-    init {
-        // plan blecore-app-tunables 결정② — Reconnector.policy 는 4워커 공통 생성자 계약
-        // (registry, emit, scope)을 지키려고 var 로 남아 있다(Reconnector KDoc) — 조립 직후
-        // 여기서 config 값을 주입한다.
-        reconnector.policy = reconnectPolicy
-        reconnector.beginReconnectLifecycle = gattBridge::beginRetainedReconnect
-        reconnector.startRetainedConnect = gattBridge::startRetainedConnect
-        reconnector.terminate = gattBridge::terminate
-    }
 
     // ── 배선 ③ 연결 시퀀스 오케스트레이션 ────────────────────────────────────────
 
@@ -496,7 +478,6 @@ internal class BleRuntime private constructor(
             if (session.resubscribeJob === coroutineContext[Job]) {
                 session.resubscribeJob = null
             }
-            session.retryCount = 0
             publishState(session)
         }
     }
@@ -610,13 +591,12 @@ internal class BleRuntime private constructor(
             emit(diagnostic(Severity.Warning, scanFailure))
         }
         for (session in registry.all()) {
-            // 이미 끝난 세션은 조용히(원인 유지). 단 재연결 대기 중(Recovering·예약된 reconnect job)이면
-            // 앱 관점에서 아직 종착이 아니다 — 어댑터 원인으로 회복을 끝낸다(lifecycle 이 close 와 같은
-            // 경로로 재게시, ConnectionCoordinator.supersedeRetryPending).
-            if (session.stage == ConnectionStage.Disconnected && !session.isRetryPending) continue
-            session.suppressReconnect = true
-            session.reconnectJob?.cancel(); session.reconnectJob = null
-            // resubscribeJob 정리(plan B) — reconnectJob 과 같은 취소 지점 3곳 중 하나.
+            // 이미 끝난 세션은 조용히(원인 유지). 단 플랫폼 재연결 대기 중(Recovering)이면 앱 관점에서
+            // 아직 종착이 아니다 — 어댑터 원인으로 대기를 끝낸다(lifecycle 이 close 와 같은 경로로 재게시,
+            // ConnectionCoordinator.supersedePlatformWait). handle 을 남기지 않는 표시(suppressReconnect)는
+            // lifecycle terminate 가 세운다.
+            if (session.stage == ConnectionStage.Disconnected && !session.awaitingPlatformRelink) continue
+            // resubscribeJob 정리(plan B) — 정리 지점마다 취소한다.
             session.resubscribeJob?.cancel(); session.resubscribeJob = null
             val failure = FailureMapper.fromAdapterState(cause).copy(
                 context = session.lifecycleFailureContext(),
@@ -663,6 +643,14 @@ internal class BleRuntime private constructor(
         val wasReady = _adapterState.value is AdapterState.Ready
         _adapterState.value = newState
         if (wasReady && newState !is AdapterState.Ready) sweepSessions(newState)
+        if (!wasReady && newState is AdapterState.Ready) resumeAfterAdapter()
+    }
+
+    /** 어댑터 복귀 — 세션마다 lifecycle 에 넘긴다(재연결 판정·시작은 [GattBridge.resumeAfterAdapter] 소유). */
+    private fun resumeAfterAdapter() {
+        for (session in registry.all()) {
+            gattBridge.resumeAfterAdapter(session.deviceId) { _adapterState.value is AdapterState.Ready }
+        }
     }
 
     private fun ensureAdapterReady(
@@ -877,61 +865,34 @@ internal class BleRuntime private constructor(
                         )
                     }
 
-                    ConnectionStage.Disconnected -> Unit
+                    // 플랫폼 재연결 대기(autoConnect handle 열림) 중에는 같은 handle 위에 두 번째 연결을 시작하지
+                    // 않고 기존 대기를 유지한다(docs/v1 connection-lifecycle "duplicate connect").
+                    ConnectionStage.Disconnected -> if (existing.awaitingPlatformRelink) {
+                        if (existing.hasSameEffectiveConnectOptions(options)) return@onCore
+                        emitConnectConflict(
+                            deviceId = deviceId,
+                            code = "CONNECTION_OPTIONS_CONFLICT",
+                            message = "플랫폼 재연결 대기 중인 연결의 effective options와 요청이 다르다: ${deviceId.value}",
+                        )
+                    }
                 }
             }
 
             ensureAdapterReady(AndroidApiOperation.ConnectGatt)
-            val session = existing ?: registry.getOrCreate(deviceId)
-            try {
-                gattBridge.connect(deviceId, options)
-            } catch (e: BleException) {
-                // 유령 Connecting 방지(D6/M-7): 시작 자체가 실패했으면 상태·스트림 둘 다 종결시킨다.
-                // throw 는 호출자에게 가지만(두 갈래 규약), events 만 보는 다른 소비자도
-                // Connecting 이 끝났음을 알아야 한다.
-                //
-                // connect 시작 실패는 재연결 대상이 아니다(D6) — Disconnected 를 emit 하면
-                // ConnectSequence.onStatePublished 의 Disconnected 분기가 scheduleReconnect 로 가므로,
-                // emit 전에 suppressReconnect 를 세워 그 경로를 막는다. 시작도 못 했는데
-                // 백오프 5회를 도는 건 D2/M-4 와 같은 문제다. 다음 connect() 성공 경로가
-                // GattBridge.connect 에서 이미 false 로 리셋한다.
-                session.suppressReconnect = true
-                val failure = e.failure
-                // 보통은 lifecycle 이 throw 전에 이 generation 을 이미 종결(원인 고정)했으므로 게시만
-                // 남는다. 아직 열려 있으면 lifecycle 종결 API 가 고정·게시까지 한다.
-                val terminated = gattBridge.terminate(
-                    session,
-                    session.connectionCoordinator.generation,
-                    TerminalCause(TerminalCleanupReason.LinkStartRejected, failure),
-                )
-                if (!terminated) publishState(session)
-                throw BleException(failure)
-            }
+            if (existing == null) registry.getOrCreate(deviceId)
+            // 시작 실패의 종결·게시·suppressReconnect 는 lifecycle connect 가 끝낸 뒤 같은 BleException 을 재던진다.
+            gattBridge.connect(deviceId, options)
         }
     }
 
     /**
-     * Slice 4 deliberately supports only the explicit no-reconnect contract.
-     * It never maps an official option onto Android's `autoConnect`; desired
-     * active reconnect ownership is a later runtime feature, not a value to
-     * silently discard here.
+     * 공개 connect 옵션을 런타임 연결로 옮긴다. `autoReconnect = true` 는 Android `autoConnect = true` 로
+     * 연결하고 재연결 주체를 플랫폼에 넘긴다(handle 유지, link deadline 없음). 그 밖에는 `autoConnect = false`
+     * 이고 링크가 끊기면 재연결 없이 Disconnected(Failed) 로 끝난다. handle 을 OS 대기용으로 남길지
+     * (suppressReconnect)는 lifecycle 이 연결 시작 시점에 모드로 정한다.
      */
     internal suspend fun connectOfficial(deviceId: PeripheralId, options: BleConnectOptions) {
-        when (options.reconnectPolicy) {
-            BleReconnectPolicy.Disabled -> {
-                onCore {
-                    registry.getOrCreate(deviceId).effectiveReconnectPolicy = BleReconnectPolicy.Disabled
-                    connect(deviceId, ConnectOptions(autoConnect = false))
-                    registry.get(deviceId)?.suppressReconnect = true
-                }
-            }
-            is BleReconnectPolicy.ExponentialBackoff -> onCore {
-                // Policy is session-owned and must be present before connectGatt: a synchronous
-                // platform failure is already eligible for the bounded recovery path.
-                registry.getOrCreate(deviceId).effectiveReconnectPolicy = options.reconnectPolicy
-                connect(deviceId, ConnectOptions(autoConnect = false))
-            }
-        }
+        onCore { connect(deviceId, ConnectOptions(autoConnect = options.autoReconnect)) }
     }
 
     /**
@@ -961,8 +922,9 @@ internal class BleRuntime private constructor(
             connectionCoordinator.stage != ConnectionStage.Connecting
         ) return true
 
+        // autoConnect 첫 연결은 deadline 이 없다(null) — 같은 규칙(linkDeadlineMillis)으로 비교한다.
         return connectionCoordinator.activeDeadline?.timeoutMillis ==
-            requested.effectiveLinkTimeoutMillis(defaultLinkTimeoutMillis)
+            requested.linkDeadlineMillis(defaultLinkTimeoutMillis)
     }
 
     public suspend fun disconnect(deviceId: PeripheralId): Unit = transportCommand(FailurePhase.Close, deviceId) {
@@ -974,14 +936,7 @@ internal class BleRuntime private constructor(
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
             // 사용자 명시 해제는 구독 의도를 복원하지 않는다(v1 계약) — 링크 유실·재연결 경로는 의도를 유지한다.
             session.subscriptionState.clearDesired()
-            if (session.stage == ConnectionStage.Disconnected) {
-                session.suppressReconnect = true
-                session.reconnectJob?.cancel()
-                session.reconnectJob = null
-                session.resubscribeJob?.cancel()
-                session.resubscribeJob = null
-                return@withContext
-            }
+            // 단계별 판정(플랫폼 재연결 대기 종결·어댑터 복귀 재연결 취소·이미 끝난 세션·정리 시작)은 lifecycle 이 한다.
             gattBridge.disconnect(deviceId)
         }
         currentCoroutineContext().ensureActive()
@@ -1150,9 +1105,8 @@ internal class BleRuntime private constructor(
             runCatching {
                 // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
                 session.resubscribeJob?.cancel()
-                session.reconnectJob?.cancel()
-                // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 소진 선판정은
-                // ClientClosed 를 거부하고(latchExhaustion), 재연결 대기 중 세션도 ClientClosed 로 끝난다.
+                // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 플랫폼 재연결
+                // 대기 중 세션도 ClientClosed 로 끝난다.
                 gattBridge.close(session)
             }.onFailure { t -> if (firstFailure == null) firstFailure = t }
         }

@@ -24,6 +24,10 @@ internal data class ConnectionHistory(
     val userDisconnected: Boolean,
     /** `advancePastAllDeadlines()` 뒤에 기록을 잘랐는가(I6). */
     val pastAllDeadlines: Boolean,
+    /** 시나리오가 `BleConnectOptions(autoReconnect = true)` 로 연결했는가 — 최종 Recovering 은 의도된 플랫폼 대기(I6). */
+    val autoReconnect: Boolean = false,
+    /** 기록 시점에 세션이 실제로 플랫폼 재연결 대기 중이었는가(Session.awaitingPlatformRelink) — I6 예외의 근거. */
+    val platformWaiting: Boolean = false,
     /** I7 시나리오 메타: 사용자 해제 뒤 두 번째 connect 에서 CCCD write 가 몇 번 나갔는가. null 이면 I7 대상 아님. */
     val descriptorWritesAfterReconnect: Int? = null,
     /** I8 시나리오 메타: 시나리오 안에서 `close()` 를 부른 시점의 [states] 길이. null 이면 I8 대상 아님. */
@@ -34,11 +38,10 @@ internal data class ConnectionHistory(
     val controlRun: GenerationStats? = null,
 )
 
-/** I9 비교 단위 — 재연결 시작 횟수, Connecting 진입 수, Recovering attempt 순서, 최종 상태. */
+/** I9 비교 단위 — connectGatt 횟수, Connecting 진입 수(열린 generation 수), 최종 상태. */
 internal data class GenerationStats(
-    val retainedConnects: Int,
+    val connectCalls: Int,
     val connectingEntries: Int,
-    val recoveringAttempts: List<Int>,
     val last: ConnectionState?,
 )
 
@@ -93,11 +96,16 @@ internal fun checkI4(h: ConnectionHistory): InvariantViolation? {
     return null
 }
 
-/** I6 모든 deadline 이 지난 뒤 최종 상태는 Ready 또는 Disconnected(Recovering 포함 중간 상태에 멈춤 금지). */
+/**
+ * I6 모든 deadline 이 지난 뒤 최종 상태는 Ready 또는 Disconnected(중간 상태에 멈춤 금지).
+ * 예외: autoReconnect 세션의 Recovering 은 플랫폼 재연결을 기한 없이 기다리는 의도된 상태다 — 단 기록 시점에
+ * 세션이 실제로 대기 중([ConnectionHistory.platformWaiting])일 때만.
+ */
 internal fun checkI6(h: ConnectionHistory): InvariantViolation? {
     if (!h.pastAllDeadlines) return null
     val last = h.states.lastOrNull()
     if (last == ConnectionState.Ready || last is ConnectionState.Disconnected) return null
+    if (h.autoReconnect && h.platformWaiting && last is ConnectionState.Recovering) return null
     return InvariantViolation("I6", "stuck=$last")
 }
 
@@ -123,8 +131,10 @@ internal fun checkI8(h: ConnectionHistory): InvariantViolation? {
 }
 
 /**
- * I9 끝난 generation 의 늦은 종료 콜백은 generation 을 열거나 재시도 예산을 쓰지 않는다.
- * 같은 시나리오를 늦은 콜백 없이 돌린 대조 실행과 세대 통계가 같아야 한다.
+ * I9 끝난 generation 의 늦은 종료 콜백은 generation 을 열지 않고 최종 상태를 바꾸지 않는다
+ * (예외: autoReconnect 세션에서 플랫폼이 같은 handle 로 실제로 다시 붙인 STATE_CONNECTED 성공).
+ * 같은 시나리오를 늦은 콜백만 빼고 돌린 대조 실행과 세대 통계가 같아야 한다 — 플랫폼 재연결은
+ * 두 실행 모두에 들어 있으므로 예외는 대조 쪽에서 상쇄된다.
  */
 internal fun checkI9(h: ConnectionHistory): InvariantViolation? {
     val late = h.lateRun ?: return null

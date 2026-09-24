@@ -6,7 +6,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
 import kr.co.nucode.ble.internal.session.ConnectionCoordinator
 import kr.co.nucode.ble.internal.session.ConnectionLifecycleSnapshot
 import kr.co.nucode.ble.internal.session.ConnectionStage
@@ -261,7 +260,7 @@ class ConnectionCoordinatorTest {
     }
 
     @Test
-    fun `retained reconnect는 fresh generation과 link deadline을 시작한다`() = runTest {
+    fun `retained reconnect는 fresh generation을 deadline 없이 시작한다`() = runTest {
         val coordinator = ConnectionCoordinator()
         val firstGeneration = coordinator.beginConnection(this, 100) {}
         assertTrue(
@@ -271,20 +270,11 @@ class ConnectionCoordinatorTest {
             ),
         )
 
-        val reconnectGeneration = coordinator.beginReconnect(this, 75) {}
+        val reconnectGeneration = coordinator.beginPlatformRelink(this)
 
         assertEquals(firstGeneration + 1, reconnectGeneration)
-        assertEquals(ConnectionAttemptOrigin.Reconnect, coordinator.attemptOrigin)
         assertEquals(ConnectionStage.Connecting, coordinator.stage)
-        assertEquals(
-            ConnectionStageDeadline(
-                generation = reconnectGeneration,
-                stage = ConnectionStage.Connecting,
-                timeoutMillis = 75,
-                timeoutReason = TerminalCleanupReason.LinkTimeout,
-            ),
-            coordinator.activeDeadline,
-        )
+        assertNull(coordinator.activeDeadline)
         assertFalse(
             coordinator.transition(
                 callbackGeneration = firstGeneration,

@@ -75,12 +75,6 @@ internal data class ConnectionReadinessTimeouts(
     val rediscoveryMillis: Long = 3_000,
 )
 
-/** 현재 generation을 시작한 주체. 실패 후 기존 reconnect 경계로 돌아갈지 판정할 때 쓴다. */
-internal enum class ConnectionAttemptOrigin {
-    Explicit,
-    Reconnect,
-}
-
 /**
  * Session 하나의 connection lifecycle 상태 머신.
  *
@@ -106,9 +100,6 @@ internal class ConnectionCoordinator(
     var terminalCause: TerminalCause? = null
         private set
 
-    var attemptOrigin: ConnectionAttemptOrigin = ConnectionAttemptOrigin.Explicit
-        private set
-
     var activeDeadline: ConnectionStageDeadline? = null
         private set
 
@@ -128,35 +119,34 @@ internal class ConnectionCoordinator(
         expectedStage: ConnectionStage,
     ): Boolean = callbackGeneration == generation && expectedStage == stage
 
-    /** Disconnected에서 새 generation을 시작하고 link deadline을 등록한다. */
+    /**
+     * Disconnected에서 새 generation을 시작하고 link deadline을 등록한다.
+     * [linkTimeoutMillis] 가 null 이면 이 Connecting 에는 deadline 이 없다 — autoConnect 첫 연결은
+     * OS 가 무기한 기다리는 것이 의미라 끝내는 쪽은 사용자 해제·close·어댑터 스윕뿐이다.
+     */
     fun beginConnection(
         scope: CoroutineScope,
-        linkTimeoutMillis: Long,
+        linkTimeoutMillis: Long?,
         onTimeout: (ConnectionStageDeadline) -> Unit,
     ): Long = beginAttempt(
         scope = scope,
         linkTimeoutMillis = linkTimeoutMillis,
-        origin = ConnectionAttemptOrigin.Explicit,
         onTimeout = onTimeout,
     )
 
-    /** 기존 platform handle의 reconnect 시작을 새 generation과 link deadline에 귀속한다. */
-    fun beginReconnect(
-        scope: CoroutineScope,
-        linkTimeoutMillis: Long,
-        onTimeout: (ConnectionStageDeadline) -> Unit,
-    ): Long = beginAttempt(
+    /**
+     * 끝난 generation 의 platform handle 에 OS 가 다시 붙인 것을 새 generation 에 귀속한다.
+     * link deadline 은 두지 않는다 — Bootstrap 은 링크 성공 콜백 안에서 곧바로 Connecting 을 떠난다.
+     */
+    fun beginPlatformRelink(scope: CoroutineScope): Long = beginAttempt(
         scope = scope,
-        linkTimeoutMillis = linkTimeoutMillis,
-        origin = ConnectionAttemptOrigin.Reconnect,
-        onTimeout = onTimeout,
+        linkTimeoutMillis = null,
     )
 
     private fun beginAttempt(
         scope: CoroutineScope,
-        linkTimeoutMillis: Long,
-        origin: ConnectionAttemptOrigin,
-        onTimeout: (ConnectionStageDeadline) -> Unit,
+        linkTimeoutMillis: Long?,
+        onTimeout: (ConnectionStageDeadline) -> Unit = {},
     ): Long {
         check(stage == ConnectionStage.Disconnected) {
             "Disconnected에서만 새 connection generation을 시작할 수 있다: $stage"
@@ -165,7 +155,6 @@ internal class ConnectionCoordinator(
 
         generation += 1
         terminalCause = null
-        attemptOrigin = origin
         enterStage(
             scope = scope,
             nextStage = ConnectionStage.Connecting,
@@ -255,8 +244,8 @@ internal class ConnectionCoordinator(
      * latch된 원인을 `TerminalCause(ClientClosed, null)` 로 바꾼다 — 이어지는 completeCleanup 이 게시한다.
      *
      * v1 계약상 client close 로 끝난 세션은 `Disconnected(ClientClosed)` 여야 한다. 이미 Disconnected 인
-     * generation(또는 stale generation)은 원래 원인을 유지하고 false — 재연결 대기 중인 종결
-     * generation 은 [supersedeRetryPending] 이 다룬다.
+     * generation(또는 stale generation)은 원래 원인을 유지하고 false — 플랫폼 재연결 대기 중인 종결
+     * generation 은 [supersedePlatformWait] 이 다룬다.
      */
     fun supersedeForClose(targetGeneration: Long): Boolean {
         if (targetGeneration != generation || stage == ConnectionStage.Disconnected) return false
@@ -265,19 +254,20 @@ internal class ConnectionCoordinator(
     }
 
     /**
-     * 재연결 대기 중(이미 Disconnected 지만 공개 상태 Recovering 이거나 reconnect job 예약됨)인
-     * 시작된 [targetGeneration] 의 원인을 [cause] 로 대체하고 Disconnected 를 다시 게시(onStageChanged)해
-     * Recovering 을 대체한다. 재시도 대기 여부 판정은 호출자 몫이다(세션의 reconnect job·공개 상태).
+     * 플랫폼 재연결 대기 중(이미 Disconnected 지만 autoConnect handle 로 OS 재연결을 기다림 —
+     * [Session.awaitingPlatformRelink], 공개 상태 Recovering)인 시작된 [targetGeneration] 의 원인을 [cause] 로
+     * 대체하고 Disconnected 를 다시 게시(onStageChanged)해 Recovering 을 대체한다. 대기 여부 판정은 호출자 몫이다.
      *
-     * first wins 의 예외이며 소유자는 정확히 둘이다 — 둘 다 "회복을 끝내는" 주체이고, 회복 중인 세션은
-     * 앱 관점에서 아직 종착이 아니므로 그 종착 원인은 회복을 끝낸 쪽이다:
+     * first wins 의 예외이며 소유자는 정확히 셋이다 — 모두 "대기를 끝내는" 주체이고, 대기 중인 세션은
+     * 앱 관점에서 아직 종착이 아니므로 그 종착 원인은 대기를 끝낸 쪽이다:
+     * - 사용자 disconnect() → `UserRequested` (사용자 해제는 Disconnected(Requested) 로 끝난다).
      * - client close → `ClientClosed` (v1 계약: 닫힌 클라이언트의 세션은 Disconnected(ClientClosed)).
      * - adapter off 스윕 → `AdapterUnavailable`/`PermissionDenied` (어댑터가 죽으면 재시도는 불가능하다).
      *
      * 다른 reason 은 거부한다(require). stale generation·종결되지 않은 generation·generation 0 이면 false.
      */
-    fun supersedeRetryPending(targetGeneration: Long, cause: TerminalCause): Boolean {
-        require(cause.reason in RETRY_PENDING_SUPERSEDERS) { "supersedeRetryPending: ${cause.reason} is not an owner" }
+    fun supersedePlatformWait(targetGeneration: Long, cause: TerminalCause): Boolean {
+        require(cause.reason in PLATFORM_WAIT_SUPERSEDERS) { "supersedePlatformWait: ${cause.reason} is not an owner" }
         if (targetGeneration != generation || stage != ConnectionStage.Disconnected || generation == 0L) return false
         terminalCause = cause
         onStageChanged(stage)
@@ -292,28 +282,6 @@ internal class ConnectionCoordinator(
         if (generation != 0L || stage != ConnectionStage.Disconnected || terminalCause != null) return false
         terminalCause = TerminalCause(TerminalCleanupReason.ClientClosed, null)
         onStageChanged(stage)
-        return true
-    }
-
-    /**
-     * 재연결 소진 선판정 전용 latch(plan terminal-cause v3 §접근 "소진 선판정"). 종결 완료 직전에
-     * 이미 고정된 원인(없으면 [fallback])의 **failure 만** [exhausted] 로 바꾼다 — reason 은 유지한다.
-     *
-     * 사용자 해제(UserRequested)·client close(ClientClosed)는 재시도 대상이 아니므로 소진으로 바꾸지
-     * 않고 false 를 반환한다. stale generation 이거나 이미 Disconnected 여도 false. 일반 변환 인자는
-     * 없다 — first wins 의 예외는 이 좁은 판결(같은 원인에 "재시도 없음"을 덧씌움)뿐이다.
-     */
-    fun latchExhaustion(
-        targetGeneration: Long,
-        fallback: TerminalCause,
-        exhausted: BleFailure,
-    ): Boolean {
-        if (targetGeneration != generation || stage == ConnectionStage.Disconnected) return false
-        val base = terminalCause ?: fallback
-        if (base.reason == TerminalCleanupReason.UserRequested || base.reason == TerminalCleanupReason.ClientClosed) {
-            return false
-        }
-        terminalCause = TerminalCause(base.reason, exhausted)
         return true
     }
 
@@ -337,7 +305,12 @@ internal class ConnectionCoordinator(
         timeoutMillis: Long?,
         onTimeout: (ConnectionStageDeadline) -> Unit,
     ) {
-        val timeoutReason = timeoutReasonFor(nextStage)
+        // Connecting 의 link deadline 만 선택이다 — null 이면 deadline 없음(autoConnect 첫 연결·플랫폼 재연결).
+        val timeoutReason = if (nextStage == ConnectionStage.Connecting && timeoutMillis == null) {
+            null
+        } else {
+            timeoutReasonFor(nextStage)
+        }
         if (timeoutReason == null) {
             require(timeoutMillis == null) { "$nextStage 단계에는 deadline이 없다" }
         } else {
@@ -408,8 +381,9 @@ internal class ConnectionCoordinator(
     }
 
     private companion object {
-        /** [supersedeRetryPending] 의 소유자 — client close 와 adapter off 스윕. */
-        val RETRY_PENDING_SUPERSEDERS = setOf(
+        /** [supersedePlatformWait] 의 소유자 — 사용자 해제, client close, adapter off 스윕. */
+        val PLATFORM_WAIT_SUPERSEDERS = setOf(
+            TerminalCleanupReason.UserRequested,
             TerminalCleanupReason.ClientClosed,
             TerminalCleanupReason.AdapterUnavailable,
             TerminalCleanupReason.PermissionDenied,

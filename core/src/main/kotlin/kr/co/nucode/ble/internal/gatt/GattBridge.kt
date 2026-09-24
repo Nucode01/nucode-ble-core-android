@@ -52,7 +52,7 @@ internal fun GattCharacteristicSnapshot.toCharacteristicRef(): CharacteristicRef
 
 /**
  * [GattDriver] callback fact → `BleEvent` 변환과 [Session] 갱신(설계 §6 구성요소).
- * 정책·판정을 넣지 않는다 — 재연결 여부·재시도 횟수 결정은 Reconnector(task 5) 몫이고,
+ * 정책·판정을 넣지 않는다 — 연결 단계·종결 판정은 [GattConnectionLifecycle] 몫이고,
  * 이 클래스는 콜백이 들어온 그 순간의 사실만 Session 에 반영하고 emit 한다.
  *
  * Android binder callback의 [scope] 홉은 production [AndroidGattDriver]가 담당한다.
@@ -89,8 +89,6 @@ internal class GattBridge(
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
     private val connectSequence: ConnectSequenceHooks = ConnectSequenceHooks.None,
-    /** 재연결 소진 선판정 질의 — lifecycle 로 그대로 넘긴다([GattConnectionLifecycle] KDoc). */
-    private val reconnectExhaustion: (Session, BleFailure?) -> BleFailure? = { _, _ -> null },
 ) {
     internal constructor(
         registry: SessionRegistry,
@@ -123,7 +121,6 @@ internal class GattBridge(
         rediscovery,
         linkCacheWarm,
         sequence = connectSequence,
-        reconnectExhaustion = reconnectExhaustion,
         operations = object : GattOperationHooks {
             override fun invalidateAll(session: Session, failure: BleFailure) =
                 operations.invalidateAll(session, failure)
@@ -162,19 +159,17 @@ internal class GattBridge(
 
     // ── lifecycle 위임 ────────────────────────────────────────────────────────
 
-    /** lifecycle 종결 API — Reconnector·BleRuntime 은 상태를 직접 쓰지 않고 이것으로 종료한다. */
+    /** lifecycle 종결 API — BleRuntime 은 상태를 직접 쓰지 않고 이것으로 종료한다. */
     fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean =
         lifecycle.terminate(session, generation, cause)
-
-    /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
-    internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? = lifecycle.beginRetainedReconnect(deviceId)
-
-    /** Reconnector 의 retained connect 시작 — 보존한 handle 을 driver 경유로 다시 연결한다. */
-    internal fun startRetainedConnect(session: Session): Boolean = driver.reconnect(session.deviceId, session.gatt)
 
     suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) = lifecycle.connect(deviceId, options)
 
     fun disconnect(deviceId: PeripheralId) = lifecycle.disconnect(deviceId)
+
+    /** 어댑터 복귀 재연결 — lifecycle 이 판정·시작한다. */
+    fun resumeAfterAdapter(deviceId: PeripheralId, adapterReady: () -> Boolean) =
+        lifecycle.resumeAfterAdapter(deviceId, adapterReady)
 
     fun discoverServices(deviceId: PeripheralId) = lifecycle.discoverServices(deviceId)
 

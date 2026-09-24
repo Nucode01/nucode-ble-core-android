@@ -10,7 +10,6 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.gatt.GattLifecycleHooks
 import kr.co.nucode.ble.internal.gatt.GattOperationEngine
-import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
@@ -73,7 +72,6 @@ class GattOperationEngineTest {
         val (reason, causeCode, suppressReconnect) = beginCleanupCalls.single()
         assertEquals(TerminalCleanupReason.PermissionDenied, reason)
         assertEquals("PERMISSION_DENIED", causeCode)
-        assertEquals(ConnectionAttemptOrigin.Explicit, session.connectionCoordinator.attemptOrigin)
         assertTrue(suppressReconnect)
         assertFalse(terminateForOperationInvalidationCalled)
     }

@@ -51,6 +51,8 @@ class PublicApiSurfaceTest {
         listOf(
             "BleCore", "BleEvent", "ConnState", "ConnectOptions",
             "ReconnectPolicy", "DisconnectReason", "WriteResult", "WriteType",
+            // 라이브러리 재연결 시간표 제거(0.2.0 Breaking) — 공개 이름도 다시 나오면 안 된다.
+            "BleReconnectPolicy",
         ).forEach { forbidden ->
             // 패키지와 무관하게 이름으로 찾는다 — 이 타입들은 internal 하위 패키지로 옮겨졌으므로
             // 공개 패키지 FQN 만 보면 어느 패키지에서든 다시 공개되는 것을 놓친다.
@@ -109,14 +111,13 @@ class PublicApiSurfaceTest {
             java.io.File("src/main/kotlin/kr/co/nucode/ble/$name").readText()
         }.joinToString("\n")
 
-        listOf("android\\.", "BluetoothGatt", "(?<!Ble)\\bConnectOptions\\b", "(?<!Ble)\\bReconnectPolicy\\b").forEach {
+        listOf("android\\.", "BluetoothGatt", "(?<!Ble)\\bConnectOptions\\b", "\\b(?:Ble)?ReconnectPolicy\\b").forEach {
             forbidden -> assertFalse(
                 "forbidden public API identifier: $forbidden",
                 Regex(forbidden).containsMatchIn(sources),
             )
         }
         assertTrue(sources.contains("BleConnectOptions"))
-        assertTrue(sources.contains("BleReconnectPolicy"))
     }
 
     @Test
@@ -131,13 +132,12 @@ class PublicApiSurfaceTest {
     @Test
     fun `common surface uses the intentional Ble option names while legacy names remain compatibility only`() {
         assertTrue(BleConnectOptions::class.java.name.startsWith("kr.co.nucode.ble."))
-        assertTrue(BleReconnectPolicy::class.java.name.startsWith("kr.co.nucode.ble."))
 
         listOf(BleClient::class.java, BleSession::class.java).forEach { surface ->
             surface.methods.filter { it.declaringClass == surface }.forEach { method ->
                 (method.genericParameterTypes.toList() + method.genericReturnType).forEach { type ->
                     assertFalse(type.typeName.contains("ConnectOptions") && !type.typeName.contains("BleConnectOptions"))
-                    assertFalse(type.typeName.contains("ReconnectPolicy") && !type.typeName.contains("BleReconnectPolicy"))
+                    assertFalse(type.typeName.contains("ReconnectPolicy"))
                 }
             }
         }
@@ -193,8 +193,7 @@ class PublicApiSurfaceTest {
     private fun assertCommonType(type: Type) {
         val name = type.typeName
         listOf("android.", "BluetoothGatt", "ConnectOptions", "ReconnectPolicy").forEach { forbidden ->
-            val allowed = (forbidden == "ConnectOptions" && name.contains("BleConnectOptions")) ||
-                (forbidden == "ReconnectPolicy" && name.contains("BleReconnectPolicy"))
+            val allowed = forbidden == "ConnectOptions" && name.contains("BleConnectOptions")
             assertFalse("forbidden common API type: $name", !allowed && name.contains(forbidden))
         }
         if (type is ParameterizedType) type.actualTypeArguments.forEach(::assertCommonType)

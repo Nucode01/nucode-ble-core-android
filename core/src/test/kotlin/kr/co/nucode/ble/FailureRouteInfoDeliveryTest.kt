@@ -153,11 +153,11 @@ class FailureRouteInfoDeliveryTest {
         return Fixture(core, driver, PeripheralId("AA:BB:CC:DD:EE:D2"), events)
     }
 
-    private suspend fun TestScope.connectToDiscovering(f: Fixture, official: BleReconnectPolicy? = null) {
+    private suspend fun TestScope.connectToDiscovering(f: Fixture, official: BleConnectOptions? = null) {
         if (official == null) {
             f.core.connect(f.id, ConnectOptions())
         } else {
-            f.core.connectOfficial(f.id, BleConnectOptions(reconnectPolicy = official))
+            f.core.connectOfficial(f.id, official)
         }
         runCurrent()
         f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
@@ -165,14 +165,14 @@ class FailureRouteInfoDeliveryTest {
         assertEquals(ConnectionState.DiscoveringServices, f.state)
     }
 
-    private suspend fun TestScope.connectToConfiguring(f: Fixture, official: BleReconnectPolicy? = null) {
+    private suspend fun TestScope.connectToConfiguring(f: Fixture, official: BleConnectOptions? = null) {
         connectToDiscovering(f, official)
         f.driver.services(f.id, f.generation, BluetoothGatt.GATT_SUCCESS)
         runCurrent()
         assertEquals(ConnectionState.Configuring, f.state)
     }
 
-    private suspend fun TestScope.connectToReady(f: Fixture, official: BleReconnectPolicy? = null) {
+    private suspend fun TestScope.connectToReady(f: Fixture, official: BleConnectOptions? = null) {
         connectToConfiguring(f, official)
         f.driver.mtu(f.id, f.generation)
         runCurrent()
@@ -390,14 +390,14 @@ class FailureRouteInfoDeliveryTest {
     @Test
     fun `ended generation link status failure emits LINK_FAILED Warning Diagnostic without changing state`() = runTest {
         val f = fixture()
-        connectToReady(f, official = BleReconnectPolicy.ExponentialBackoff(3, 1_000, 1_000))
+        connectToReady(f, official = BleConnectOptions(autoReconnect = true))
         f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
         runCurrent()
         val recovering = f.state
         assertTrue("Recovering 이 아니다: $recovering", recovering is ConnectionState.Recovering)
         val before = f.diagnostics("LINK_FAILED").size
 
-        // 백오프 대기 중(끝난 generation) Android 처럼 generation 없이 온 실패 status — Drop 되지만 Diagnostic 은 남는다.
+        // 플랫폼 재연결 대기 중(끝난 generation) Android 처럼 generation 없이 온 실패 status — Drop 되지만 Diagnostic 은 남는다.
         f.driver.emit(GattDriverEvent.ConnectionStateChanged(f.id, SOURCE, 133, BluetoothProfile.STATE_DISCONNECTED))
         runCurrent()
 
@@ -488,32 +488,6 @@ class FailureRouteInfoDeliveryTest {
     }
 
     // ── 재연결 시도 알림 ──────────────────────────────────────────────────────
-
-    @Test
-    fun `official policy reconnect attempt publishes Recovering and RECONNECT_ATTEMPT Diagnostic`() = runTest {
-        val f = fixture()
-        connectToReady(f, official = BleReconnectPolicy.ExponentialBackoff(3, 10, 10))
-
-        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
-        runCurrent()
-
-        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("RECONNECT_ATTEMPT").isNotEmpty())
-        val recovering = f.state as? ConnectionState.Recovering
-        assertTrue("Recovering 이 아니다: ${f.state}", recovering != null)
-        assertEquals("RECONNECT_ATTEMPT", recovering!!.lastFailure.code.value)
-    }
-
-    @Test
-    fun `legacy policy reconnect attempt emits RECONNECT_ATTEMPT Diagnostic`() = runTest {
-        val f = fixture()
-        connectToReady(f)
-
-        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
-        runCurrent()
-
-        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("RECONNECT_ATTEMPT").isNotEmpty())
-        assertTrue("legacy 정책은 Recovering 을 내지 않는다: ${f.state}", f.state !is ConnectionState.Recovering)
-    }
 
     private companion object {
         const val OPERATION_TIMEOUT = 100L

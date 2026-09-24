@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -59,7 +60,6 @@ import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleLogger
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
@@ -157,18 +157,15 @@ fun scanStopFailures(client: BleClient): Flow<BleFailure> =
 suspend fun connect(client: BleClient, peripheralId: PeripheralId): BleSession =
     client.connect(
         peripheralId,
-        BleConnectOptions(
-            reconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
-                maxAttempts = 3,
-                initialDelayMillis = 1_000,
-                maxDelayMillis = 10_000,
-            ),
-        ),
+        // 끊겨도 OS 가 다시 붙일 때까지 Recovering 으로 기다린다. 포기는 disconnect().
+        BleConnectOptions(autoReconnect = true),
     )
 
 /**
  * Ready 가 되면 반환하고, 그 전에 Disconnected 로 끝나면 던진다.
  * `first { it is Ready }` 만 쓰면 연결이 실패했을 때 영원히 기다린다.
+ * `autoReconnect = true` 면 Connecting·Recovering 에 기한이 없어 Disconnected 도 안 올 수 있다 —
+ * 그래서 [timeoutMillis] 로 자르고, 넘기면 `TimeoutCancellationException` 을 던진다.
  */
 suspend fun awaitReady(session: BleSession, timeoutMillis: Long = 30_000) {
     val settled = withTimeout(timeoutMillis) {
@@ -181,9 +178,60 @@ suspend fun awaitReady(session: BleSession, timeoutMillis: Long = 30_000) {
     }
 }
 
+/**
+ * 직접 재연결은 앱이 한다 — autoReconnect=false 로 연결하고, 링크가 `Disconnected(Failed)` 로 끝나거나
+ * 시도가 [attemptTimeoutMillis] 안에 Ready 가 되지 못하면 간격을 두고 정해진 횟수까지 `connect()` 를 다시 부른다.
+ * 사용자 해제(`Requested`)·`close()`(`ClientClosed`)로 끝나면 정상 반환한다. 횟수를 다 쓰면 마지막 실패를
+ * 던진다(시간 초과였으면 IllegalStateException). 이 함수를 돌리는 코루틴을 취소하면 그대로 취소된다.
+ */
+suspend fun reconnectWithRetry(
+    client: BleClient,
+    peripheralId: PeripheralId,
+    maxAttempts: Int = 3,
+    retryDelayMillis: Long = 2_000,
+    // 기본 단계 기한의 합(rediscovery 3 s + link 15 s + discovery 10 s + configuration 10 s = 38 s)보다 짧으면
+    // 코어가 아직 진행 중인 시도를 앱이 먼저 끊게 된다.
+    attemptTimeoutMillis: Long = 40_000,
+) {
+    var failures = 0
+    while (true) {
+        val session = try {
+            client.connect(peripheralId, BleConnectOptions(autoReconnect = false))
+        } catch (e: BleException) {
+            // 시작 자체가 실패한 것(예: PERIPHERAL_NOT_FOUND)도 한 번의 실패로 센다.
+            if (++failures >= maxAttempts) throw e
+            delay(retryDelayMillis)
+            continue
+        }
+        val settled = withTimeoutOrNull(attemptTimeoutMillis) {
+            session.connectionState.first { it is ConnectionState.Ready || it is ConnectionState.Disconnected }
+        }
+        val ended = when (settled) {
+            null -> null.also { session.disconnect() } // 시간 초과: 이 시도를 정리하고 재시도
+            is ConnectionState.Ready -> {
+                failures = 0 // Ready 까지 갔으면 예산을 되돌린다
+                session.connectionState.filterIsInstance<ConnectionState.Disconnected>().first()
+            }
+            else -> settled as ConnectionState.Disconnected
+        }
+        val failure = ended?.let {
+            (it.reason as? BleDisconnectReason.Failed)?.failure ?: return // 사용자 해제·close — 재시도하지 않는다
+        }
+        if (++failures >= maxAttempts) {
+            throw failure?.let(::BleException) ?: IllegalStateException("${attemptTimeoutMillis}ms 안에 Ready 가 되지 않았다")
+        }
+        delay(retryDelayMillis)
+    }
+}
+
 suspend fun connectThenAwaitReady(client: BleClient, peripheralId: PeripheralId): BleSession {
     val session = connect(client, peripheralId)
-    awaitReady(session)
+    try {
+        awaitReady(session)
+    } catch (e: TimeoutCancellationException) {
+        session.disconnect() // 기한 없는 autoReconnect 연결을 뒤에 남기지 않는다
+        throw e
+    }
     return session
 }
 
@@ -193,7 +241,7 @@ fun describeConnection(state: ConnectionState): String = when (state) {
     ConnectionState.Configuring -> "설정 중"
     ConnectionState.Ready -> "연결됨"
     ConnectionState.Disconnecting -> "해제 중"
-    is ConnectionState.Recovering -> "재연결 ${state.attempt}회차 — ${state.retryAfterMillis / 1000}초 뒤"
+    is ConnectionState.Recovering -> "재연결 대기 중"
     is ConnectionState.Disconnected -> when (val reason = state.reason) {
         BleDisconnectReason.Initial -> "연결 안 됨"
         BleDisconnectReason.Requested -> "연결 해제됨"
@@ -315,7 +363,6 @@ fun userMessage(failure: BleFailure): String = when (failure.code.value) {
         if (failure.retryability == Retryability.AfterEnvironmentChange) "기기와 페어링이 필요할 수 있습니다" else "기기가 요청을 거절했습니다"
     "SCAN_ALREADY_RUNNING" -> "이미 다른 조건으로 찾는 중입니다"
     "SCAN_STOPPED_BY_ADAPTER" -> "블루투스가 꺼져 찾기를 멈췄습니다"
-    "RECONNECT_EXHAUSTED" -> "기기와 다시 연결하지 못했습니다"
     else -> "블루투스 오류 (${failure.code.value})"
 }
 

@@ -194,16 +194,7 @@ public sealed interface ConnectionState {
     public data object Configuring : ConnectionState
     public data object Ready : ConnectionState
     public data object Disconnecting : ConnectionState
-    public data class Recovering(
-        val attempt: Int,
-        val retryAfterMillis: Long,
-        val lastFailure: BleFailure,
-    ) : ConnectionState {
-        init {
-            require(attempt >= 0) { "attempt must be non-negative" }
-            require(retryAfterMillis >= 0) { "retryAfterMillis must be non-negative" }
-        }
-    }
+    public data class Recovering(val lastFailure: BleFailure) : ConnectionState
 }
 
 public sealed interface BleDisconnectReason {
@@ -213,26 +204,20 @@ public sealed interface BleDisconnectReason {
     public data class Failed(val failure: BleFailure) : BleDisconnectReason
 }
 
-public data class BleConnectOptions(
-    val reconnectPolicy: BleReconnectPolicy = BleReconnectPolicy.Disabled,
-)
-
-public sealed interface BleReconnectPolicy {
-    public data object Disabled : BleReconnectPolicy
-    public data class ExponentialBackoff(
-        val maxAttempts: Int,
-        val initialDelayMillis: Long,
-        val maxDelayMillis: Long,
-    ) : BleReconnectPolicy {
-        init {
-            require(maxAttempts >= 0) { "maxAttempts must be non-negative" }
-            require(initialDelayMillis > 0) { "initialDelayMillis must be positive" }
-            require(maxDelayMillis >= initialDelayMillis) {
-                "maxDelayMillis must be at least initialDelayMillis"
-            }
-        }
-    }
-}
+/**
+ * 연결 옵션.
+ *
+ * [autoReconnect] 가 true 면 Android `connectGatt(autoConnect = true)` 로 연결한다. 링크가 끊겨도
+ * 플랫폼 handle 을 열어 두고 OS 재연결을 기다리며, 그동안 상태는 `Recovering` 이다. OS 가 다시
+ * 붙이면 첫 연결과 같은 경로(서비스 탐색 → MTU → 구독 복원 → Ready)를 탄다. 첫 연결에도 link
+ * deadline 이 없다(OS 가 무기한 기다린다) — 포기는 `disconnect()` 로 한다.
+ *
+ * - `Recovering` 중 다른 옵션으로 `connect()` 하면 `CONNECTION_OPTIONS_CONFLICT` 로 실패한다(같은 옵션은
+ *   대기를 유지하는 no-op). 옵션을 바꾸려면 먼저 `disconnect()` 한 뒤 다시 연결한다.
+ * - 어댑터가 꺼져 `Disconnected(Failed(ADAPTER_UNAVAILABLE))` 로 끝난 `autoReconnect` 세션은 어댑터가 다시
+ *   켜지면 한 번 다시 연결을 건다(예약·재시도 없음). 그 사이 `disconnect()` 하면 걸지 않는다.
+ */
+public data class BleConnectOptions(val autoReconnect: Boolean = false)
 
 public data class GattService(
     val ref: ServiceRef,

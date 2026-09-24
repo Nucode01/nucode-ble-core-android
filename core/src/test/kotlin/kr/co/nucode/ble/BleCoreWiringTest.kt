@@ -11,6 +11,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
@@ -24,7 +25,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.internal.WriteResult
 import kr.co.nucode.ble.internal.WriteType
 import kr.co.nucode.ble.internal.charRef
@@ -70,13 +70,12 @@ class BleCoreWiringTest {
 
     /**
      * `coreScope` 가 이 [TestScope]와 같은 [kotlinx.coroutines.test.TestCoroutineScheduler] 위에서
-     * 돌게 만든다 — 그래야 `runCurrent()`/`advanceUntilIdle()` 로 `Reconnector` 의 `delay()`까지
+     * 돌게 만든다 — 그래야 `runCurrent()`/`advanceUntilIdle()` 로 lifecycle deadline 의 `delay()`까지
      * 가상 시간으로 진행시킬 수 있다(plan task 6 지시 — "runTest + StandardTestDispatcher 를
      * BleConfig.dispatcher 에 주입해라").
      */
     private fun TestScope.newCore(
         eventBufferCapacity: Int = 64,
-        reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         operationTimeoutMillis: Long = 5_000,
         linkTimeoutMillis: Long = 15_000,
         discoveryTimeoutMillis: Long = 10_000,
@@ -100,7 +99,6 @@ class BleCoreWiringTest {
             rediscoveryTimeoutMillis = rediscoveryTimeoutMillis,
         ),
         adapter = { null },
-        reconnectPolicy = reconnectPolicy,
         gattDriver = gattDriver,
         gattOperationTargetResolver = gattOperationTargetResolver,
         adapterState = adapterState,
@@ -167,66 +165,6 @@ class BleCoreWiringTest {
     }
 
     @Test
-    fun `B2 Connected로 전이하면 retryCount가 0으로 리셋된다`() = runTest {
-        // review #10 — 리셋이 없으면 끊김 5회 누적 후 영구 재연결 불가.
-        val core = newCore()
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { retryCount = 3 }
-
-        core.publishStateAs(id, ConnectionState.Ready)
-
-        assertEquals(0, core.registry.get(id)?.retryCount)
-    }
-
-    @Test
-    fun `B3 Disconnected에서 suppressReconnect가 false면 재연결 백오프 Diagnostic이 events로 나온다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { suppressReconnect = false }
-
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-
-        val attemptDiagnostic = acc.filterIsInstance<BleEvent.Diagnostic>()
-            .firstOrNull { it.code == "RECONNECT_ATTEMPT" }
-        assertTrue("scheduleReconnect 가 즉시 RECONNECT_ATTEMPT Diagnostic 을 낸다", attemptDiagnostic != null)
-
-        // 가상시간 진행 — 백오프 delay 이후, 이 테스트에서는 session.gatt 를 채우지 않았으므로
-        // 재연결 시도 자체가 실패(gatt.connect() 호출 불가)하는 것까지 관측한다(Reconnector.reconnect KDoc).
-        //
-        // 실측(구현 결함 아님, coreScope 와 backgroundScope 가 같은 testScheduler 를 공유하되
-        // 서로 다른 StandardTestDispatcher 인스턴스라는 배선의 성질) — advanceUntilIdle() 한
-        // 번만으로는 reconnect() 가 emit 한 값이 collector(backgroundScope 소속 dispatcher)로
-        // 넘어가는 마지막 한 스텝이 안 도는 경우가 있어, 뒤이어 runCurrent() 를 한 번 더 불러
-        // 그 스텝을 명시적으로 비운다.
-        advanceUntilIdle()
-        runCurrent()
-        val connectFailedDiagnostic = acc.filterIsInstance<BleEvent.Diagnostic>()
-            .firstOrNull { it.code == "RECONNECT_CONNECT_START_FAILED" }
-        assertTrue("gatt==null 이므로 재연결 시도가 실패로 관측돼야 한다", connectFailedDiagnostic != null)
-    }
-
-    @Test
-    fun `B4 Disconnected에서 suppressReconnect가 true면 재연결을 시도하지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { suppressReconnect = true }
-
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-
-        assertEquals(listOf(BleEvent.ConnStateChanged(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))), acc)
-    }
-
-    @Test
     fun `adapter sweep reuses one session-correlated failure for diagnostic and terminal state`() = runTest {
         val core = newCore()
         val id = testDeviceId("A1")
@@ -246,42 +184,6 @@ class BleCoreWiringTest {
     }
 
     // ── G. task3 배선 주입 테스트(plan blecore-app-tunables) ───────────────────────
-
-    /**
-     * G1(plan 결정②) — `BleConfig.reconnectPolicy` 가 실제로 `Reconnector.policy` 에 닿는지.
-     * `maxAttempts = 0` 을 주입하면 `canRetry(0, policy)` 가 즉시 false 라 `scheduleReconnect`
-     * 첫 호출에서 `RECONNECT_GIVE_UP` 을 내고 끝난다(Reconnector.scheduleReconnect KDoc) —
-     * 기본 `ReconnectPolicy()`(maxAttempts=5)가 주입 대신 쓰였다면 `RECONNECT_ATTEMPT` 가
-     * 먼저 나왔을 것이므로, 이 둘의 유무 자체가 주입 여부의 증거다.
-     */
-    @Test
-    fun `G1 reconnectPolicy maxAttempts 0을 주입하면 재연결 즉시 포기한다`() = runTest {
-        val core = newCore(reconnectPolicy = ReconnectPolicy(maxAttempts = 0))
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { suppressReconnect = false }
-
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-
-        val diagnostics = acc.filterIsInstance<BleEvent.Diagnostic>()
-        // 포기 게시는 lifecycle 종결의 소진 선판정이 한다(terminal-cause v2) — 합성 Disconnected 발행은
-        // 종결이 아니므로 여기서는 주입된 예산이 소진 판정 질의에 닿았는지를 본다.
-        val session = requireNotNull(core.registry.get(id))
-        assertEquals(
-            "maxAttempts=0 주입이 닿았으면 재시도 없이 RECONNECT_GIVE_UP 으로 판정돼야 한다",
-            "RECONNECT_GIVE_UP",
-            core.reconnector.exhaustedFailure(session, null)?.code?.value,
-        )
-        assertTrue(
-            "기본 정책(maxAttempts=5)이 쓰였다면 나왔을 RECONNECT_ATTEMPT 가 없어야 한다: $diagnostics",
-            diagnostics.none { it.code == "RECONNECT_ATTEMPT" },
-        )
-        assertEquals(0, core.registry.get(id)?.retryCount)
-    }
 
     /**
      * G2(plan 결정①) — `Session.requestedMtu` 가 `ConnectSequence.onServicesDiscovered`를 거쳐 `gattBridge.requestMtu` 에 그대로 전달되는지.
@@ -425,37 +327,37 @@ class BleCoreWiringTest {
         )
     }
 
-    /**
-     * H-2: 백오프 대기 중 사용자가 disconnect 하면(suppressReconnect=true) 이미 예약된
-     * 재연결 시도가 발화해도 연결을 시작하지 않아야 한다. 수정 전에는 예약 시점 가드만
-     * 있어서 사용자가 끊은 기기를 코어가 되붙였다(Connecting 이벤트 발생).
-     */
+    /** plan failure-delivery-fixes v1 task 4 — disconnect() 는 취소된 호출자에서도 정리를 시작해야 한다. */
     @Test
-    fun `H2 백오프 대기 중 disconnect하면 예약된 재연결이 Connecting을 만들지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply {
-            setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial))
-            suppressReconnect = false
+    fun `취소된 코루틴에서 disconnect해도 정리는 시작되고 호출자는 CancellationException을 본다`() = runTest {
+        val driver = object : NoopGattDriver() {
+            val commands = mutableListOf<String>()
+            override fun disconnect(deviceId: PeripheralId, gatt: android.bluetooth.BluetoothGatt?) {
+                commands += "disconnect"
+            }
         }
+        val core = newCore(gattDriver = driver)
+        val id = PeripheralId("AA:BB:CC:DD:EE:A3")
+        val session = core.registry.getOrCreate(id)
+        session.connectionCoordinator.beginConnection(this, 100) {}
 
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
+        var thrown: Throwable? = null
+        val job = launch {
+            coroutineContext.cancel()
+            try {
+                core.disconnect(id)
+            } catch (e: Throwable) {
+                thrown = e
+            }
+        }
         runCurrent()
+        job.join()
 
-        // 예기치 못한 끊김 → scheduleReconnect 예약
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-
-        // 백오프 delay 소진 전에 사용자가 끊는다
-        session.suppressReconnect = true
-
-        advanceUntilIdle()
-        runCurrent()
-
+        assertTrue("호출자에게 취소가 전파되지 않았다: $thrown", thrown is CancellationException)
+        assertEquals(listOf("disconnect"), driver.commands)
         assertTrue(
-            "사용자가 끊은 기기를 코어가 되붙였다(review H-2): $acc",
-            acc.none { it is BleEvent.ConnStateChanged && it.state is ConnectionState.Connecting },
+            "정리가 시작되지 않았다: ${session.connectionState.value}",
+            session.stage == ConnectionStage.Disconnecting || session.stage == ConnectionStage.Disconnected,
         )
     }
 
@@ -836,14 +738,9 @@ class BleCoreWiringTest {
      * `sweepSessions(PoweredOff)` 를 돌리면 전부 `Disconnected(AdapterUnavailable)` 로 전이하고,
      * scheduler completion은 종결되며, `suppressReconnect`가 세워지고 `gatt`는 null이 되며,
      * `ConnStateChanged` 가 세션당 하나씩 emit 된다.
-     *
-     * `suppressReconnect` 를 emit 전에 세우는 순서(BleCore.sweepSessions KDoc)의 회귀
-     * 고정이 "RECONNECT 계열 Diagnostic 0개"다 — 순서가 뒤집히면 emit 이
-     * `ConnectSequence.onStatePublished` 의 `Disconnected` 분기를 태워 `Reconnector.scheduleReconnect`
-     * 가 돌고 `RECONNECT_ATTEMPT` Diagnostic 이 나온다(수정 전이면 이 부분이 red).
      */
     @Test
-    fun `D4① Connected 세션들을 스윕하면 Disconnected AdapterUnavailable로 전이하고 pending이 취소되며 재연결 Diagnostic이 없다`() = runTest {
+    fun `D4① Connected 세션들을 스윕하면 Disconnected AdapterUnavailable로 전이하고 pending이 취소된다`() = runTest {
         val core = newCore()
         val idA = testDeviceId("A1")
         val idB = testDeviceId("B2")
@@ -897,13 +794,6 @@ class BleCoreWiringTest {
 
         val connStateChangedEvents = acc.filterIsInstance<BleEvent.ConnStateChanged>()
         assertEquals("세션 2개분 ConnStateChanged 가 나와야 한다(D4)", 2, connStateChangedEvents.size)
-
-        assertEquals(
-            "suppressReconnect 를 emit 전에 세워야 재연결이 예약되지 않는다(D4 구현 순서) — " +
-                "RECONNECT 계열 Diagnostic 이 없어야 한다",
-            0,
-            acc.filterIsInstance<BleEvent.Diagnostic>().count { it.code.startsWith("RECONNECT") },
-        )
     }
 
     /**
@@ -1037,105 +927,11 @@ class BleCoreWiringTest {
         org.junit.Assert.assertNull("legacy 조합을 빌드 결함으로 오판했다: $result", result)
     }
 
-    // ── autoConnect × Reconnector 배타 (plan app-tunables v3) ──────────────────
-
-    /** 배타 ①: autoConnect 연결의 재연결 소유권은 플랫폼 — 코어는 예약조차 안 한다. */
-    @Test
-    fun `AC1 autoConnect 세션의 끊김에는 Reconnector가 개입하지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply {
-            setStateForTest(ConnectionState.Ready)
-            autoConnect = true
-        }
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        // 원인 없는 플랫폼 해제는 첫 시도 이후 Initial 이 아니라 LINK_FAILED 로 파생된다(결정 1).
-        core.publishStateAs(
-            id,
-            ConnectionState.Disconnected(BleDisconnectReason.Failed(FailureMapper.unattributedLinkDisconnect(statusCode = 0))),
-        )
-        advanceUntilIdle(); runCurrent()
-
-        assertTrue(
-            "autoConnect 인데 코어 재연결이 돌았다: $acc",
-            acc.none { it is BleEvent.Diagnostic && it.code.startsWith("RECONNECT") },
-        )
-    }
-
-    /** 배타 ②: 예약은 기기당 하나 — 끊김 이벤트가 겹쳐 와도 백오프 job 은 1개다. */
-    @Test
-    fun `AC2 예약 대기 중 중복 끊김 이벤트는 두 번째 예약을 만들지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial)) }
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent() // 첫 예약이 잡힌다 (백오프 대기 시작)
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent() // isActive 가드 — 새 예약 없음
-
-        val attempts = acc.count { it is BleEvent.Diagnostic && it.code == "RECONNECT_ATTEMPT" }
-        assertEquals("예약이 중복됐다(기기당 1개여야 한다)", 1, attempts)
-    }
-
-    /** 배타 ③(실행 벨트): 예약 후 모드가 autoConnect 로 바뀌면 발화 시점에 멈춘다. */
-    @Test
-    fun `AC3 백오프 대기 중 autoConnect 모드가 되면 예약된 시도가 발화하지 않는다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial)) }
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-        session.autoConnect = true // 대기 중 사용자가 autoConnect 로 재연결한 상황의 축약
-
-        advanceUntilIdle(); runCurrent()
-        assertTrue(
-            "autoConnect 모드인데 예약된 시도가 발화했다: $acc",
-            acc.none { it is BleEvent.ConnStateChanged && it.state is ConnectionState.Connecting },
-        )
-    }
-
-    /** 배타 ④(취소 경로): 사용자 disconnect 는 대기 중 예약을 즉시 끝낸다 — 손잡이(Job) 검증. */
-    @Test
-    fun `AC4 disconnect는 대기 중인 재연결 예약을 취소한다`() = runTest {
-        val core = newCore()
-        val id = testDeviceId()
-        val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial)) }
-        val acc = mutableListOf<BleEvent>()
-        backgroundScope.launch { core.events.toList(acc) }
-        runCurrent()
-
-        core.publishStateAs(id, ConnectionState.Disconnected(BleDisconnectReason.Initial))
-        runCurrent()
-        assertTrue("예약이 잡혀 있어야 한다", session.reconnectJob?.isActive == true)
-
-        core.disconnect(id)
-        runCurrent()
-        assertTrue("disconnect 후에도 예약이 살아 있다", session.reconnectJob == null)
-
-        advanceUntilIdle(); runCurrent()
-        assertTrue(
-            "취소된 예약이 발화했다: $acc",
-            acc.none { it is BleEvent.ConnStateChanged && it.state is ConnectionState.Connecting },
-        )
-    }
-
     // ── blecore-lifecycle v1 task 2 회귀 (매트릭스 감사 구멍 A~G) ──────────────────────
     // A(신원 가드)·D(GattBridge.connect 시작 리셋의 retryCount=0)·C(재연결 시도 타임아웃
     // 발화) 는 실제 BluetoothGatt/BluetoothAdapter 구성이 필요해 이 모듈의 테스트 의존성
     // (junit + kotlinx-coroutines-test, 목킹 프레임워크 없음)으로는 직접 재현할 수 없다
-    // (D6① KDoc 과 같은 근거) — 코드체인 리뷰로만 확인했다. D 의 다른 리셋 지점(ConnectSequence
-    // 의 Connected 분기)은 위 B2 테스트가 이미 고정한다.
+    // (D6① KDoc 과 같은 근거) — 코드체인 리뷰로만 확인했다.
 
     /**
      * post-Ready Connected 전이는 Configuring restore job을 대체하지 않는다.
@@ -1166,14 +962,12 @@ class BleCoreWiringTest {
      * 직접 구성한다).
      */
     @Test
-    fun `PL-B3 GattBridge disconnect가 세션의 resubscribeJob과 reconnectJob을 취소한다`() {
+    fun `PL-B3 GattBridge disconnect가 세션의 resubscribeJob을 취소한다`() {
         val registry = kr.co.nucode.ble.internal.session.SessionRegistry()
         val id = testDeviceId()
         val session = registry.getOrCreate(id)
         val resubscribeJob = kotlinx.coroutines.Job()
-        val reconnectJob = kotlinx.coroutines.Job()
         session.resubscribeJob = resubscribeJob
-        session.reconnectJob = reconnectJob
 
         val bridge = kr.co.nucode.ble.internal.gatt.GattBridge(
             registry = registry,
@@ -1187,12 +981,11 @@ class BleCoreWiringTest {
         bridge.disconnect(id)
 
         assertTrue("resubscribeJob이 취소돼야 한다(plan B)", resubscribeJob.isCancelled)
-        assertTrue("reconnectJob도 취소돼야 한다(기존 배타 규약)", reconnectJob.isCancelled)
         assertTrue("disconnect 후 session.resubscribeJob은 null이어야 한다", session.resubscribeJob == null)
     }
 
     /**
-     * plan F — `close()`가 scheduler pending/queued와 resubscribeJob/reconnectJob을
+     * plan F — `close()`가 scheduler pending/queued와 resubscribeJob을
      * 전부 종결하는지 확인한다(D1 close 테스트 확장). 여기서는
      * `BleRuntime(config = BleConfig(), adapter = { null })` 로 진짜 `Dispatchers.Default`
      * 기반 인스턴스를 별도로 만든다 — `close()` 는 이 디스패처 위에 정리를 예약하고 즉시
@@ -1204,10 +997,8 @@ class BleCoreWiringTest {
         val core = BleRuntime(config = BleConfig(), adapter = { null })
         val id = testDeviceId()
         val resubscribeJob = kotlinx.coroutines.Job()
-        val reconnectJob = kotlinx.coroutines.Job()
         val session = core.registry.getOrCreate(id).apply {
             this.resubscribeJob = resubscribeJob
-            this.reconnectJob = reconnectJob
         }
         val identity = GattCharacteristicIdentity.from(charRef(UUID.randomUUID(), UUID.randomUUID()))
         val pending = session.gattOperationScheduler.enqueue(
@@ -1224,7 +1015,6 @@ class BleCoreWiringTest {
         assertTrue("scheduler pending이 종결돼야 한다(plan F)", pending.completion.isCompleted)
         assertTrue("scheduler queued가 종결돼야 한다(plan F)", queued.completion.isCompleted)
         assertTrue("resubscribeJob이 취소돼야 한다(plan F)", resubscribeJob.isCancelled)
-        assertTrue("reconnectJob이 취소돼야 한다(plan F)", reconnectJob.isCancelled)
     }
 
     /**

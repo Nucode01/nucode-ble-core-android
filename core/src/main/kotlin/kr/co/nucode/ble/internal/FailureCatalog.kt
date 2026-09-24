@@ -41,7 +41,7 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endRetryPending(재연결 대기 중 세션도 회복 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -159,7 +159,7 @@ internal object FailureCatalog {
             "LINK_FAILED",
             listOf(
                 Route("link lifecycle (link status callback)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
-                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange, GattConnectionLifecycle.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다 — 재연결 예산 소진이면 State 는 이 LINK_FAILED 를 감싼 RECONNECT_EXHAUSTED/GIVE_UP 이고 소진 Diagnostic 이 LINK_FAILED Diagnostic 뒤에 따른다)"),
+                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange, GattConnectionLifecycle.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다)"),
                 Route("late non-terminal link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
                 Route("ended-generation link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:attributedGeneration(CallbackAttribution Drop \"ended generation\" + 비성공 status 일 때만 Warning Diagnostic, 성공 status 는 조용히 버림)"),
             ),
@@ -223,32 +223,7 @@ internal object FailureCatalog {
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endRetryPending(재연결 대기 중 세션도 회복 종료)"),
-            ),
-        ),
-        FailureSpec(
-            "RECONNECT_ATTEMPT",
-            listOf(
-                Route("reconnect attempt (official policy)", TriggerKind.AsyncInfo, setOf(Channel.State, Channel.Event), "Reconnector.kt:scheduleReconnect"),
-                Route("reconnect attempt (legacy policy)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Reconnector.kt:scheduleReconnect"),
-            ),
-        ),
-        FailureSpec(
-            "RECONNECT_CONNECT_START_FAILED",
-            listOf(
-                Route("reconnect attempt", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:reconnect"),
-            ),
-        ),
-        FailureSpec(
-            "RECONNECT_EXHAUSTED",
-            listOf(
-                Route("reconnect attempt (official policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:exhaustedFailure, GattConnectionLifecycle.kt:finalizeTerminalCause(게시 전 소진 고정 + emitDiagnostic, retryability Never) — ReconnectStateContractTest"),
-            ),
-        ),
-        FailureSpec(
-            "RECONNECT_GIVE_UP",
-            listOf(
-                Route("reconnect attempt (legacy policy)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Reconnector.kt:exhaustedFailure, GattConnectionLifecycle.kt:finalizeTerminalCause(게시 전 소진 고정 + emitDiagnostic, retryability Never) — ReconnectStateContractTest"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:sweepSessions, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(

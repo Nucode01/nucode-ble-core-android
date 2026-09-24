@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.Flow
 import kr.co.nucode.ble.BleChunking
 import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConnectOptions
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.BleWriteOptions
 import kr.co.nucode.ble.CharacteristicRef
@@ -34,13 +33,7 @@ internal object OfficialApiCompileContract {
         )
         val session = client.connect(
             peripheralId,
-            BleConnectOptions(
-                reconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
-                    maxAttempts = 2,
-                    initialDelayMillis = 100,
-                    maxDelayMillis = 1_000,
-                ),
-            ),
+            BleConnectOptions(autoReconnect = true),
         )
         session.read(characteristic)
         session.write(

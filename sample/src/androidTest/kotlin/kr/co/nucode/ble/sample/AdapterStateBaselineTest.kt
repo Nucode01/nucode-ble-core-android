@@ -117,7 +117,7 @@ class AdapterStateBaselineTest {
             is BleDisconnectReason.Failed -> "Disconnected(Failed:${r.failure.code.value}/${r.failure.phase})"
             else -> "Disconnected($r)"
         }
-        is ConnectionState.Recovering -> "Recovering(${attempt})"
+        is ConnectionState.Recovering -> "Recovering(${lastFailure.code.value})"
         else -> toString()
     }
 

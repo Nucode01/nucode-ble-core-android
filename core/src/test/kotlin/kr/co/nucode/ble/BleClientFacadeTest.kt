@@ -119,23 +119,6 @@ class BleClientFacadeTest {
     }
 
     @Test
-    fun `official exponential reconnect policy is accepted rather than rejected`() = kotlinx.coroutines.test.runTest {
-        val client = DefaultBleClient(BleRuntime(config = BleConfig(), adapter = { null }))
-
-        val error = runCatching {
-            client.connect(
-                PeripheralId("AA:BB:CC:DD:EE:04"),
-                BleConnectOptions(BleReconnectPolicy.ExponentialBackoff(1, 10, 10)),
-            )
-        }.exceptionOrNull() as? BleException
-
-        // This JVM seam has no adapter, so connect itself may fail; the policy must not be
-        // rejected before the normal platform admission boundary.
-        assertFalse(requireNotNull(error).failure.code.value == "UNSUPPORTED_RECONNECT_POLICY")
-        client.close()
-    }
-
-    @Test
     fun `closed client retains frozen snapshot and permits repeated cleanup`() = runBlocking {
         val core = BleRuntime(config = BleConfig(), adapter = { null })
         val client = DefaultBleClient(core)

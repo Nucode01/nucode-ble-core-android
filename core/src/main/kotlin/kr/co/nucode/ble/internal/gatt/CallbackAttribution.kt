@@ -23,8 +23,9 @@ internal sealed interface Attribution {
  *
  * Android 콜백은 generation 을 싣지 않는다(null). null 을 "현재 generation" 으로 추정하는 것은
  * 세션이 살아 있을 때(stage != Disconnected)뿐이다. 종결된 세션에 온 null 콜백은 링크 성공
- * (STATE_CONNECTED, GATT_SUCCESS)이고 재연결이 허용될 때만 새 generation 을 연다 — 그 밖의
- * 늦은 콜백(예: 백오프 대기 중 STATE_DISCONNECTED)이 phantom generation 을 여는 것을 막는다.
+ * (STATE_CONNECTED, GATT_SUCCESS)이고 플랫폼 재연결 대기 중인 세션(awaitingPlatformRelink)일 때만
+ * 새 generation 을 연다 — 그 밖의 늦은 콜백(예: 끝난 링크의 STATE_DISCONNECTED, 사용자 해제 뒤 도착한
+ * STATE_CONNECTED)이 phantom generation 을 여는 것을 막는다.
  * 상태를 갖지 않는다(`object`).
  */
 internal object CallbackAttribution {
@@ -47,7 +48,7 @@ internal object CallbackAttribution {
         val linkUp = event is GattDriverEvent.ConnectionStateChanged &&
             event.newState == BluetoothProfile.STATE_CONNECTED &&
             event.status == BluetoothGatt.GATT_SUCCESS
-        return if (linkUp && !session.suppressReconnect) {
+        return if (linkUp && session.awaitingPlatformRelink) {
             Attribution.Bootstrap
         } else {
             Attribution.Drop(DropReason.EndedGeneration)

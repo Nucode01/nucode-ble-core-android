@@ -3,7 +3,6 @@ package kr.co.nucode.ble.internal
 import java.io.File
 import java.util.UUID
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.FailureCategory
@@ -71,38 +70,6 @@ class SubscriptionStateTest {
     }
 
     @Test
-    fun `session owns its effective official reconnect policy`() {
-        val session = Session(PeripheralId("peripheral"))
-        val policy = BleReconnectPolicy.ExponentialBackoff(3, 10, 100)
-
-        assertEquals(BleReconnectPolicy.Disabled, session.effectiveReconnectPolicy)
-        session.effectiveReconnectPolicy = policy
-
-        assertEquals(policy, session.effectiveReconnectPolicy)
-    }
-
-    @Test
-    fun `recovering projection is owned by session flow and next legacy state replaces it`() {
-        val session = Session(PeripheralId("peripheral"))
-        val failure = BleFailure(
-            category = FailureCategory("link"),
-            code = FailureCode("LINK_LOST"),
-            phase = FailurePhase.Reconnect,
-            retryability = Retryability.NewConnectionMayHelp,
-        )
-
-        session.publishRecovering(attempt = 2, retryAfterMillis = 50, lastFailure = failure)
-
-        assertEquals(
-            ConnectionState.Recovering(attempt = 2, retryAfterMillis = 50, lastFailure = failure),
-            session.connectionState.value,
-        )
-        session.setStateForTest(ConnectionState.Connecting)
-
-        assertEquals(ConnectionState.Connecting, session.connectionState.value)
-    }
-
-    @Test
     fun `구독 generation 시작은 Session publishStage 에만 있다`() {
         val offenders = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
@@ -110,5 +77,28 @@ class SubscriptionStateTest {
             .map { it.invariantSeparatorsPath }
             .toList()
         assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/session/Session.kt"), offenders)
+    }
+
+    /**
+     * 공개 연결 상태를 쓰는 경로는 Session.publishStage 하나다(Recovering 포함 — plan autoconnect-reconnect v2
+     * 불변식 ①). 다른 파일이나 Session 의 다른 함수에서 `_connectionState.value =` 를 쓰면 red.
+     */
+    @Test
+    fun `공개 연결 상태 쓰기는 Session publishStage 에만 있다`() {
+        val write = "_connectionState.value ="
+        val offenders = File("src/main/kotlin").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { it.readText().contains(write) }
+            .map { it.invariantSeparatorsPath }
+            .toList()
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/session/Session.kt"), offenders)
+
+        val session = File(offenders.single()).readText()
+        val start = session.indexOf("    private fun publishStage(")
+        assertTrue("Session.publishStage 선언을 찾지 못함", start >= 0)
+        val end = session.indexOf("\n    }\n", start)
+        val body = session.substring(start, end)
+        assertEquals("publishStage 밖의 공개 상태 쓰기", session.split(write).size - 1, body.split(write).size - 1)
+        assertEquals(1, body.split(write).size - 1)
     }
 }

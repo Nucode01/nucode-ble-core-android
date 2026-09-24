@@ -67,17 +67,6 @@ class PublicModelsContractTest {
     }
 
     @Test
-    fun `neutral reconnect options validate their bounds`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            BleReconnectPolicy.ExponentialBackoff(-1, 1, 1)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            BleReconnectPolicy.ExponentialBackoff(1, 0, 1)
-        }
-        BleConnectOptions(BleReconnectPolicy.ExponentialBackoff(1, 1, 1))
-    }
-
-    @Test
     fun `session snapshot documents desired subscription intent`() {
         val property = SessionSnapshot::class.java.getDeclaredField("subscriptions")
 

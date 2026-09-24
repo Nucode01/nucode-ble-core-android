@@ -37,7 +37,6 @@ import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleLogger
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleException
-import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
@@ -184,13 +183,13 @@ class BleHardwareIntegrationTest {
             val sequenceBeforeDisconnect = messages.awaitSequence()
 
             val transition = launch(start = CoroutineStart.UNDISPATCHED) {
-                withTimeout(RECONNECT_TIMEOUT_MILLIS) {
+                withTimeout(RELINK_TIMEOUT_MILLIS) {
                     session.connectionState.drop(1).first { it !is ConnectionState.Ready }
                 }
             }
             session.writeCommand(nus.rx, "IT:DISCONNECT")
             transition.join()
-            awaitReady(session, RECONNECT_TIMEOUT_MILLIS)
+            awaitReady(session, RELINK_TIMEOUT_MILLIS)
 
             val restoredStatus = readStatus(session, nus.rx, messages)
             assertTrue(restoredStatus.linkValue("c") >= initialStatus.linkValue("c") + 1)
@@ -205,6 +204,55 @@ class BleHardwareIntegrationTest {
         } finally {
             stateLogJob.cancel()
             eventLogJob.cancel()
+            notificationJob.cancel()
+            messages.close()
+        }
+    }
+
+    /**
+     * autoReconnect(Android autoConnect) — 펌웨어가 링크를 끊으면 `Recovering` 으로 OS 재연결을 기다리고,
+     * OS 가 같은 handle 로 다시 붙이면 첫 연결과 같은 경로로 `Ready` 와 구독 복원에 도달한다
+     * (plan autoconnect-reconnect v2 §미해결 — 실기기 전제 검증용. 이 저장소에서는 컴파일만 한다).
+     */
+    @Test(timeout = 150_000)
+    fun autoReconnectWaitsInRecoveringAndRestoresAfterPlatformRelink() = runBlocking {
+        awaitAdapterReady()
+        val peripheralId = discoverPeripheral()
+        val session = client.connect(peripheralId, BleConnectOptions(autoReconnect = true)).also { activeSession = it }
+        val stateLogJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            session.connectionState.collect { Log.i(TAG, "autoReconnect state=$it") }
+        }
+        awaitReady(session)
+        val nus = session.nusCharacteristics()
+        val messages = Channel<String>(Channel.UNLIMITED)
+        val notificationJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            session.notifications(nus.tx).collect { messages.send(it.decodeToString().trim()) }
+        }
+
+        try {
+            session.subscribe(nus.tx)
+            val sequenceBeforeDisconnect = messages.awaitSequence()
+
+            val recovering = launch(start = CoroutineStart.UNDISPATCHED) {
+                withTimeout(RELINK_TIMEOUT_MILLIS) {
+                    session.connectionState.first { it is ConnectionState.Recovering }
+                }
+            }
+            session.writeCommand(nus.rx, "IT:DISCONNECT")
+            recovering.join()
+            awaitReady(session, RELINK_TIMEOUT_MILLIS)
+
+            assertTrue(
+                "activeSubscriptions missing ${nus.tx} after platform relink",
+                nus.tx in session.activeSubscriptions.value,
+            )
+            val restoredSequence = messages.awaitSequence { it > sequenceBeforeDisconnect }
+            assertTrue(
+                "notification sequence did not advance after platform relink",
+                restoredSequence > sequenceBeforeDisconnect,
+            )
+        } finally {
+            stateLogJob.cancel()
             notificationJob.cancel()
             messages.close()
         }
@@ -789,13 +837,7 @@ class BleHardwareIntegrationTest {
 
     private fun Map<String, String>.requiredLong(key: String): Long = required(key).toLong()
 
-    private fun reconnectOptions(): BleConnectOptions = BleConnectOptions(
-        reconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
-            maxAttempts = 4,
-            initialDelayMillis = 500,
-            maxDelayMillis = 2_000,
-        ),
-    )
+    private fun reconnectOptions(): BleConnectOptions = BleConnectOptions(autoReconnect = true)
 
     private fun instrumentationArguments() = InstrumentationRegistry.getArguments()
 
@@ -894,7 +936,7 @@ class BleHardwareIntegrationTest {
         /** 알림 셰이드의 행은 게시한 앱(Settings)이 아니라 SystemUI 가 그린다 — 기기 UI 덤프로 확인. */
         const val NOTIFICATION_SHADE_PACKAGE = "com.android.systemui"
         val PAIRING_NOTIFICATION_TEXT: Pattern = Pattern.compile("(?is).*(pairing request|pair request|페어링\\s*요청).*")
-        const val RECONNECT_TIMEOUT_MILLIS = 45_000L
+        const val RELINK_TIMEOUT_MILLIS = 45_000L
         const val DISCONNECT_TIMEOUT_MILLIS = 15_000L
         const val STATUS_TIMEOUT_MILLIS = 10_000L
 

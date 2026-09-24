@@ -25,7 +25,7 @@ class SessionRegistryTest {
 
     @Test
     fun `getOrCreate 같은 PeripheralId로 두 번 부르면 같은 인스턴스가 온다`() {
-        // 다른 인스턴스가 오면 state·gatt·retryCount 가 갈라져 규칙 2(상태는 객체 하나)가 무의미해진다.
+        // 다른 인스턴스가 오면 state·gatt·구독 상태가 갈라져 규칙 2(상태는 객체 하나)가 무의미해진다.
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
 

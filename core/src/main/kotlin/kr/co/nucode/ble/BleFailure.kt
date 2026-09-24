@@ -21,7 +21,6 @@ public enum class FailurePhase {
     DiscoverServices,
     Configure,
     Operation,
-    Reconnect,
     Close,
 }
 
@@ -172,7 +171,6 @@ internal enum class AndroidApiOperation(internal val wireName: String) {
     StartScan("startScan"),
     OnScanFailed("onScanFailed"),
     ConnectGatt("connectGatt"),
-    Connect("connect"),
     DiscoverServices("discoverServices"),
     SetCharacteristicNotification("setCharacteristicNotification"),
     ReadCharacteristic("readCharacteristic"),

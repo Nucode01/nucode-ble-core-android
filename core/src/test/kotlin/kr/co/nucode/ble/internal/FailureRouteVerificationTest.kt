@@ -101,7 +101,6 @@ class FailureRouteVerificationTest {
         const val DELIVERY = "kr.co.nucode.ble.FailureRouteDeliveryTest"
         const val ACTIVE = "kr.co.nucode.ble.ActiveSubscriptionsTest"
         const val SCAN = "kr.co.nucode.ble.ScanContractTest"
-        const val RECONNECT_STATE = "kr.co.nucode.ble.ReconnectStateContractTest"
         const val TERMINAL_CAUSE = "kr.co.nucode.ble.internal.TerminalCauseLifecycleTest"
         const val INFO = "kr.co.nucode.ble.FailureRouteInfoDeliveryTest"
 
@@ -179,12 +178,6 @@ class FailureRouteVerificationTest {
                 "$DELIVERY#discovery start SecurityException PERMISSION_DENIED publishes Disconnected Failed and Diagnostic",
             "PERMISSION_DENIED | adapter off sweep" to
                 "$DELIVERY#permission revoked sweep publishes Disconnected Failed PERMISSION_DENIED and Diagnostic",
-            "RECONNECT_CONNECT_START_FAILED | reconnect attempt" to
-                "kr.co.nucode.ble.internal.ReconnectorTest#reconnect start rejection shares the owner failure with terminal state",
-            "RECONNECT_EXHAUSTED | reconnect attempt (official policy)" to
-                "$RECONNECT_STATE#공식 ExponentialBackoff 소진 시 최종 상태는 Disconnected Failed RECONNECT_EXHAUSTED다",
-            "RECONNECT_GIVE_UP | reconnect attempt (legacy policy)" to
-                "$RECONNECT_STATE#legacy 정책 포기 시 최종 상태는 Disconnected Failed RECONNECT_GIVE_UP이다",
             "SCANNER_UNAVAILABLE | startScan command" to
                 "$SCAN#h 플랫폼 스캐너가 없으면 SCANNER_UNAVAILABLE 을 던지고 Diagnostic 을 낸다",
             "SCAN_ALREADY_RUNNING | startScan command" to
@@ -252,10 +245,6 @@ class FailureRouteVerificationTest {
                 "$INFO#rediscovery scan runtime failure emits SCAN_RUNTIME_FAILED Diagnostic and falls back to connect",
             "SCAN_START_FAILED | connect rediscovery scan (fallback)" to
                 "$INFO#rediscovery scan start failure emits SCAN_START_FAILED Diagnostic and falls back to connect",
-            "RECONNECT_ATTEMPT | reconnect attempt (official policy)" to
-                "$INFO#official policy reconnect attempt publishes Recovering and RECONNECT_ATTEMPT Diagnostic",
-            "RECONNECT_ATTEMPT | reconnect attempt (legacy policy)" to
-                "$INFO#legacy policy reconnect attempt emits RECONNECT_ATTEMPT Diagnostic",
         )
 
         /** 기존 fixture 로 발생시킬 수 없어(main seam 추가 금지) 연결하지 못한 route → 사유. 비어 있어야 정상. */

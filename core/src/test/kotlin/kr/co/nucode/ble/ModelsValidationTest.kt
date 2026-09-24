@@ -1,7 +1,6 @@
 package kr.co.nucode.ble
 
 import kr.co.nucode.ble.internal.ConnectOptions
-import kr.co.nucode.ble.internal.ReconnectPolicy
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -51,25 +50,6 @@ class ModelsValidationTest {
     fun `requestedMtu 518 은 거부되고 517 은 허용된다`() {
         assertThrows(IllegalArgumentException::class.java) { ConnectOptions(requestedMtu = 518) }
         ConnectOptions(requestedMtu = 517)
-    }
-
-    // ── ReconnectPolicy ──────────────────────────────────────────────────────
-
-    @Test
-    fun `maxAttempts 음수는 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) { ReconnectPolicy(maxAttempts = -1) }
-    }
-
-    @Test
-    fun `baseDelayMillis 0 은 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) { ReconnectPolicy(baseDelayMillis = 0) }
-    }
-
-    @Test
-    fun `maxDelay 가 baseDelay 보다 작으면 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            ReconnectPolicy(baseDelayMillis = 1_000, maxDelayMillis = 500)
-        }
     }
 
     // ── ManufacturerDataFilter.companyId — 16-bit 경계 ──────────────────────

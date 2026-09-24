@@ -32,7 +32,6 @@ import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperation
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
-import kr.co.nucode.ble.internal.session.ConnectionAttemptOrigin
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
@@ -302,11 +301,17 @@ class GattLifecycleCharacterizationTest {
     }
 
     @Test
-    fun `retained reconnect keeps MTU completion Configuring for Core restore orchestration`() = runTest {
+    fun `platform relink keeps MTU completion Configuring for Core restore orchestration`() = runTest {
         val registry = SessionRegistry()
+        // 플랫폼 재연결 대기 — autoConnect handle 이 열린 채 generation 1 이 끝났다.
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            suppressReconnect = false
+            autoConnect = true
+            platformHandleOpen = true
             requestedMtu = 185
+        }
+        val ended = session.connectionCoordinator.beginConnection(this, null) {}
+        session.beginPlatformWait {
+            session.connectionCoordinator.completeCleanup(ended, TerminalCause(TerminalCleanupReason.PlatformDisconnected, null))
         }
         val driver = FakeGattDriver(this)
         val observed = mutableListOf<BleEvent>()
@@ -319,13 +324,7 @@ class GattLifecycleCharacterizationTest {
             readinessTimeouts = ConnectionReadinessTimeouts(40, 40, 40, 25),
         )
 
-        val generation = bridge.beginRetainedReconnect(DEVICE_ID)
-
-        assertEquals(1L, generation)
-        assertEquals(ConnectionAttemptOrigin.Reconnect, session.connectionCoordinator.attemptOrigin)
-        assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
-        assertEquals(40L, session.connectionCoordinator.activeDeadline?.timeoutMillis)
-
+        // OS 가 같은 handle 로 다시 붙였다 — generation 없는 STATE_CONNECTED 가 Bootstrap 으로 새 generation 을 연다.
         driver.emit(
             GattDriverEvent.ConnectionStateChanged(
                 DEVICE_ID,
@@ -334,6 +333,8 @@ class GattLifecycleCharacterizationTest {
                 BluetoothProfile.STATE_CONNECTED,
             ),
         )
+        assertEquals(2L, session.connectionCoordinator.generation)
+        assertEquals(ConnectionStage.DiscoveringServices, session.connectionCoordinator.stage)
         bridge.discoverServices(DEVICE_ID)
         driver.emit(
             GattDriverEvent.ServicesDiscovered(
@@ -358,32 +359,6 @@ class GattLifecycleCharacterizationTest {
         assertEquals(185, session.mtu)
         assertEquals(182, session.chunkSize)
         assertEquals(listOf("discover", "mtu:185"), driver.commands)
-    }
-
-    @Test
-    fun `retained reconnect missing link callback uses coordinator deadline and remains retryable`() = runTest {
-        val registry = SessionRegistry()
-        val session = registry.getOrCreate(DEVICE_ID).apply {
-            suppressReconnect = false
-        }
-        val driver = FakeGattDriver(this)
-        val bridge = GattBridge(
-            registry = registry,
-            emit = {},
-            scope = this,
-            driver = driver,
-            ackTimeoutMillis = 5_000,
-            readinessTimeouts = ConnectionReadinessTimeouts(40, 40, 40, 25),
-        )
-
-        bridge.beginRetainedReconnect(DEVICE_ID)
-        advanceTimeBy(65)
-        runCurrent()
-
-        assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)
-        assertTrue(session.connectionState.value is ConnectionState.Disconnected)
-        assertFalse(session.suppressReconnect)
-        assertEquals(listOf("disconnect"), driver.commands)
     }
 
     @Test
@@ -787,11 +762,9 @@ class GattLifecycleCharacterizationTest {
             gattDriver = driver,
         )
         val resubscribeJob = Job()
-        val reconnectJob = Job()
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
             setStateForTest(ConnectionState.Ready)
             this.resubscribeJob = resubscribeJob
-            this.reconnectJob = reconnectJob
         }
         val identity = GattCharacteristicIdentity.from(
             charRef(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()),
@@ -811,7 +784,6 @@ class GattLifecycleCharacterizationTest {
         core.close()
 
         assertTrue(resubscribeJob.isCancelled)
-        assertTrue(reconnectJob.isCancelled)
         assertTrue(scheduledPending.completion.isCompleted)
         assertTrue(scheduledQueued.completion.isCompleted)
         assertTrue(session.gattOperationScheduler.isPoisoned)
@@ -953,7 +925,6 @@ class GattLifecycleCharacterizationTest {
             dispatcher = StandardTestDispatcher(testScheduler),
         ),
         adapter = { null },
-        reconnectPolicy = ReconnectPolicy(maxAttempts = 0),
         gattDriver = driver,
     )
 

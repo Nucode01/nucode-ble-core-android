@@ -72,17 +72,6 @@ class ModelsValidationTest {
         }
     }
 
-    /** plan blecore-lifecycle §감사결과 C — attemptTimeoutMillis 신설 require 회귀. */
-    @Test
-    fun `attemptTimeoutMillis 0 은 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) { ReconnectPolicy(attemptTimeoutMillis = 0) }
-    }
-
-    @Test
-    fun `attemptTimeoutMillis 음수는 거부된다`() {
-        assertThrows(IllegalArgumentException::class.java) { ReconnectPolicy(attemptTimeoutMillis = -1) }
-    }
-
     // ── ManufacturerDataFilter.companyId — 16-bit 경계 ──────────────────────
 
     @Test

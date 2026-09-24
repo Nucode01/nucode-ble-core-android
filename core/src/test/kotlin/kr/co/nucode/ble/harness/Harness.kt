@@ -191,7 +191,6 @@ internal fun TestScope.harness(
     )
     fake.runtime = core
     fake.installScanner()
-    core.reconnector.startRetainedConnect = { session -> fake.onRetainedConnect(session) }
     val harness = Harness(this, core, DefaultBleClient(core), fake, reconnect, fakeJob)
     runCurrent()
     return harness

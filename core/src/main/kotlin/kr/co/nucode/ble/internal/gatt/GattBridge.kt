@@ -178,6 +178,9 @@ internal class GattBridge(
     /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
     internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? = lifecycle.beginRetainedReconnect(deviceId)
 
+    /** Reconnector 의 retained connect 시작 — 보존한 handle 을 driver 경유로 다시 연결한다. */
+    internal fun startRetainedConnect(session: Session): Boolean = driver.reconnect(session.deviceId, session.gatt)
+
     suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) = lifecycle.connect(deviceId, options)
 
     fun disconnect(deviceId: PeripheralId) = lifecycle.disconnect(deviceId)

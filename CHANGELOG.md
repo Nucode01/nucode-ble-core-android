@@ -9,7 +9,8 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 - `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
 - 재연결 예산을 다 쓰면 `connectionState` 가 `Disconnected(Failed(RECONNECT_EXHAUSTED))`(legacy 정책은 `RECONNECT_GIVE_UP`)가 된다. 이전에는 직전 원인의 `Disconnected(Failed)` 에 머물러 "포기했다"를 상태로 알 수 없었다. `failure.code` 로 분기하던 앱은 이 코드를 추가로 처리한다.
-- 재연결 시도 하나가 시간 제한을 넘기면 그 시도가 `Disconnected(Failed(RECONNECT_ATTEMPT_TIMEOUT))` 로 끝나고 다음 백오프로 넘어간다. 이전에는 `Disconnected(Initial)`(연결한 적 없음)이 게시됐다. 이 코드는 **시도 제한이 링크 제한보다 짧을 때만** 나온다 — 기본 설정에서는 링크 deadline 이 먼저 울려 복구 중 시도가 `Disconnected(Failed(LINK_TIMEOUT))` 로 끝난다.
+- 재연결 시도 전용 시간 제한과 `RECONNECT_ATTEMPT_TIMEOUT` 코드는 0.2.0 에서 제거됐다. 재연결 시도의 상한은 연결 링크 제한(`linkTimeoutMillis`) 하나다(복구 중 시도마다 적용 — 이 값을 늘린 앱은 재연결 시도 하나도 그만큼 길어진다) — 시도가 이를 넘기면 복구 중 그 시도가 `Disconnected(Failed(LINK_TIMEOUT))` 로 끝나고 다음 백오프로 넘어가며, 소진 시 `RECONNECT_EXHAUSTED` 가 이 원인을 감싼다. `RECONNECT_ATTEMPT_TIMEOUT` 으로 분기하던 앱은 복구 중 `LINK_TIMEOUT` 으로 옮긴다.
+- 재연결 시작이 권한 회수로 예외를 던지면 크래시 대신 `Disconnected(Failed(PERMISSION_DENIED))` 로 끝나고 더 재시도하지 않는다. 끝난 연결에 늦게 온 실패 status 콜백은 상태를 바꾸지 않고 `Diagnostic(Warning, LINK_FAILED)` 로만 알린다.
 - 사용자 `disconnect()` 는 이제 `Disconnected(Requested)` 로 끝난다. 이전에는 실기기에서 플랫폼이 성공 해제 콜백을 주면 `Disconnected(Initial)` 로 덮였다.
 - 라이브러리 쪽 원인이 없는 플랫폼 해제(성공 status 콜백)는 `Disconnected(Failed(LINK_FAILED))` 로 끝나고 `platformDetail.statusCode` 에 콜백 status 가 실린다. `Diagnostic(Warning, LINK_FAILED)` 도 함께 나온다 — 재연결 예산이 소진돼 상태가 `RECONNECT_EXHAUSTED`/`RECONNECT_GIVE_UP` 이 되는 경우에도 이 `LINK_FAILED` Diagnostic 이 소진 Diagnostic 보다 먼저 나온다. 이전에는 `Disconnected(Initial)` 이었다.
 - `Disconnected(Initial)` 은 이제 첫 연결 시도 전에만 나온다. `Initial` 을 "해제됨" 으로 분기하던 앱은 `Requested`·`Failed(LINK_FAILED)` 를 처리해야 한다.

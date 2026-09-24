@@ -204,11 +204,12 @@ class ReconnectStateContractTest {
     // ── 4b: 재연결 시도 timeout ────────────────────────────────────────────────
 
     /**
-     * JVM 테스트는 실제 BluetoothGatt 를 만들 수 없어 재연결 시작이 늘 거부된다. 런타임의
-     * reconnector 시작 seam 을 "시작 성공"으로 바꿔 시도 timeout 경로에 닿게 한다.
+     * JVM 테스트는 실제 BluetoothGatt 를 만들 수 없어 기본 `reconnect` 는 늘 거부된다. driver 의
+     * retained connect 를 "시작 성공"으로 재정의해 production 경로(GattBridge → driver)로 link
+     * deadline 에 닿게 한다.
      */
-    private fun BleRuntime.acceptRetainedConnects() {
-        reconnector.startRetainedConnect = { true }
+    private class AcceptingReconnectDriver : NoopGattDriver() {
+        override fun reconnect(deviceId: PeripheralId, gatt: android.bluetooth.BluetoothGatt?): Boolean = true
     }
 
     private class TimeoutFixture(
@@ -221,11 +222,10 @@ class ReconnectStateContractTest {
             get() = acc.filterIsInstance<BleEvent.ConnStateChanged>().map { it.state }
     }
 
-    /** 공식 정책(시도 timeout 기본 30s)이 link deadline 보다 먼저 닿도록 link 상한을 넉넉히 둔다. */
+    /** 재연결 시도의 유일한 상한은 그 generation 의 link deadline 이다(plan callback-ingress 목표 4). */
     private fun TestScope.timeoutFixture(id: PeripheralId, maxAttempts: Int): TimeoutFixture {
-        val driver = NoopGattDriver()
-        val core = newCore(gattDriver = driver, linkTimeoutMillis = 120_000)
-        core.acceptRetainedConnects()
+        val driver = AcceptingReconnectDriver()
+        val core = newCore(gattDriver = driver, linkTimeoutMillis = LINK_DEADLINE_MILLIS)
         val session = core.registry.getOrCreate(id).apply {
             effectiveReconnectPolicy = BleReconnectPolicy.ExponentialBackoff(
                 maxAttempts = maxAttempts,
@@ -242,18 +242,25 @@ class ReconnectStateContractTest {
         return TimeoutFixture(core, driver, session, acc)
     }
 
+    private companion object {
+        const val LINK_DEADLINE_MILLIS = 5_000L
+
+        /** link deadline 뒤 Disconnecting — Noop driver 는 해제 콜백을 내지 않아 cleanup 상한까지 가야 종결된다. */
+        val ATTEMPT_END_MILLIS = LINK_DEADLINE_MILLIS + BleConfig().disconnectCleanupTimeoutMillis
+    }
+
     @Test
-    fun `재연결 시도 timeout은 Disconnected Failed RECONNECT_ATTEMPT_TIMEOUT을 내고 다음 Recovering이 그 원인을 싣는다`() = runTest {
+    fun `재연결 시도가 link deadline을 넘기면 Disconnected Failed LINK_TIMEOUT을 내고 다음 Recovering이 그 원인을 싣는다`() = runTest {
         val f = timeoutFixture(PeripheralId("AA:BB:CC:DD:EE:B1"), maxAttempts = 2)
         advanceTimeBy(10 + 1)
         runCurrent()
         assertEquals(ConnectionStage.Connecting, f.session.stage)
 
-        advanceTimeBy(ReconnectPolicy().attemptTimeoutMillis)
+        advanceTimeBy(ATTEMPT_END_MILLIS)
         runCurrent()
 
         val states = f.states
-        val timeoutIndex = states.indexOfFirst { failedCode(it) == "RECONNECT_ATTEMPT_TIMEOUT" }
+        val timeoutIndex = states.indexOfFirst { failedCode(it) == "LINK_TIMEOUT" }
         assertTrue("시도 timeout 이 Disconnected(Failed) 로 발행되지 않았다: $states", timeoutIndex >= 0)
         assertTrue(
             "timeout 이 Initial 로 발행됐다: $states",
@@ -267,25 +274,25 @@ class ReconnectStateContractTest {
         assertEquals("RECONNECT_ATTEMPT", nextRecovering.lastFailure.code.value)
         assertEquals(timeoutFailure.context, nextRecovering.lastFailure.context)
         assertTrue(
-            "시도 timeout Diagnostic 이 없다",
-            f.acc.filterIsInstance<BleEvent.Diagnostic>().any { it.failure.code.value == "RECONNECT_ATTEMPT_TIMEOUT" },
+            "link deadline Diagnostic 이 없다",
+            f.acc.filterIsInstance<BleEvent.Diagnostic>().any { it.failure.code.value == "LINK_TIMEOUT" },
         )
     }
 
     @Test
-    fun `재연결 시도 timeout으로 시도를 소진하면 최종 상태는 Disconnected Failed RECONNECT_EXHAUSTED다`() = runTest {
+    fun `재연결 시도가 link deadline으로 소진하면 최종 상태는 Disconnected Failed RECONNECT_EXHAUSTED다`() = runTest {
         val f = timeoutFixture(PeripheralId("AA:BB:CC:DD:EE:B2"), maxAttempts = 2)
         advanceUntilIdle()
         runCurrent()
 
         assertEquals("RECONNECT_EXHAUSTED", failedCode(f.session.connectionState.value))
-        // 두 시도 모두 timeout 이지만, 마지막 시도의 종결은 게시 전에 소진으로 판정돼 한 번만
-        // (RECONNECT_EXHAUSTED 로) 게시된다 — timeout 사실은 Diagnostic 에 두 번 남는다.
+        // 두 시도 모두 link deadline 이지만, 마지막 시도의 종결은 게시 전에 소진으로 판정돼 한 번만
+        // (RECONNECT_EXHAUSTED 로) 게시된다 — LINK_TIMEOUT 사실은 Diagnostic 에 두 번 남는다.
         assertEquals(
             2,
-            f.acc.filterIsInstance<BleEvent.Diagnostic>().count { it.failure.code.value == "RECONNECT_ATTEMPT_TIMEOUT" },
+            f.acc.filterIsInstance<BleEvent.Diagnostic>().count { it.failure.code.value == "LINK_TIMEOUT" },
         )
-        assertEquals(1, f.states.count { failedCode(it) == "RECONNECT_ATTEMPT_TIMEOUT" })
+        assertEquals(1, f.states.count { failedCode(it) == "LINK_TIMEOUT" })
         assertEquals(1, f.states.count { failedCode(it) == "RECONNECT_EXHAUSTED" })
         assertEquals(ConnectionStage.Disconnected, f.session.stage)
     }
@@ -296,11 +303,11 @@ class ReconnectStateContractTest {
         advanceTimeBy(10 + 1)
         runCurrent()
         val timedOutGeneration = f.session.connectionCoordinator.generation
-        advanceTimeBy(ReconnectPolicy().attemptTimeoutMillis)
+        advanceTimeBy(ATTEMPT_END_MILLIS)
         runCurrent()
         assertTrue(
             "시도 timeout 이 발행되지 않았다: ${f.states}",
-            f.states.any { failedCode(it) == "RECONNECT_ATTEMPT_TIMEOUT" },
+            f.states.any { failedCode(it) == "LINK_TIMEOUT" },
         )
 
         fun late(newState: Int, status: Int) = f.driver.emit(

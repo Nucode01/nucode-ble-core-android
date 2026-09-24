@@ -28,7 +28,6 @@ import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
-import kr.co.nucode.ble.internal.session.Session
 
 /**
  * Android 처럼 행동하는 단일 fake 플랫폼(plan platform-harness v1 목표 1).
@@ -40,15 +39,11 @@ import kr.co.nucode.ble.internal.session.Session
  *
  * 콜백 출처(source)는 handle epoch 로 흉내 낸다 — production `AndroidGattCallbackRouter.sourceOf`
  * 의 `currentGatt === gatt` 자리. 명령(connect·retained connect·discover 등)이 나갈 때 [epoch] 를
- * 캡처하고, driver [close] 가 epoch 를 올린다. 콜백 source 는 `fake.epoch == 캡처값` 이라 닫힌
+ * 캡처하고, driver [close] 와 새 [connect](새 BluetoothGatt) 가 epoch 를 올린다(retained connect 는 같은 handle). 콜백 source 는 `fake.epoch == 캡처값` 이라 닫힌
  * handle 에서 온 콜백은 `sessionFor` 가 production 처럼 버린다.
  *
- * 알려진 사각지대(3단계에서 driver 경유로 바꾼다 — main 변경이라 이 단계 범위 밖):
- * - `Reconnector` 가 소진 시 `session.gatt?.close()`, 시도 timeout 시 `session.gatt?.disconnect()`,
- *   기본 `startRetainedConnect` 에서 `session.gatt?.connect()` 를 driver 를 거치지 않고 직접 부른다.
- *   fake 의 `connect` 는 null handle 을 돌려주므로 이 호출들은 아무 일도 하지 않고, 기록([calls])·
- *   epoch 증가·해제 콜백도 없다. 즉 소진 뒤 close 로 인한 콜백 폐기, 시도 timeout 의 disconnect
- *   콜백은 이 하네스가 재현하지 못한다(retained connect 만 [onRetainedConnect] seam 으로 대체).
+ * retained connect 는 production 경로 그대로 `Reconnector` → `GattBridge.startRetainedConnect` →
+ * driver [reconnect] 로 들어온다 — 하네스가 코어 seam 을 바꿔 끼우지 않는다.
  *
  * 콜백은 driver 호출 안에서 동기로 sink 에 넣지 않고 [scope](코어와 같은 디스패처)에 예약한다 —
  * production `AndroidGattCallbackRouter.forward` 의 `scope.launch { sink(event) }` 홉과 같은 순서.
@@ -93,11 +88,15 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     var onReconnect: CallbackVariant = CallbackVariant.Arrive()
     var reconnectFailStatus: Int? = null
     var rejectReconnectStart: Boolean = false
+    /** non-null 이면 retained connect 시작이 이 예외를 던진다(production driver 의 권한 회수 BleException 자리). */
+    var reconnectThrows: Exception? = null
 
     // ── 기록 ────────────────────────────────────────────────────────────────
 
     /** 현재 platform handle 의 세대. driver [close] 가 올린다(위 클래스 KDoc 의 출처 식별). */
     var epoch: Long = 0
+    /** 현재 handle 이 열려 있는가 — connect 가 열고 close 가 닫는다(retained connect 가 볼 대상). */
+    private var handleOpen: Boolean = false
         private set
 
     /** 모든 driver 호출 기록 — "connect", "disconnect", "close", "discover", "mtu", "descriptor", "read", "write", "retainedConnect". */
@@ -201,6 +200,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(코드 주석 GattDriver): 테스트 driver 는 시작 성공 후 null 핸들을 돌려줄 수 있다.
     override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
         calls += "connect"
+        // 근거(production): connectGatt 는 호출마다 새 BluetoothGatt 를 만든다 — 이전(닫히지 않은) handle 의 콜백은 출처가 달라진다.
+        epoch++
+        handleOpen = true
         scheduleConnection(deviceId, onConnect, connectFailStatus, epoch, afterStartReturns = false)
         return null
     }
@@ -219,6 +221,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
         calls += "close"
         epoch++
+        handleOpen = false
     }
 
     override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
@@ -299,18 +302,22 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         return true
     }
 
-    // ── 재연결 시작 seam ─────────────────────────────────────────────────────
+    // ── 재연결 시작 ─────────────────────────────────────────────────────────
 
     /**
-     * `core.reconnector.startRetainedConnect` 대체. 시작을 기록하고 스크립트대로 콜백을 낸다.
+     * driver 의 retained connect. 시작을 기록하고 스크립트대로 콜백을 낸다.
      * 근거(production 순서): 콜백은 binder 스레드에서 와서 코어로 홉하므로 시작 호출이 반환되고
      * 재연결 job 이 끝난 뒤에 처리된다 — 기본 [CallbackVariant.Arrive] 는 홉을 한 번 더 두어
      * 그 순서를 만든다. 반대 순서(경합)는 [CallbackVariant.ArriveBeforeStartReturns] 로만 낸다.
      */
-    fun onRetainedConnect(session: Session): Boolean {
+    override fun reconnect(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
         calls += "retainedConnect"
+        reconnectThrows?.let { throw it }
         if (rejectReconnectStart) return false
-        scheduleConnection(session.deviceId, onReconnect, reconnectFailStatus, epoch, afterStartReturns = true)
+        // 근거(코드 AndroidGattDriver): `gatt?.connect() ?: false` — 닫힌(또는 없는) handle 은 시작하지 못한다.
+        if (!handleOpen) return false
+        // 근거(코드 Reconnector): 재연결은 보관한 같은 gatt 의 connect() — handle 이 그대로라 epoch 를 올리지 않는다.
+        scheduleConnection(deviceId, onReconnect, reconnectFailStatus, epoch, afterStartReturns = true)
         return true
     }
 

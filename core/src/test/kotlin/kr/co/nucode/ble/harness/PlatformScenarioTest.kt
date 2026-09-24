@@ -7,12 +7,16 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.AdapterState
+import kr.co.nucode.ble.AndroidApiOperation
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.FailureMapper
+import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.internal.ReconnectPolicy
@@ -43,6 +47,8 @@ class PlatformScenarioTest {
         val variant: String,
         val reconnect: BleReconnectPolicy = BleReconnectPolicy.Disabled,
         val legacy: ReconnectPolicy = ReconnectPolicy(),
+        /** I9 대조 실행 — 같은 시나리오에서 늦은 콜백만 뺀 본문. null 이면 I9 대상 아님. */
+        val control: (kotlinx.coroutines.test.TestScope.(Harness) -> Outcome)? = null,
         val body: kotlinx.coroutines.test.TestScope.(Harness) -> Outcome,
     )
 
@@ -96,6 +102,47 @@ class PlatformScenarioTest {
     /** 첫 재연결 시작이 나갈 때까지 진행(상한 있음). */
     private fun awaitRetainedConnects(h: Harness, count: Int) =
         h.waitUntil("retainedConnect $count 회") { h.fake.calls.count { it == "retainedConnect" } >= count }
+
+    /** I9 비교용 세대 통계(모든 deadline 이 지난 뒤 본다). */
+    private fun statsOf(h: Harness) = GenerationStats(
+        retainedConnects = h.fake.calls.count { it == "retainedConnect" },
+        connectingEntries = h.states(id).count { it is ConnectionState.Connecting },
+        recoveringAttempts = h.states(id).filterIsInstance<ConnectionState.Recovering>().map { it.attempt },
+        last = h.states(id).lastOrNull(),
+    )
+
+    /**
+     * Ready → 링크 끊김(8) → 재시도 대기(백오프) 중, 다음 재연결 시작 전에 현재 handle 에서
+     * STATE_DISCONNECTED([late]) 를 낸다. [late] 가 null 이면 대조 실행(I9).
+     */
+    private fun lateInBackoff(late: Int?, attemptsFail: Boolean = false): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
+        h.connectToReady(id)
+        // 모든 재연결 시도가 실패하면 소진(Failed)으로 끝난다 — I9 가 Failed 최종 상태에서 오탐하지 않는지 본다.
+        if (attemptsFail) h.fake.reconnectFailStatus = 133
+        h.fake.linkLoss(id, 8)
+        runCurrent()
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+        if (h.fake.calls.any { it == "retainedConnect" }) fail("전제 실패: 백오프 대기 전에 재연결 시작 calls=${h.fake.calls}")
+        if (late != null) h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, late)
+        Outcome()
+    }
+
+    /**
+     * 이전(닫히지 않은 채 대체된) handle 을 남긴 뒤 Ready → 링크 끊김 → 재연결 시도가 시작된 뒤
+     * 이전 handle 에서 STATE_DISCONNECTED(0) 를 낸다. [late] 가 false 면 대조 실행(I9).
+     */
+    private fun oldHandleDuringAttempt(late: Boolean): kotlinx.coroutines.test.TestScope.(Harness) -> Outcome = { h ->
+        h.connectToReady(id)
+        val oldHandle = h.fake.epoch
+        h.disconnect(id)
+        h.advancePastAllDeadlines()
+        h.connectToReady(id)
+        if (h.fake.epoch == oldHandle) fail("전제 실패: 새 connect 가 handle 을 바꾸지 않음 calls=${h.fake.calls}")
+        h.fake.linkLoss(id, 8)
+        awaitRetainedConnects(h, 1)
+        if (late) h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0, fromEpoch = oldHandle)
+        Outcome()
+    }
 
     private val clientClosed = ConnectionState.Disconnected(BleDisconnectReason.ClientClosed)
 
@@ -203,6 +250,38 @@ class PlatformScenarioTest {
             h.connectToReady(id)
             h.fake.rejectReconnectStart = true
             h.fake.linkLoss(id, 8)
+            h.advancePastAllDeadlines()
+            // 시작 거부도 시도 하나다 — 정책 maxAttempts 만큼 재연결 시작이 나가야 한다(잃은 시도·빈 generation 없음).
+            val starts = h.fake.calls.count { it == "retainedConnect" }
+            println("start rejected trail: ${h.states(id).joinToString(" > ") { short(it) }} calls=${h.fake.calls}")
+            if (starts != backoff.maxAttempts) fail("재연결 시작 $starts 회 != maxAttempts ${backoff.maxAttempts} trail=${h.states(id).map { short(it) }}")
+            Outcome()
+        })
+        // S 재연결 시작이 권한 예외를 던진다 — 크래시 없이 PERMISSION_DENIED 로 끝나고 더 시도하지 않는다.
+        add(Scenario("reconnect attempt", "start throws PERMISSION_DENIED", backoff) { h ->
+            h.connectToReady(id)
+            h.fake.reconnectThrows = BleException(
+                FailureMapper.permissionDenied(FailurePhase.Connect, AndroidApiOperation.Connect),
+            )
+            h.fake.linkLoss(id, 8)
+            h.advancePastAllDeadlines()
+            val last = short(h.states(id).last())
+            if (last != "Disconnected(PERMISSION_DENIED)") fail("권한 예외 최종 상태 $last trail=${h.states(id).map { short(it) }}")
+            val starts = h.fake.calls.count { it == "retainedConnect" }
+            if (starts != 1) fail("권한 실패 뒤 재시도 $starts 회 calls=${h.fake.calls}")
+            Outcome()
+        })
+        // S 재연결 시작이 예기치 않은 예외를 던진다 — 시작 거부와 같이 닫히고 예산대로 재시도한다.
+        add(Scenario("reconnect attempt", "start throws RuntimeException", backoff) { h ->
+            h.connectToReady(id)
+            h.fake.reconnectThrows = RuntimeException("boom")
+            h.fake.linkLoss(id, 8)
+            h.advancePastAllDeadlines()
+            if (h.states(id).none { short(it) == "Disconnected(RECONNECT_CONNECT_START_FAILED)" }) {
+                fail("시작 거부 원인 없음 trail=${h.states(id).map { short(it) }}")
+            }
+            val starts = h.fake.calls.count { it == "retainedConnect" }
+            if (starts != backoff.maxAttempts) fail("재연결 시작 $starts 회 != maxAttempts calls=${h.fake.calls}")
             Outcome()
         })
         // S 재연결 콜백이 시작 반환 전에 큐에 들어가는 경합(production 에선 마이크로초 창) — 일부러 고정한다.
@@ -274,6 +353,14 @@ class PlatformScenarioTest {
             h.fake.emitConnectionState(id, BluetoothProfile.STATE_DISCONNECTED, 0)
             Outcome()
         })
+        // S 재시도 대기(백오프) 중 현재 handle 의 늦은 STATE_DISCONNECTED — H1 phantom generation(I9).
+        for (late in listOf(0, 8)) {
+            add(Scenario("late STATE_DISCONNECTED", "pure backoff wait status=$late (current handle)", backoff, body = lateInBackoff(late), control = lateInBackoff(null)))
+        }
+        // S 같은 늦은 콜백이지만 모든 시도가 실패해 Failed 로 끝난다 — I9 최종 상태 비교 오탐 없음.
+        add(Scenario("late STATE_DISCONNECTED", "pure backoff wait status=0, attempts fail (current handle)", backoff, body = lateInBackoff(0, attemptsFail = true), control = lateInBackoff(null, attemptsFail = true)))
+        // S 재연결 시도 중 이전 handle 의 늦은 STATE_DISCONNECTED — 출처 식별로 버려져야 한다(I9).
+        add(Scenario("late STATE_DISCONNECTED", "during attempt (previous handle)", backoff, body = oldHandleDuringAttempt(true), control = oldHandleDuringAttempt(false)))
         // S close — 시나리오 안에서 close 하고 그 뒤 상태를 본다(I8). 종결되지 않았거나 재연결 대기 중이면 ClientClosed.
         add(Scenario("close", "while Ready") { h ->
             h.connectToReady(id)
@@ -362,6 +449,17 @@ class PlatformScenarioTest {
         val table = StringBuilder()
         val unmet = mutableListOf<String>()
         for (s in scenarios()) {
+            var control: GenerationStats? = null
+            var controlTrail = ""
+            if (s.control != null) runTest {
+                val h = harness(config, s.reconnect, s.legacy)
+                h.session(id)
+                s.control.invoke(this, h)
+                h.advancePastAllDeadlines()
+                control = statsOf(h)
+                controlTrail = h.states(id).joinToString(" > ") { short(it) }
+                h.close()
+            }
             runTest {
                 val h = harness(config, s.reconnect, s.legacy)
                 h.session(id)
@@ -376,6 +474,8 @@ class PlatformScenarioTest {
                     pastAllDeadlines = true,
                     descriptorWritesAfterReconnect = outcome.descriptorWritesAfterReconnect,
                     closedAt = outcome.closedAt,
+                    lateRun = if (s.control != null) statsOf(h) else null,
+                    controlRun = control,
                 )
                 val last = h.states(id).last()
                 if (outcome.expectedLast != null && outcome.expectedLast != last) {
@@ -385,6 +485,7 @@ class PlatformScenarioTest {
                 violations.forEach { observed += "${s.name} | ${s.variant} | ${it.id}" }
                 table.append("  ${s.name} | ${s.variant} -> ${short(h.states(id).last())}  [${h.states(id).joinToString(" > ") { short(it) }}]")
                 if (violations.isNotEmpty()) table.append("  ${violations.joinToString { "${it.id}(${it.detail})" }}")
+                if (s.control != null) table.append("  control=[$controlTrail]")
                 table.append('\n')
                 h.close()
             }

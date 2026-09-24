@@ -30,6 +30,12 @@ internal interface GattDriver {
         connectionGeneration: Long,
     ): BluetoothGatt? = connect(deviceId, autoConnect)
 
+    /**
+     * 보존한 handle 로 재연결을 시작한다(`BluetoothGatt.connect()`). 기본 구현은 production 과 같은
+     * 호출이다 — fake driver 는 재정의해 재연결 시작을 기록·스크립트할 수 있다.
+     */
+    fun reconnect(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = gatt?.connect() ?: false
+
     fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?)
 
     fun close(deviceId: PeripheralId, gatt: BluetoothGatt?)

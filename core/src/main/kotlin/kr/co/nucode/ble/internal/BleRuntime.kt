@@ -433,7 +433,6 @@ internal class BleRuntime private constructor(
         ackTimeoutMillis = config.operationTimeoutMillis,
         writeCommand = gattBridge::writeCommand,
     )
-    /** 테스트 seam: JVM 에서 재연결 시작(`startRetainedConnect`)을 대체한다 — `scanner` 와 같은 internal 관례. */
     internal val reconnector = Reconnector(registry, ::emit, coreScope, connectSequence)
 
     init {
@@ -442,6 +441,7 @@ internal class BleRuntime private constructor(
         // 여기서 config 값을 주입한다.
         reconnector.policy = reconnectPolicy
         reconnector.beginReconnectLifecycle = gattBridge::beginRetainedReconnect
+        reconnector.startRetainedConnect = gattBridge::startRetainedConnect
         reconnector.terminate = gattBridge::terminate
     }
 

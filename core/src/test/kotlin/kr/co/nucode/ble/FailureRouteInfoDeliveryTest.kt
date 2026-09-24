@@ -387,6 +387,32 @@ class FailureRouteInfoDeliveryTest {
         assertEquals(ConnectionState.DiscoveringServices, f.state)
     }
 
+    @Test
+    fun `ended generation link status failure emits LINK_FAILED Warning Diagnostic without changing state`() = runTest {
+        val f = fixture()
+        connectToReady(f, official = BleReconnectPolicy.ExponentialBackoff(3, 1_000, 1_000))
+        f.driver.connection(f.id, f.generation, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED)
+        runCurrent()
+        val recovering = f.state
+        assertTrue("Recovering 이 아니다: $recovering", recovering is ConnectionState.Recovering)
+        val before = f.diagnostics("LINK_FAILED").size
+
+        // 백오프 대기 중(끝난 generation) Android 처럼 generation 없이 온 실패 status — Drop 되지만 Diagnostic 은 남는다.
+        f.driver.emit(GattDriverEvent.ConnectionStateChanged(f.id, SOURCE, 133, BluetoothProfile.STATE_DISCONNECTED))
+        runCurrent()
+
+        val late = f.events.filterIsInstance<BleEvent.Diagnostic>().filter { it.failure.code.value == "LINK_FAILED" }.drop(before)
+        assertEquals(f.diagnosticCodes().toString(), 1, late.size)
+        assertEquals(Severity.Warning, late.single().severity)
+        assertEquals(recovering, f.state)
+
+        // 성공 status 의 늦은 콜백은 조용히 버린다.
+        f.driver.emit(GattDriverEvent.ConnectionStateChanged(f.id, SOURCE, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_DISCONNECTED))
+        runCurrent()
+        assertEquals(before + 1, f.diagnostics("LINK_FAILED").size)
+        assertEquals(recovering, f.state)
+    }
+
     // ── GATT callback 라우팅 ─────────────────────────────────────────────────
 
     @Test

@@ -28,11 +28,23 @@ internal data class ConnectionHistory(
     val descriptorWritesAfterReconnect: Int? = null,
     /** I8 시나리오 메타: 시나리오 안에서 `close()` 를 부른 시점의 [states] 길이. null 이면 I8 대상 아님. */
     val closedAt: Int? = null,
+    /** I9 시나리오 메타: 늦은 콜백을 넣은 실행의 세대 통계. null 이면 I9 대상 아님. */
+    val lateRun: GenerationStats? = null,
+    /** I9 시나리오 메타: 같은 시나리오를 늦은 콜백 없이 돌린 대조 실행의 세대 통계. */
+    val controlRun: GenerationStats? = null,
 )
 
-/** 연결 불변식 I1·I2·I3·I4·I6·I7·I8 을 모두 검사한다(I5 는 스캔 — task 3). */
+/** I9 비교 단위 — 재연결 시작 횟수, Connecting 진입 수, Recovering attempt 순서, 최종 상태. */
+internal data class GenerationStats(
+    val retainedConnects: Int,
+    val connectingEntries: Int,
+    val recoveringAttempts: List<Int>,
+    val last: ConnectionState?,
+)
+
+/** 연결 불변식 I1·I2·I3·I4·I6·I7·I8·I9 를 모두 검사한다(I5 는 스캔 — task 3). */
 internal fun checkConnectionInvariants(h: ConnectionHistory): List<InvariantViolation> =
-    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h), checkI8(h))
+    listOfNotNull(checkI1(h), checkI2(h), checkI3(h), checkI4(h), checkI6(h), checkI7(h), checkI8(h), checkI9(h))
 
 /** I1 첫 연결 시도 이후 `Disconnected(Initial)` 게시 없음. */
 internal fun checkI1(h: ConnectionHistory): InvariantViolation? {
@@ -107,6 +119,29 @@ internal fun checkI8(h: ConnectionHistory): InvariantViolation? {
     val terminalsAfterClose = h.states.drop(closedAt).count { it is ConnectionState.Disconnected }
     if (terminalsAfterClose > 1) return InvariantViolation("I8", "terminal publishes after close=$terminalsAfterClose")
     return null
+}
+
+/**
+ * I9 끝난 generation 의 늦은 종료 콜백은 generation 을 열거나 재시도 예산을 쓰지 않는다.
+ * 같은 시나리오를 늦은 콜백 없이 돌린 대조 실행과 세대 통계가 같아야 한다.
+ */
+internal fun checkI9(h: ConnectionHistory): InvariantViolation? {
+    val late = h.lateRun ?: return null
+    val control = h.controlRun ?: return null
+    // 최종 상태는 종류와 failure.code 로만 비교한다 — sessionId 등 실행마다 다른 문맥은 비교 대상이 아니다.
+    if (late.copy(last = null) == control.copy(last = null) && late.last.kind() == control.last.kind()) return null
+    return InvariantViolation("I9", "late=$late control=$control")
+}
+
+/** I9 최종 상태 비교 키 — 상태 종류 + (Failed·Recovering 이면) failure.code. */
+internal fun ConnectionState?.kind(): String = when (this) {
+    null -> "null"
+    is ConnectionState.Recovering -> "Recovering(${lastFailure.code.value})"
+    is ConnectionState.Disconnected -> when (val r = reason) {
+        is BleDisconnectReason.Failed -> "Disconnected(Failed(${r.failure.code.value}))"
+        else -> "Disconnected(${r::class.simpleName})"
+    }
+    else -> this::class.simpleName ?: toString()
 }
 
 /**

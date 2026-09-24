@@ -145,7 +145,7 @@ class FailureRouteVerificationTest {
                 "$DELIVERY#link status callback LINK_FAILED publishes Disconnected Failed and Diagnostic",
             "LINK_START_FAILED | connect command" to
                 "$DELIVERY#connect start rejection LINK_START_FAILED throws and terminalizes state",
-            "LINK_TIMEOUT | link lifecycle (link deadline)" to
+            "LINK_TIMEOUT | link lifecycle (link deadline, 재연결 시도 포함)" to
                 "$DELIVERY#link deadline LINK_TIMEOUT publishes Disconnected Failed and Diagnostic",
             "NOT_CONNECTED | read/write/subscribe command" to
                 "$DELIVERY#read without platform handle throws NOT_CONNECTED",
@@ -179,8 +179,6 @@ class FailureRouteVerificationTest {
                 "$DELIVERY#discovery start SecurityException PERMISSION_DENIED publishes Disconnected Failed and Diagnostic",
             "PERMISSION_DENIED | adapter off sweep" to
                 "$DELIVERY#permission revoked sweep publishes Disconnected Failed PERMISSION_DENIED and Diagnostic",
-            "RECONNECT_ATTEMPT_TIMEOUT | reconnect attempt" to
-                "$RECONNECT_STATE#재연결 시도 timeout은 Disconnected Failed RECONNECT_ATTEMPT_TIMEOUT을 내고 다음 Recovering이 그 원인을 싣는다",
             "RECONNECT_CONNECT_START_FAILED | reconnect attempt" to
                 "kr.co.nucode.ble.internal.ReconnectorTest#reconnect start rejection shares the owner failure with terminal state",
             "RECONNECT_EXHAUSTED | reconnect attempt (official policy)" to
@@ -238,6 +236,8 @@ class FailureRouteVerificationTest {
                 "$TERMINAL_CAUSE#Ready 중 원인 없는 status 0 해제는 Initial 이 아니라 LINK_FAILED statusCode 0",
             "LINK_FAILED | late non-terminal link status callback" to
                 "$INFO#late non-terminal link status failure emits LINK_FAILED Diagnostic without changing state",
+            "LINK_FAILED | ended-generation link status callback" to
+                "$INFO#ended generation link status failure emits LINK_FAILED Warning Diagnostic without changing state",
             "GATT_OPERATION_CALLBACK_MISMATCH | GATT callback routing" to
                 "$INFO#read callback for other characteristic emits GATT_OPERATION_CALLBACK_MISMATCH Diagnostic",
             "GATT_OPERATION_DUPLICATE_CALLBACK | GATT callback routing" to

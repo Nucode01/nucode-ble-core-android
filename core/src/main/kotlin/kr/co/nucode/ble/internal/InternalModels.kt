@@ -93,24 +93,12 @@ internal data class ReconnectPolicy(
     val maxAttempts: Int = 5,
     val baseDelayMillis: Long = 1_000L,
     val maxDelayMillis: Long = 30_000L,
-    /**
-     * 재연결 시도 하나의 상한(plan blecore-lifecycle §감사결과 C, 결정 — 공개, 기본값이라
-     * 비파괴). 이 시간 안에 `CONNECTED` 콜백이 오지 않으면 이 시도는 **포기가 아니라 다음
-     * 백오프로** 넘어간다(`Reconnector.reconnect` 가 `Diagnostic("RECONNECT_ATTEMPT_TIMEOUT")`
-     * 를 내고 `gatt.disconnect()` 해 `scheduleReconnect` 가 `retryCount` 로 다음 시도/give-up
-     * 을 정한다) — `ConnectOptions.timeoutMillis`(사용자 connect 의 포기)와 의미가 다르다:
-     * 정책상 재시도 예산이 아직 남아 있으므로 여기서 완전히 포기하면 안 된다.
-     */
-    val attemptTimeoutMillis: Long = 30_000,
 ) {
     init {
         require(maxAttempts >= 0) { "maxAttempts 는 음수일 수 없다: $maxAttempts" }
         require(baseDelayMillis > 0) { "baseDelayMillis 는 0보다 커야 한다: $baseDelayMillis" }
         require(maxDelayMillis >= baseDelayMillis) {
             "maxDelayMillis($maxDelayMillis) 는 baseDelayMillis($baseDelayMillis) 이상이어야 한다"
-        }
-        require(attemptTimeoutMillis > 0) {
-            "attemptTimeoutMillis 는 0보다 커야 한다: $attemptTimeoutMillis"
         }
     }
 }

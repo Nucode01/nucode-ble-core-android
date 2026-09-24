@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
@@ -294,6 +295,17 @@ class ReconnectorTest {
      * 프로덕션 조립(BleRuntime)처럼 종결을 lifecycle 로 보내고, lifecycle 의 소진 선판정 질의를
      * 이 reconnector 로 건다.
      */
+    /** plan callback-ingress 불변식 ③ — Reconnector 는 BluetoothGatt 를 직접 부르지 않고 driver 를 거친다. */
+    @Test
+    fun `Reconnector 는 BluetoothGatt 의 connect disconnect close 를 직접 부르지 않는다`() {
+        val source = File("src/main/kotlin/kr/co/nucode/ble/internal/connection/Reconnector.kt").readText()
+        val direct = listOf(
+            Regex("""\.gatt\?\.(connect|disconnect|close)\("""),
+            Regex("""gatt\.(connect|disconnect|close)\("""),
+        ).flatMap { regex -> regex.findAll(source).map { it.value }.toList() }
+        assertTrue("직접 platform 호출: $direct", direct.isEmpty())
+    }
+
     private fun Reconnector.wireLifecycle(
         registry: SessionRegistry,
         emit: (BleEvent) -> Unit,
@@ -301,11 +313,12 @@ class ReconnectorTest {
         sequence: ConnectSequenceHooks,
     ) {
         val reconnector = this
+        val driver = NoopGattDriver()
         val lifecycle = GattConnectionLifecycle(
             registry = registry,
             emit = emit,
             scope = scope,
-            driver = NoopGattDriver(),
+            driver = driver,
             readinessTimeouts = ConnectionReadinessTimeouts(
                 linkMillis = 15_000,
                 discoveryMillis = 10_000,
@@ -321,6 +334,9 @@ class ReconnectorTest {
             reconnectExhaustion = { session, cause -> reconnector.exhaustedFailure(session, cause) },
         )
         terminate = lifecycle::terminate
+        beginReconnectLifecycle = lifecycle::beginRetainedReconnect
+        // production 배선(GattBridge.startRetainedConnect)과 같은 driver 경유 — Noop 은 기본 reconnect(null handle → false).
+        startRetainedConnect = { session -> driver.reconnect(session.deviceId, session.gatt) }
     }
 
     private fun linkFailure(deviceId: PeripheralId, status: Int): BleFailure = FailureMapper.gattStatusFailed(

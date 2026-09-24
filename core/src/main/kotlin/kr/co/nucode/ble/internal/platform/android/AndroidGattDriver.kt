@@ -84,6 +84,12 @@ internal class AndroidGattDriver(
         )
     }
 
+    override fun reconnect(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean =
+        startOrPermissionDenied(
+            phase = FailurePhase.Reconnect,
+            operation = AndroidApiOperation.Connect,
+        ) { gatt?.connect() ?: false }
+
     override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
         gatt?.disconnect()
     }

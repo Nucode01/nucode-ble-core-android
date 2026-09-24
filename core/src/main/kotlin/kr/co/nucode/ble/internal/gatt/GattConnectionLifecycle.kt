@@ -92,22 +92,9 @@ internal class GattConnectionLifecycle(
         )
     }
 
-    /** Reconnector의 platform start 직후 호출되는 lifecycle-only seam. */
+    /** Reconnector 가 platform start 직전에 부르는 lifecycle-only seam — 재연결 generation 을 여는 유일한 코어 경로. */
     internal fun beginRetainedReconnect(deviceId: PeripheralId): Long? =
         registry.get(deviceId)?.let(::beginRetainedReconnectLifecycle)
-
-    /**
-     * Reconnector 정책을 복제하지 않고, 그 기존 backoff job이 platform reconnect 시작을 끝낸
-     * 시점에 lifecycle만 귀속한다. Android callback이 매우 빨리 오면 callback 경로의 동일
-     * idempotent bootstrap이 먼저 실행된다.
-     */
-    private fun armRetainedReconnectLifecycle(session: Session) {
-        val reconnectJob = session.reconnectJob ?: return
-        reconnectJob.invokeOnCompletion { failure ->
-            if (failure != null) return@invokeOnCompletion
-            scope.launch { beginRetainedReconnect(session.deviceId) }
-        }
-    }
 
     private fun onLifecycleDeadline(
         deviceId: PeripheralId,
@@ -199,9 +186,6 @@ internal class GattConnectionLifecycle(
             session = session,
             generation = generation,
             fallback = cause,
-            // 호출자(Reconnector·BleRuntime)가 다음 시도의 generation 을 스스로 연다 — 콜백용
-            // retained-reconnect bootstrap 을 걸면 그 job 완료 뒤 Disconnected 위에 빈 generation 이 열린다.
-            armRetainedReconnect = false,
         )
     }
 
@@ -273,7 +257,6 @@ internal class GattConnectionLifecycle(
         generation: Long,
         fallback: TerminalCause,
         status: Int = 0,
-        armRetainedReconnect: Boolean = true,
     ): Boolean {
         finalizeTerminalCause(session, generation, fallback, status)
         val completed = session.connectionCoordinator.completeCleanup(generation, fallback)
@@ -289,11 +272,32 @@ internal class GattConnectionLifecycle(
         if (session.suppressReconnect) closeHandle(session)
 
         publishState(session)
-        if (armRetainedReconnect && !session.suppressReconnect) armRetainedReconnectLifecycle(session)
         return true
     }
 
     // ── 콜백 → Session 갱신 + emit ──────────────────────────────────────────
+
+    /**
+     * [CallbackAttribution] 판정을 lifecycle 이 쓸 generation 으로 바꾼다. Bootstrap 이면 새
+     * generation 을 연 뒤 그 generation 을 돌려준다. null 이면 콜백을 버린다.
+     */
+    private fun attributedGeneration(session: Session, event: GattDriverEvent): Long? =
+        when (val attribution = CallbackAttribution.attribute(session, event)) {
+            is Attribution.Current -> attribution.generation
+            Attribution.Bootstrap -> beginRetainedReconnectLifecycle(session)
+            is Attribution.Drop -> {
+                // 끝난 generation 에 늦게 온 실패 status 는 lifecycle 을 건드리지 않지만 사실로는 남긴다
+                // (late non-terminal link status 와 같은 AsyncInfo). 성공 status 는 조용히 버린다.
+                if (
+                    attribution.reason == DropReason.EndedGeneration &&
+                    event is GattDriverEvent.ConnectionStateChanged &&
+                    event.status != BluetoothGatt.GATT_SUCCESS
+                ) {
+                    emitDiagnostic(Severity.Warning, GattFailureFactory.linkStatusFailed(session, event.status))
+                }
+                null
+            }
+        }
 
     /**
      * 성공 link callback은 current source/generation/Connecting을 확인한 뒤
@@ -303,18 +307,12 @@ internal class GattConnectionLifecycle(
         val deviceId = event.deviceId
         val status = event.status
         val newState = event.newState
-        val session = registry.sessionFor(event) ?: return
+        val session = registry.get(deviceId) ?: return
 
         run {
             val timeouts = readinessTimeouts
             val coordinator = session.connectionCoordinator
-            if (event.connectionGeneration == null) {
-                beginRetainedReconnect(session.deviceId)
-            }
-            val callbackGeneration = event.connectionGeneration ?: coordinator.generation
-            if (callbackGeneration != coordinator.generation || coordinator.stage == ConnectionStage.Disconnected) {
-                return
-            }
+            val callbackGeneration = attributedGeneration(session, event) ?: return
 
             val cause = status.takeIf { it != BluetoothGatt.GATT_SUCCESS }?.let {
                 GattFailureFactory.linkStatusFailed(session, it)
@@ -404,10 +402,9 @@ internal class GattConnectionLifecycle(
     internal fun handleServicesDiscovered(event: GattDriverEvent.ServicesDiscovered) {
         val deviceId = event.deviceId
         val status = event.status
-        val session = registry.sessionFor(event) ?: return
+        val session = registry.get(deviceId) ?: return
 
-        val callbackGeneration = event.connectionGeneration
-            ?: session.connectionCoordinator.generation
+        val callbackGeneration = attributedGeneration(session, event) ?: return
         if (status == BluetoothGatt.GATT_SUCCESS) {
             val accepted = session.connectionCoordinator.transition(
                 callbackGeneration = callbackGeneration,
@@ -494,12 +491,12 @@ internal class GattConnectionLifecycle(
         val deviceId = event.deviceId
         val mtu = event.mtu
         val status = event.status
-        val session = registry.sessionFor(event) ?: return
+        val session = registry.get(deviceId) ?: return
 
         // MTU is only a fact for the active Configuring generation. Readiness completion
         // belongs to BleRuntime because it must wait for subscription restore, but stale MTU
         // callbacks must still be discarded at the bridge boundary.
-        val callbackGeneration = event.connectionGeneration ?: session.connectionCoordinator.generation
+        val callbackGeneration = attributedGeneration(session, event) ?: return
         if (!session.connectionCoordinator.accepts(callbackGeneration, ConnectionStage.Configuring)) return
 
         if (status != BluetoothGatt.GATT_SUCCESS) {

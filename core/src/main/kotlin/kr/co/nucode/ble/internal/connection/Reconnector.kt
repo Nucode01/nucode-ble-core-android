@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleReconnectPolicy
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
@@ -17,7 +18,6 @@ import kr.co.nucode.ble.internal.ReconnectPolicy
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.TerminalCause
@@ -85,23 +85,18 @@ internal class Reconnector(
     var policy: ReconnectPolicy = ReconnectPolicy()
 
     /**
-     * GattBridge owns generation admission and deadlines.  The reconnecter calls this immediately
-     * before the retained platform handle is started, never after a callback may already arrive.
+     * GattBridge 가 generation 수용과 deadline 을 소유한다. 보존한 platform handle 을 시작하기
+     * 직전에 부른다 — 콜백이 도착할 수 있는 시점 뒤가 아니다. 이 generation 의 link deadline 이
+     * 재연결 시도의 유일한 상한이다(plan callback-ingress 목표 4). 조립부가 함수 참조로 건다.
      */
-    var beginReconnectLifecycle: (PeripheralId) -> Long? = { deviceId ->
-        registry.get(deviceId)?.connectionCoordinator?.beginReconnect(
-            scope = scope,
-            linkTimeoutMillis = policy.attemptTimeoutMillis,
-            onTimeout = {},
-        )
-    }
+    lateinit var beginReconnectLifecycle: (PeripheralId) -> Long?
 
     /**
-     * 보존한 platform handle 로 재연결을 시작한다. JVM 테스트는 실제 `BluetoothGatt` 를 만들 수
-     * 없어 시작 이후 경로(시도 timeout 등)에 닿지 못하므로 [beginReconnectLifecycle] 처럼 바꿔 끼울
-     * 수 있게 둔다. `false` 는 시작 자체가 거부된 것이다.
+     * 보존한 platform handle 로 재연결을 시작한다 — 조립부가 driver 경유 GattBridge 메서드를
+     * 함수 참조로 건다. Reconnector 는 `BluetoothGatt` 를 직접 부르지 않는다(plan callback-ingress
+     * 불변식 ③). `false` 는 시작 자체가 거부된 것이다.
      */
-    var startRetainedConnect: (Session) -> Boolean = { session -> session.gatt?.connect() ?: false }
+    lateinit var startRetainedConnect: (Session) -> Boolean
 
     /**
      * lifecycle 종결 API(`GattConnectionLifecycle.terminate`) — 조립부가 함수 참조로 건다.
@@ -179,7 +174,7 @@ internal class Reconnector(
         // 보고 두 번째 continuation 을 만들지 않아야 한다.
         val reconnectJob = scope.launch(start = CoroutineStart.LAZY) {
             delay(delayMillis)
-            reconnect(deviceId, reconnectPolicy)
+            reconnect(deviceId)
         }
         session.reconnectJob = reconnectJob
         if (official) {
@@ -210,13 +205,13 @@ internal class Reconnector(
      * 여기서 새로 connectGatt 하면 기존 핸들이 누수되고, 재사용 가능한 이 gatt 를 close
      * 안 해둔 앞단의 선택이 무의미해진다.
      *
-     * `gatt.connect()` 가 `false` 를 돌려주면(호출 자체가 시작도 못 한 것) callback은 다시
+     * retained connect 시작이 `false` 를 돌려주면(호출 자체가 시작도 못 한 것) callback은 다시
      * 오지 않는다. 이 시도의 `Disconnected` 발행(`publishState` → `ConnectSequence.onStatePublished`)이
      * 다음 bounded retry/give-up을 요청할 수 있도록, platform start 전에 현재 job guard를 해제한다. 여기서 직접 재귀
      * 호출하지 않는다. 재시도 정책과 backoff는 여전히 hook 경로의 [scheduleReconnect] 한
      * 곳만 소유하므로, `runTest`에서는 `advanceTimeBy`로 각 attempt를 관찰할 수 있다.
      */
-    private suspend fun reconnect(deviceId: PeripheralId, reconnectPolicy: ReconnectPolicy) {
+    private suspend fun reconnect(deviceId: PeripheralId) {
         val session = registry.get(deviceId) ?: return
         // 실행 시점 재확인(review H-2): 예약(백오프 대기) 중에 사용자가 disconnect() 를
         // 불렀을 수 있다 — 예약 시점 가드(ConnectSequence.onStatePublished)만으로는
@@ -232,57 +227,51 @@ internal class Reconnector(
         session.subscriptionState.beginGeneration(generation)
         publishState(session)
 
-        val started = startRetainedConnect(session)
-        if (!started) {
-            val failure = FailureMapper.gattStartRejected(
-                phase = FailurePhase.Connect,
-                operation = AndroidApiOperation.Connect,
-                context = session.lifecycleFailureContext(),
-            ).copy(code = FailureCode("RECONNECT_CONNECT_START_FAILED"))
+        // 플랫폼 시작은 false 외에 예외로도 실패한다 — driver 가 권한 회수를 BleException(PERMISSION_DENIED)
+        // 으로 던진다. 이 job 은 handler 없는 core scope 에서 돌므로 여기서 잡지 않으면 크래시다.
+        // 어느 쪽이든 방금 연 generation 을 같은 terminate 경로로 닫는다.
+        val startFailure: TerminalCause? = try {
+            if (startRetainedConnect(session)) null else rejectedStart(session)
+        } catch (e: BleException) {
+            if (e.failure.code.value == "PERMISSION_DENIED") {
+                // 권한 없음은 재시도해도 같다 — 재연결을 멈춘다(connect() 의 권한 실패와 같은 규칙).
+                session.suppressReconnect = true
+                TerminalCause(TerminalCleanupReason.PermissionDenied, e.failure)
+            } else {
+                TerminalCause(TerminalCleanupReason.LinkStartRejected, e.failure)
+            }
+        } catch (_: Exception) {
+            rejectedStart(session)
+        }
+        if (startFailure != null) {
             emit(
                 BleEvent.Diagnostic(
                     severity = Severity.Warning,
-                    failure = failure,
+                    failure = requireNotNull(startFailure.failure),
                 ),
             )
             // Connecting 잔류 금지(review — plan v2 ①): 시작조차 못 한 시도를 열린 채 두면
             // H-3 가드가 이후 사용자 connect() 를 조용한 no-op 으로 삼킨다. D6(시작 실패 =
             // 상태·스트림 종결)과 같은 패턴으로 닫는다 — 이 Disconnected emit 이
             // ConnectSequence.onStatePublished 를 타고 scheduleReconnect 로 가서, retryCount 가
-            // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한).
-            terminate(session, generation, TerminalCause(TerminalCleanupReason.LinkStartRejected, failure))
+            // 다음 백오프/give-up 을 판정한다(무한 재귀 아님 — maxAttempts 상한). 권한 실패는
+            // suppressReconnect 로 더 예약하지 않는다.
+            terminate(session, generation, startFailure)
             return
         }
 
-        // 재연결 시도 타임아웃(plan C, ReconnectPolicy.attemptTimeoutMillis KDoc) — 이 시도
-        // 하나의 상한이다. 초과해도 포기가 아니라 이 시도만 끝내 다음 백오프(scheduleReconnect 가
-        // retryCount 로 다음 시도/give-up 판정)로 넘긴다. suppressReconnect 는 건드리지 않는다 —
-        // 사용자 connect 의 timeoutMillis(포기)와는 다른 의미다. CONNECTED 도착 시
-        // handleConnectionStateChange 가 이 job 을 cancel 한다.
-        //
-        // 플랫폼 콜백에 맡기지 않고 여기서 직접 종결한다(plan failure-delivery-fixes v2 §접근 4):
-        // 성공 STATE_DISCONNECTED 분기는 원인을 지우고 Disconnected(Initial) 을 내서 timeout 이
-        // 다음 Recovering·소진에 실리지 않는다. 시작 실패 종결과 같은 모양으로 닫고, 그 뒤 옛
-        // generation 의 늦은 콜백은 GattConnectionLifecycle 의 generation/stage 가드가 버린다.
-        session.timeoutJob = scope.launch {
-            delay(reconnectPolicy.attemptTimeoutMillis)
-            // CONNECTED 가 먼저 와 stage 가 넘어갔거나 다른 generation 이 시작됐으면 손대지 않는다.
-            if (!session.connectionCoordinator.accepts(generation, ConnectionStage.Connecting)) return@launch
-            val failure = reconnectFailure("RECONNECT_ATTEMPT_TIMEOUT", session, null)
-            emit(
-                BleEvent.Diagnostic(
-                    severity = Severity.Warning,
-                    failure = failure,
-                ),
-            )
-            // 이 시도만 끊는다. give-up 과 달리 handle 은 닫지 않는다 — 다음 시도가 이 gatt 를
-            // `connect()` 로 재사용하므로 닫으면 이후 시도가 전부 시작 실패한다. 이 시도의 늦은
-            // 콜백은 아래 completeCleanup 뒤 generation 가드(handleConnectionStateChange)가 버린다.
-            session.gatt?.disconnect()
-            // lifecycle 종결 API 로 끝낸다 — 그 Disconnected 발행이 ConnectSequence.onStatePublished 를
-            // 타고 scheduleReconnect 에 이 failure 를 원인으로 넘긴다(소진이면 lifecycle 이 먼저 판정).
-            terminate(session, generation, TerminalCause(TerminalCleanupReason.LinkTimeout, failure))
-        }
+        // 시도 상한은 따로 두지 않는다 — beginReconnectLifecycle 이 연 generation 의 link deadline
+        // 이 초과 시 LINK_TIMEOUT 으로 이 시도를 종결한다(plan callback-ingress 목표 4).
+    }
+
+    /** 시작 거부(false 또는 예기치 않은 예외) — 재연결 시작 실패 코드로 이 시도를 닫는다. */
+    private fun rejectedStart(session: Session): TerminalCause {
+        val failure = FailureMapper.gattStartRejected(
+            phase = FailurePhase.Connect,
+            operation = AndroidApiOperation.Connect,
+            context = session.lifecycleFailureContext(),
+        ).copy(code = FailureCode("RECONNECT_CONNECT_START_FAILED"))
+        return TerminalCause(TerminalCleanupReason.LinkStartRejected, failure)
     }
 
     private fun reconnectFailure(

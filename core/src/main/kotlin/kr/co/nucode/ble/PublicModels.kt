@@ -88,6 +88,13 @@ public data class ScanRequest(
     val options: BleScanOptions = BleScanOptions(),
 )
 
+/** 스캔 자원 상태. 멈춘 이유를 상태에 싣는다 — 이벤트는 버퍼가 차면 버려질 수 있다. */
+public sealed interface ScanState {
+    /** 스캔하지 않는 중. [lastFailure] 는 마지막 스캔이 실패로 멈췄으면 그 실패, 정상 정지·초기면 null. */
+    public data class Idle(val lastFailure: BleFailure?) : ScanState
+    public data class Scanning(val request: ScanRequest) : ScanState
+}
+
 public class BleManufacturerDataFilter(
     public val companyId: Int,
     data: ByteArray? = null,

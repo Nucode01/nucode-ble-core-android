@@ -21,6 +21,7 @@ internal class DefaultBleSession(
 
     override val connectionState = MappedStateFlow(backing.connectionState) { it }
     override val services = MappedStateFlow(backing.services) { it }
+    override val activeSubscriptions = backing.subscriptionState.activeFlow
 
     override suspend fun connect(options: BleConnectOptions) {
         runtime.checkOpen()

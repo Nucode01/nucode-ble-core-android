@@ -93,6 +93,11 @@ internal class Session(val deviceId: PeripheralId) {
     }
 
     private fun publishStage(stage: ConnectionStage) {
+        // 링크를 떠나는 순간 CCCD 활성 집합도 끝난다 — 다음 generation 의 beginGeneration 까지 기다리면
+        // 끊긴 동안 activeSubscriptions 가 꺼진 구독을 켜진 것으로 보여준다. 구독 의도(desired)는 유지한다.
+        if (stage == ConnectionStage.Disconnecting || stage == ConnectionStage.Disconnected) {
+            subscriptionState.clearActive()
+        }
         _connectionState.value = stage.toPublicConnectionState(disconnectReason)
     }
 

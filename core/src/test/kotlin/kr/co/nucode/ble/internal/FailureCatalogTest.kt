@@ -57,27 +57,7 @@ class FailureCatalogTest {
             "GATT_INSUFFICIENT_ENCRYPTION",
         )
 
-        /**
-         * plan 2 가 이 목록을 줄여 가는 기준선 — 줄어들면 목록도 같이 줄인다;
-         * 늘어나면 규칙 위반이 새로 생긴 것.
-         */
-        val KNOWN_VIOLATIONS = setOf(
-            "CHARACTERISTIC_NOT_FOUND | subscription restore",
-            "DISCONNECT_CLEANUP_TIMEOUT | link lifecycle (disconnect cleanup deadline)",
-            "GATT_OPERATION_START_FAILED | subscription restore",
-            "GATT_STATUS_FAILED | subscription restore",
-            "INTERNAL_TRANSPORT_ERROR | subscription restore (non-BleException)",
-            "LIFECYCLE_TIMEOUT | unreachable/dead?",
-            "NOT_CONNECTED | subscription restore",
-            "PERMISSION_DENIED | startScan command",
-            "RECONNECT_ATTEMPT_TIMEOUT | reconnect attempt",
-            "RECONNECT_EXHAUSTED | reconnect attempt (official policy)",
-            "RECONNECT_GIVE_UP | reconnect attempt (legacy policy)",
-            "SCANNER_UNAVAILABLE | startScan command",
-            "SCAN_ALREADY_RUNNING | startScan command",
-            "SCAN_RUNTIME_FAILED | scan runtime callback",
-            "SCAN_START_FAILED | startScan command (startOverride seam only)",
-            "SCAN_STOPPED_BY_ADAPTER | adapter off sweep",
-        )
+        /** 비어 있어야 한다 — 새 항목이 생기면 규칙 위반이 새로 생긴 것. */
+        val KNOWN_VIOLATIONS = emptySet<String>()
     }
 }

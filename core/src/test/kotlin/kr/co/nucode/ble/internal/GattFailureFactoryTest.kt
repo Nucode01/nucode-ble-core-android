@@ -162,7 +162,7 @@ class GattFailureFactoryTest {
                 operationId = Check.Expect(null),
             )
                 to GattFailureFactory.payloadObserved(session, scheduled = null),
-            // lifecycleTimeout — 4 branches
+            // lifecycleTimeout — 3 branches
             Shape(
                 "lifecycleTimeout(LinkTimeout)", "LINK_TIMEOUT", "connection", FailurePhase.Link,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
@@ -178,11 +178,6 @@ class GattFailureFactoryTest {
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
                 to GattFailureFactory.lifecycleTimeout(session, TerminalCleanupReason.ConfigurationTimeout),
-            Shape(
-                "lifecycleTimeout(else)", "LIFECYCLE_TIMEOUT", "connection", FailurePhase.Close,
-                Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
-            )
-                to GattFailureFactory.lifecycleTimeout(session, TerminalCleanupReason.UserRequested),
             // status-failed — 3 variants (non-zero status)
             Shape(
                 "linkStatusFailed", "LINK_FAILED", "connection", FailurePhase.Link, Retryability.Unknown,
@@ -226,7 +221,7 @@ class GattFailureFactoryTest {
                 to GattFailureFactory.writeStatusFailed(session, status = 133, kind = OperationKind.WriteWithResponse),
         )
 
-        assertEquals("표 행 수 — 행이 조용히 빠지면 여기서 잡힌다", 32, expectations.size)
+        assertEquals("표 행 수 — 행이 조용히 빠지면 여기서 잡힌다", 31, expectations.size)
         expectations.forEach { (expected, actual) ->
             assertEquals("${expected.name} code", expected.code, actual.code.value)
             assertEquals("${expected.name} category", expected.category, actual.category.value)

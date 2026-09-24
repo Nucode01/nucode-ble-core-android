@@ -126,7 +126,7 @@ class ScannerContractTest {
             )
         }
 
-        scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions())
+        runCatching { scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions()) } // 거부는 throw 로도 전달된다
 
         val failure = (events.single() as kr.co.nucode.ble.internal.event.BleEvent.Diagnostic).failure
         assertNull(failure.context.sessionId)

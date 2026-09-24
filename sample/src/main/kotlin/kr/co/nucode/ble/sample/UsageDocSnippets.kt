@@ -13,6 +13,7 @@ package kr.co.nucode.ble.sample
  * 아래 §N 주석은 그 문서의 "## N." 과 같은 번호다.
  *
  * 샘플 앱은 이 선언들을 호출하지 않는다. 컴파일되는 것 자체가 목적이다.
+ * §14(라이브러리 → Repository → ViewModel → Compose UI)는 [UsageDocUiSnippets.kt] 에 있다.
  */
 
 import android.Manifest
@@ -22,14 +23,32 @@ import android.os.Build
 import android.util.Log
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleChunking
@@ -51,6 +70,7 @@ import kr.co.nucode.ble.BleWriteOptions
 import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.DiagnosticOptions
 import kr.co.nucode.ble.DiagnosticRecord
 import kr.co.nucode.ble.OfficialBleClientEvent
@@ -58,6 +78,8 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanResult
+import kr.co.nucode.ble.ScanState
+import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.WriteReceipt
 import kr.co.nucode.ble.android.AndroidBleClientFactory
 import kr.co.nucode.ble.android.AndroidBondController
@@ -104,27 +126,32 @@ suspend fun awaitAdapterReady(client: BleClient) {
 }
 
 // ── §4. 스캔 ──────────────────────────────────────────────────────────
-suspend fun scanForService(
+suspend fun scanFor(
     client: BleClient,
-    serviceUuid: UUID,
+    filter: BleScanFilter,
     timeoutMillis: Long,
 ): List<ScanResult> {
     val found = LinkedHashMap<PeripheralId, ScanResult>()
-    client.startScan(
-        ScanRequest(
-            filter = BleScanFilter(serviceUuids = listOf(BleUuid(serviceUuid))),
-            options = BleScanOptions(BleScanMode.LowLatency),
-        ),
-    )
+    client.startScan(ScanRequest(filter, BleScanOptions(BleScanMode.LowLatency)))
     try {
         withTimeoutOrNull(timeoutMillis) {
             client.scanResults.collect { result -> found[result.peripheralId] = result }
         }
     } finally {
-        client.stopScan()
+        // 호출자가 취소하면 finally 안의 suspend 호출도 즉시 취소된다 — NonCancellable 로 감싸야 실제로 멈춘다.
+        withContext(NonCancellable) { client.stopScan() }
     }
     return found.values.sortedByDescending { it.rssi }
 }
+
+suspend fun scanForService(client: BleClient, serviceUuid: UUID, timeoutMillis: Long): List<ScanResult> =
+    scanFor(client, BleScanFilter(serviceUuids = listOf(BleUuid(serviceUuid))), timeoutMillis)
+
+/** 스캔이 실패로 멈춘 이유만 흘려보낸다. `scanState` 는 StateFlow 라 유실되지 않는다. */
+fun scanStopFailures(client: BleClient): Flow<BleFailure> =
+    client.scanState
+        .filterIsInstance<ScanState.Idle>()
+        .mapNotNull { it.lastFailure }
 
 // ── §5. 연결 ──────────────────────────────────────────────────────────
 suspend fun connect(client: BleClient, peripheralId: PeripheralId): BleSession =
@@ -139,32 +166,46 @@ suspend fun connect(client: BleClient, peripheralId: PeripheralId): BleSession =
         ),
     )
 
-// 문서 §5 의 "연결 직후 Ready 대기" 예시 — 문서에서는 호출부 두 줄만 보여준다.
-suspend fun connectThenAwaitReady(client: BleClient, peripheralId: PeripheralId) {
-    val session = connect(client, peripheralId)
-    session.connectionState.first { it is ConnectionState.Ready }
-    fun observeConnection(session: BleSession, scope: CoroutineScope): Job =
-        session.connectionState
-            .onEach { state ->
-                when (state) {
-                    ConnectionState.Ready -> Log.i("ble", "ready")
-                    ConnectionState.Connecting,
-                    ConnectionState.DiscoveringServices,
-                    ConnectionState.Configuring,
-                    ConnectionState.Disconnecting,
-                    -> Log.d("ble", "progress: $state")
-                    is ConnectionState.Recovering ->
-                        Log.w("ble", "retry ${state.attempt} in ${state.retryAfterMillis}ms")
-                    is ConnectionState.Disconnected -> when (val reason = state.reason) {
-                        BleDisconnectReason.Requested -> Log.i("ble", "사용자 해제")
-                        BleDisconnectReason.ClientClosed -> Log.i("ble", "클라이언트 종료")
-                        BleDisconnectReason.Initial -> Log.d("ble", "아직 연결한 적 없음")
-                        is BleDisconnectReason.Failed -> Log.e("ble", explain(reason.failure))
-                    }
-                }
-            }
-            .launchIn(scope)
+/**
+ * Ready 가 되면 반환하고, 그 전에 Disconnected 로 끝나면 던진다.
+ * `first { it is Ready }` 만 쓰면 연결이 실패했을 때 영원히 기다린다.
+ */
+suspend fun awaitReady(session: BleSession, timeoutMillis: Long = 30_000) {
+    val settled = withTimeout(timeoutMillis) {
+        session.connectionState.first { it is ConnectionState.Ready || it is ConnectionState.Disconnected }
+    }
+    if (settled is ConnectionState.Disconnected) {
+        val reason = settled.reason
+        if (reason is BleDisconnectReason.Failed) throw BleException(reason.failure)
+        throw IllegalStateException("Ready 전에 연결이 끝났다: $reason")
+    }
 }
+
+suspend fun connectThenAwaitReady(client: BleClient, peripheralId: PeripheralId): BleSession {
+    val session = connect(client, peripheralId)
+    awaitReady(session)
+    return session
+}
+
+fun describeConnection(state: ConnectionState): String = when (state) {
+    ConnectionState.Connecting -> "연결 중"
+    ConnectionState.DiscoveringServices -> "서비스 탐색 중"
+    ConnectionState.Configuring -> "설정 중"
+    ConnectionState.Ready -> "연결됨"
+    ConnectionState.Disconnecting -> "해제 중"
+    is ConnectionState.Recovering -> "재연결 ${state.attempt}회차 — ${state.retryAfterMillis / 1000}초 뒤"
+    is ConnectionState.Disconnected -> when (val reason = state.reason) {
+        BleDisconnectReason.Initial -> "연결 안 됨"
+        BleDisconnectReason.Requested -> "연결 해제됨"
+        BleDisconnectReason.ClientClosed -> "클라이언트 종료됨"
+        is BleDisconnectReason.Failed -> "끊김: ${reason.failure.code.value}"
+    }
+}
+
+fun observeConnection(session: BleSession, scope: CoroutineScope): Job =
+    session.connectionState
+        .onEach { state -> Log.i("ble", "${session.peripheralId.value}: ${describeConnection(state)}") }
+        .launchIn(scope)
 
 // ── §6. 서비스와 캐릭터리스틱 찾기 ──────────────────────────────────────────────
 fun findCharacteristic(
@@ -192,6 +233,7 @@ suspend fun read(session: BleSession, characteristic: CharacteristicRef): ByteAr
         Log.e("ble", explain(e.failure))
         null
     }
+
 suspend fun write(
     session: BleSession,
     characteristic: CharacteristicRef,
@@ -223,8 +265,16 @@ suspend fun streamNotifications(
     scope: CoroutineScope,
     onValue: (ByteArray) -> Unit,
 ): Job {
-    val collector = scope.launch { session.notifications(characteristic).collect(onValue) }
-    session.subscribe(characteristic)
+    // UNDISPATCHED: launch 가 반환되기 전에 수집자가 등록된다 — subscribe() 직후 값도 놓치지 않는다.
+    val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        session.notifications(characteristic).collect(onValue)
+    }
+    try {
+        session.subscribe(characteristic)
+    } catch (e: BleException) {
+        collector.cancel()
+        throw e
+    }
     return collector
 }
 
@@ -237,6 +287,10 @@ suspend fun stopNotifications(
     collector.cancel()
 }
 
+/** 이 캐릭터리스틱의 통지가 지금 연결에서 켜져 있는가. 재연결 뒤 복원에 실패하면 Ready 여도 false 다. */
+fun isReceiving(session: BleSession, characteristic: CharacteristicRef): Flow<Boolean> =
+    session.activeSubscriptions.map { characteristic in it }
+
 // ── §9. 실패 처리 ───────────────────────────────────────────────────────
 fun explain(failure: BleFailure): String {
     val head = "${failure.category.value}/${failure.code.value} phase=${failure.phase}"
@@ -248,6 +302,21 @@ fun explain(failure: BleFailure): String {
         Retryability.Unknown -> "분류 불가 — 진단 로그를 본다"
     }
     return "$head :: $advice"
+}
+
+fun userMessage(failure: BleFailure): String = when (failure.code.value) {
+    "ADAPTER_UNAVAILABLE" -> "블루투스를 켜 주세요"
+    "PERMISSION_DENIED" -> "블루투스 권한이 필요합니다"
+    "PERIPHERAL_NOT_FOUND" -> "기기를 찾지 못했습니다. 가까이 두고 다시 시도하세요"
+    "LINK_TIMEOUT", "LINK_FAILED" -> "기기와 연결하지 못했습니다"
+    "NOT_READY", "NOT_CONNECTED" -> "기기가 아직 준비되지 않았습니다"
+    // 보안 요구(인증·암호화 부족)는 별도 코드가 아니라 GATT_STATUS_FAILED + AfterEnvironmentChange 로 온다.
+    "GATT_STATUS_FAILED" ->
+        if (failure.retryability == Retryability.AfterEnvironmentChange) "기기와 페어링이 필요할 수 있습니다" else "기기가 요청을 거절했습니다"
+    "SCAN_ALREADY_RUNNING" -> "이미 다른 조건으로 찾는 중입니다"
+    "SCAN_STOPPED_BY_ADAPTER" -> "블루투스가 꺼져 찾기를 멈췄습니다"
+    "RECONNECT_EXHAUSTED" -> "기기와 다시 연결하지 못했습니다"
+    else -> "블루투스 오류 (${failure.code.value})"
 }
 
 // ── §10. 진단 로깅 ───────────────────────────────────────────────────────
@@ -295,46 +364,119 @@ suspend fun dumpSnapshot(client: BleClient): String {
     }
 }
 
-// ── §13. 통합 예시 ───────────────────────────────────────────────────────
-class DeviceRepository(
-    private val client: BleClient,
-    private val scope: CoroutineScope,
-    private val serviceUuid: UUID,
-    private val txUuid: UUID,
-    private val rxUuid: UUID,
-) {
-    private var session: BleSession? = null
-    private var notificationJob: Job? = null
+// ── §13.1 이름으로 찾아 가장 가까운 기기에 연결 ──────────────────────────────────
+suspend fun connectNearest(client: BleClient, namePrefix: String, scanMillis: Long = 5_000): BleSession? {
+    awaitAdapterReady(client)
+    val nearest = scanFor(client, BleScanFilter(namePrefix = namePrefix), scanMillis).firstOrNull()
+        ?: return null
+    return connectThenAwaitReady(client, nearest.peripheralId)
+}
 
-    fun observeEvents(): Job = client.events
-        .onEach { event ->
-            if (event is OfficialBleClientEvent.SubscriptionRestoreFailed) {
-                Log.w("ble", "재구독 실패: ${event.characteristic.uuid.value}")
-            }
-        }
-        .launchIn(scope)
-
-    suspend fun open(peripheralId: PeripheralId, onValue: (ByteArray) -> Unit) {
-        awaitAdapterReady(client)
-        val opened = connect(client, peripheralId)
-        session = opened
-        opened.connectionState.first { it is ConnectionState.Ready }
-        val rx = requireNotNull(findCharacteristic(opened, serviceUuid, rxUuid)) {
-            "rx characteristic not found"
-        }
-        notificationJob = streamNotifications(opened, rx, scope, onValue)
-    }
-
-    suspend fun send(payload: ByteArray): WriteReceipt? {
-        val opened = session ?: return null
-        val tx = findCharacteristic(opened, serviceUuid, txUuid) ?: return null
-        return write(opened, tx, payload)
-    }
-
-    suspend fun close() {
-        notificationJob?.cancel()
-        notificationJob = null
-        session?.disconnect()
-        session = null
+// ── §13.2 요청-응답 (write 하고 notify 로 온 응답 하나를 기다린다) ─────────────────────
+suspend fun request(
+    session: BleSession,
+    command: CharacteristicRef,
+    response: CharacteristicRef,
+    payload: ByteArray,
+    timeoutMillis: Long = 3_000,
+): ByteArray = coroutineScope {
+    // 응답 수집을 write 보다 먼저 등록한다. 구독(subscribe)은 연결 초기에 한 번 해 두었다고 가정한다.
+    val reply = async(start = CoroutineStart.UNDISPATCHED) { session.notifications(response).first() }
+    try {
+        session.write(command, payload)
+        withTimeout(timeoutMillis) { reply.await() }
+    } finally {
+        reply.cancel()
     }
 }
+
+// ── §13.3 긴 데이터 전송과 부분 실패 ─────────────────────────────────────────
+sealed interface SendOutcome {
+    data class Delivered(val confirmedByDevice: Boolean) : SendOutcome
+    data class Partial(val bytesDelivered: Int, val lastChunkUncertain: Boolean) : SendOutcome
+    data class NotSent(val failure: BleFailure) : SendOutcome
+}
+
+suspend fun sendLarge(session: BleSession, characteristic: CharacteristicRef, data: ByteArray): SendOutcome =
+    try {
+        val receipt = session.write(characteristic, data, BleWriteOptions(chunking = BleChunking.Automatic))
+        SendOutcome.Delivered(confirmedByDevice = receipt.delivery == DeliverySemantics.RemoteAcknowledged)
+    } catch (e: BleException) {
+        val progress = e.failure.writeProgress
+        if (progress == null || progress.bytesCompleted == 0 && !progress.currentChunkDeliveryUnknown) {
+            SendOutcome.NotSent(e.failure)
+        } else {
+            SendOutcome.Partial(progress.bytesCompleted, progress.currentChunkDeliveryUnknown)
+        }
+    }
+
+// ── §13.4 Ready 인 동안만 주기적으로 read ──────────────────────────────────────
+@OptIn(ExperimentalCoroutinesApi::class)
+fun pollWhileReady(session: BleSession, characteristic: CharacteristicRef, periodMillis: Long): Flow<ByteArray> =
+    session.connectionState
+        .map { it is ConnectionState.Ready }
+        .distinctUntilChanged()
+        .flatMapLatest { ready ->
+            if (!ready) {
+                emptyFlow()
+            } else {
+                flow {
+                    while (true) {
+                        val value = try {
+                            session.read(characteristic)
+                        } catch (e: BleException) {
+                            // 끊기는 중이면 곧 Ready 가 풀리고, 다음 Ready 에서 다시 시작한다.
+                            Log.w("ble", explain(e.failure))
+                            return@flow
+                        }
+                        emit(value)
+                        delay(periodMillis)
+                    }
+                }
+            }
+        }
+
+fun logBatteryLevel(session: BleSession, scope: CoroutineScope): Job {
+    // 배터리 서비스(0x180F)의 레벨(0x2A19)을 30초마다
+    val battery = CharacteristicRef(
+        ServiceRef(BleUuid(UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB"))),
+        BleUuid(UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")),
+    )
+    return pollWhileReady(session, battery, periodMillis = 30_000)
+        .onEach { level -> Log.i("ble", "battery ${level.firstOrNull()?.toInt()}%") }
+        .launchIn(scope)
+}
+
+// ── §13.5 블루투스 껐다 켜기까지 버티는 연결 유지 ─────────────────────────────────
+fun keepConnected(client: BleClient, peripheralId: PeripheralId, scope: CoroutineScope): Job = scope.launch {
+    client.adapterState.collectLatest { adapter ->
+        if (adapter != AdapterState.Ready) return@collectLatest // 꺼지면 collectLatest 가 아래 루프를 취소한다
+        while (true) {
+            try {
+                val session = connectThenAwaitReady(client, peripheralId)
+                val ended = session.connectionState.first { it is ConnectionState.Disconnected }
+                val reason = (ended as ConnectionState.Disconnected).reason
+                if (reason == BleDisconnectReason.Requested || reason == BleDisconnectReason.ClientClosed) return@collectLatest
+            } catch (e: BleException) {
+                if (e.failure.retryability == Retryability.Never) return@collectLatest
+                Log.w("ble", explain(e.failure))
+            }
+            delay(5_000)
+        }
+    }
+}
+
+// ── §13.6 여러 기기 동시 연결 ───────────────────────────────────────────────
+suspend fun connectAll(client: BleClient, ids: List<PeripheralId>): Map<PeripheralId, BleSession?> =
+    coroutineScope {
+        ids.map { id ->
+            async {
+                id to try {
+                    connectThenAwaitReady(client, id)
+                } catch (e: BleException) {
+                    Log.w("ble", "${id.value}: ${explain(e.failure)}")
+                    null
+                }
+            }
+        }.awaitAll().toMap()
+    }

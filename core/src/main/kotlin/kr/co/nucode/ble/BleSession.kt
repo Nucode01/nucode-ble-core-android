@@ -16,6 +16,13 @@ public interface BleSession {
     /** Authoritative service snapshot of the current connection; conflated like [connectionState]. */
     public val services: StateFlow<List<GattService>>
 
+    /**
+     * Characteristics whose notifications are enabled (CCCD write acknowledged) on the current
+     * connection. Empty while not connected. A desired subscription that failed to restore is
+     * absent even while Ready. Differs from `SessionSnapshot.subscriptions`, which is intent.
+     */
+    public val activeSubscriptions: StateFlow<Set<CharacteristicRef>>
+
     public suspend fun connect(options: BleConnectOptions = BleConnectOptions())
     public suspend fun disconnect()
 

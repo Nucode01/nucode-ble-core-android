@@ -17,6 +17,7 @@ internal class DefaultBleClient internal constructor(
     override val scanResults: Flow<ScanResult> = runtime.scanObservations.map { observation ->
         ScanResult(observation.peripheralId, observation.rssi, observation.advertisement)
     }
+    override val scanState = runtime.scanState
     override val events: Flow<BleClientEvent> = runtime.officialEvents
 
     override suspend fun startScan(request: ScanRequest) {

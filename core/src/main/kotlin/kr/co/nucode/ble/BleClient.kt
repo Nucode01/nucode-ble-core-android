@@ -16,6 +16,13 @@ public interface BleClient : Closeable {
     public val scanResults: Flow<ScanResult>
 
     /**
+     * Authoritative scan resource state. Conflated: a slow collector may skip intermediate states
+     * but always observes the latest one; nothing is lost to buffer overflow. Initially
+     * `ScanState.Idle(null)`.
+     */
+    public val scanState: StateFlow<ScanState>
+
+    /**
      * Hot, buffered stream of change notices: connection transitions, discovered services,
      * subscription restore failures and diagnostics. It is **lossy under backpressure** — the
      * buffer of [BleConfig.eventBufferCapacity] events is shared by all collectors, and while any

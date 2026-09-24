@@ -15,6 +15,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.cancel
@@ -373,6 +375,8 @@ internal class BleRuntime private constructor(
      * `internal` 인 이유 — 테스트 seam. 스캔 테스트가 `startOverride` 로 스캔을 시작하고
      * [Scanner.handle] 로 플랫폼 콜백을 주입한다. 프로덕션 호출자는 `BleRuntime` 자신뿐이다.
      */
+    internal val scanState: StateFlow<ScanState> get() = scanner.scanState
+
     internal val scanner = Scanner(
         emit = ::emit,
         scope = coreScope,
@@ -426,7 +430,8 @@ internal class BleRuntime private constructor(
         ackTimeoutMillis = config.operationTimeoutMillis,
         writeCommand = gattBridge::writeCommand,
     )
-    private val reconnector = Reconnector(registry, ::emit, coreScope, connectSequence)
+    /** 테스트 seam: JVM 에서 재연결 시작(`startRetainedConnect`)을 대체한다 — `scanner` 와 같은 internal 관례. */
+    internal val reconnector = Reconnector(registry, ::emit, coreScope, connectSequence)
 
     init {
         // plan blecore-app-tunables 결정② — Reconnector.policy 는 4워커 공통 생성자 계약
@@ -595,14 +600,10 @@ internal class BleRuntime private constructor(
         // startScan() 이 조용한 no-op 이 된다. 소비자에게는 Diagnostic 으로 알린다
         // (onScanFailed 는 이 경로에서 보장되지 않는다).
         if (scanner.isScanning) {
-            scanner.stopScan()
-            emit(
-                diagnostic(
-                    Severity.Warning,
-                    FailureMapper.fromAdapterState(cause)
-                        .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan),
-                ),
-            )
+            val scanFailure = FailureMapper.fromAdapterState(cause)
+                .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
+            scanner.stopForAdapter(scanFailure)
+            emit(diagnostic(Severity.Warning, scanFailure))
         }
         for (session in registry.all()) {
             if (session.stage == ConnectionStage.Disconnected) continue // 이미 끝난 세션은 조용히
@@ -839,9 +840,12 @@ internal class BleRuntime private constructor(
 
     public suspend fun stopScan() {
         if (closed) return
-        withContext(coreDispatcherOnly) {
+        // 정지는 정리 동작이다 — 취소된 호출자라도 스캔이 남으면 안 되므로 NonCancellable 로
+        // 블록을 끝까지 돌리고, 취소는 그 뒤 ensureActive() 로 호출자에게 그대로 전파한다.
+        withContext(NonCancellable + coreDispatcherOnly) {
             if (!closed) scanner.stopScan()
         }
+        currentCoroutineContext().ensureActive()
     }
 
     public suspend fun connect(deviceId: PeripheralId, options: ConnectOptions = ConnectOptions()): Unit =
@@ -955,7 +959,9 @@ internal class BleRuntime private constructor(
 
     public suspend fun disconnect(deviceId: PeripheralId): Unit = transportCommand(FailurePhase.Close, deviceId) {
         if (closed) return@transportCommand
-        withContext(coreDispatcherOnly) {
+        // 해제는 정리 동작이다 — 취소된 호출자라도 링크 정리가 시작돼야 하므로 NonCancellable 로
+        // 블록을 끝까지 돌리고, 취소는 그 뒤 ensureActive() 로 호출자에게 그대로 전파한다(stopScan 과 같은 규칙).
+        withContext(NonCancellable + coreDispatcherOnly) {
             if (closed) return@withContext
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
             if (session.stage == ConnectionStage.Disconnected) {
@@ -968,6 +974,7 @@ internal class BleRuntime private constructor(
             }
             gattBridge.disconnect(deviceId)
         }
+        currentCoroutineContext().ensureActive()
     }
 
     /**

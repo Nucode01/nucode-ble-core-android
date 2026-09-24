@@ -36,6 +36,8 @@ CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Android(java.lang.String,java
 CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Ios(java.lang.String,int,java.lang.String,java.lang.String) throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanRequest() throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanRequest(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ScanState$Idle(kr.co.nucode.ble.BleFailure) throws=
+CONSTRUCTOR public kr.co.nucode.ble.ScanState$Scanning(kr.co.nucode.ble.ScanRequest) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteProgress(int,int,int,int,java.lang.Integer,java.lang.Integer,boolean,kr.co.nucode.ble.DeliverySemantics,boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteReceipt(int,int,kr.co.nucode.ble.DeliverySemantics) throws=
 FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.Balanced
@@ -138,8 +140,10 @@ METHOD public abstract <> kotlinx.coroutines.flow.Flow<byte[]> kr.co.nucode.ble.
 METHOD public abstract <> kotlinx.coroutines.flow.Flow<kr.co.nucode.ble.BleClientEvent> kr.co.nucode.ble.BleClient.getEvents() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.Flow<kr.co.nucode.ble.ScanResult> kr.co.nucode.ble.BleClient.getScanResults() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<java.util.List<kr.co.nucode.ble.GattService>> kr.co.nucode.ble.BleSession.getServices() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<java.util.Set<kr.co.nucode.ble.CharacteristicRef>> kr.co.nucode.ble.BleSession.getActiveSubscriptions() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.AdapterState> kr.co.nucode.ble.BleClient.getAdapterState() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ConnectionState> kr.co.nucode.ble.BleSession.getConnectionState() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ScanState> kr.co.nucode.ble.BleClient.getScanState() throws=
 METHOD public abstract <> kr.co.nucode.ble.BleSession kr.co.nucode.ble.BleClient.session-fb5K3to(java.lang.String) throws=
 METHOD public abstract <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondController.bondState-fb5K3to(java.lang.String) throws=
 METHOD public abstract <> void kr.co.nucode.ble.BleClient.close() throws=
@@ -300,6 +304,8 @@ METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleC
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.getFailure() throws=
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component3() throws=
 METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.getFailure() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.ScanState$Idle.component1() throws=
+METHOD public final <> kr.co.nucode.ble.BleFailure kr.co.nucode.ble.ScanState$Idle.getLastFailure() throws=
 METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.component9() throws=
 METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.getLogger() throws=
 METHOD public final <> kr.co.nucode.ble.BleReconnectPolicy kr.co.nucode.ble.BleConnectOptions.component1() throws=
@@ -370,7 +376,11 @@ METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.BleFailure
 METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.component4() throws=
 METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.DiagnosticFailure.getRetryability() throws=
 METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanRequest.copy(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
+METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanState$Scanning.component1() throws=
+METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanState$Scanning.getRequest() throws=
 METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.ScanResult.copy-bxWR3DE(java.lang.String,int,kr.co.nucode.ble.AdvertisementData) throws=
+METHOD public final <> kr.co.nucode.ble.ScanState$Idle kr.co.nucode.ble.ScanState$Idle.copy(kr.co.nucode.ble.BleFailure) throws=
+METHOD public final <> kr.co.nucode.ble.ScanState$Scanning kr.co.nucode.ble.ScanState$Scanning.copy(kr.co.nucode.ble.ScanRequest) throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.component1() throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.getService() throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.GattService.component1() throws=
@@ -478,6 +488,7 @@ TYPE public abstract interface kr.co.nucode.ble.ConnectionState extends=- implem
 TYPE public abstract interface kr.co.nucode.ble.DiagnosticValue extends=- implements=
 TYPE public abstract interface kr.co.nucode.ble.OfficialBleClientEvent extends=- implements=kr.co.nucode.ble.BleClientEvent
 TYPE public abstract interface kr.co.nucode.ble.PlatformDetail extends=- implements=
+TYPE public abstract interface kr.co.nucode.ble.ScanState extends=- implements=
 TYPE public abstract interface kr.co.nucode.ble.android.AndroidBondController extends=- implements=
 TYPE public final kr.co.nucode.ble.AdvertisementData extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.BleConfig extends=java.lang.Object implements=
@@ -558,4 +569,6 @@ TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extend
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Android extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
 TYPE public static final kr.co.nucode.ble.PlatformDetail$Ios extends=java.lang.Object implements=kr.co.nucode.ble.PlatformDetail
+TYPE public static final kr.co.nucode.ble.ScanState$Idle extends=java.lang.Object implements=kr.co.nucode.ble.ScanState
+TYPE public static final kr.co.nucode.ble.ScanState$Scanning extends=java.lang.Object implements=kr.co.nucode.ble.ScanState
 TYPE public static final kr.co.nucode.ble.android.AndroidBondController$DefaultImpls extends=java.lang.Object implements=

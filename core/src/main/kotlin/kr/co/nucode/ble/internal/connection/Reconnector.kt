@@ -97,6 +97,13 @@ internal class Reconnector(
     }
 
     /**
+     * 보존한 platform handle 로 재연결을 시작한다. JVM 테스트는 실제 `BluetoothGatt` 를 만들 수
+     * 없어 시작 이후 경로(시도 timeout 등)에 닿지 못하므로 [beginReconnectLifecycle] 처럼 바꿔 끼울
+     * 수 있게 둔다. `false` 는 시작 자체가 거부된 것이다.
+     */
+    var startRetainedConnect: (Session) -> Boolean = { session -> session.gatt?.connect() ?: false }
+
+    /**
      * 끊김을 감지한 쪽이 재연결을 요청할 때 부른다. [cause]는 원본 failure를 그대로
      * 보존해 재연결 diagnostic의 allowlisted platform detail과 correlation에 이어 붙인다.
      *
@@ -139,6 +146,12 @@ internal class Reconnector(
             // 포기하는 지점이다. 안 닫으면 프로세스당 ~32 클라이언트 슬롯이 샌다.
             session.gatt?.close()
             session.gatt = null
+            // 포기는 공개 상태의 종착이다 — Disconnected(Failed(소진 failure)) 로 다시 발행한다.
+            // suppressReconnect 를 먼저 세워 이 발행이 ConnectSequence.onStatePublished 의
+            // Disconnected 분기로 scheduleReconnect 에 재진입하지 않게 한다(이후 Recovering 없음).
+            session.suppressReconnect = true
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
+            publishState(session)
             return
         }
 
@@ -204,7 +217,7 @@ internal class Reconnector(
         session.subscriptionState.beginGeneration(generation)
         publishState(session)
 
-        val started = session.gatt?.connect() ?: false
+        val started = startRetainedConnect(session)
         if (!started) {
             val failure = FailureMapper.gattStartRejected(
                 phase = FailurePhase.Connect,
@@ -232,21 +245,39 @@ internal class Reconnector(
         }
 
         // 재연결 시도 타임아웃(plan C, ReconnectPolicy.attemptTimeoutMillis KDoc) — 이 시도
-        // 하나의 상한이다. 초과해도 포기가 아니라 disconnect() 로 이 시도만 끝내 다음
-        // 백오프(scheduleReconnect 가 retryCount 로 다음 시도/give-up 판정)로 넘긴다.
-        // suppressReconnect 는 건드리지 않는다 — 사용자 connect 의 timeoutMillis(포기)와는
-        // 다른 의미다. CONNECTED 도착 시 handleConnectionStateChange 가 이 job 을 cancel 한다.
+        // 하나의 상한이다. 초과해도 포기가 아니라 이 시도만 끝내 다음 백오프(scheduleReconnect 가
+        // retryCount 로 다음 시도/give-up 판정)로 넘긴다. suppressReconnect 는 건드리지 않는다 —
+        // 사용자 connect 의 timeoutMillis(포기)와는 다른 의미다. CONNECTED 도착 시
+        // handleConnectionStateChange 가 이 job 을 cancel 한다.
+        //
+        // 플랫폼 콜백에 맡기지 않고 여기서 직접 종결한다(plan failure-delivery-fixes v2 §접근 4):
+        // 성공 STATE_DISCONNECTED 분기는 원인을 지우고 Disconnected(Initial) 을 내서 timeout 이
+        // 다음 Recovering·소진에 실리지 않는다. 시작 실패 종결과 같은 모양으로 닫고, 그 뒤 옛
+        // generation 의 늦은 콜백은 GattConnectionLifecycle 의 generation/stage 가드가 버린다.
         session.timeoutJob = scope.launch {
             delay(reconnectPolicy.attemptTimeoutMillis)
-            if (session.stage == ConnectionStage.Connecting) {
-                emit(
-                    BleEvent.Diagnostic(
-                        severity = Severity.Warning,
-                        failure = reconnectFailure("RECONNECT_ATTEMPT_TIMEOUT", session, null),
-                    ),
-                )
-                session.gatt?.disconnect()
-            }
+            // CONNECTED 가 먼저 와 stage 가 넘어갔거나 다른 generation 이 시작됐으면 손대지 않는다.
+            if (!session.connectionCoordinator.accepts(generation, ConnectionStage.Connecting)) return@launch
+            val failure = reconnectFailure("RECONNECT_ATTEMPT_TIMEOUT", session, null)
+            emit(
+                BleEvent.Diagnostic(
+                    severity = Severity.Warning,
+                    failure = failure,
+                ),
+            )
+            // 이 시도만 끊는다. give-up 과 달리 handle 은 닫지 않는다 — 다음 시도가 이 gatt 를
+            // `connect()` 로 재사용하므로 닫으면 이후 시도가 전부 시작 실패한다. 이 시도의 늦은
+            // 콜백은 아래 completeCleanup 뒤 generation 가드(handleConnectionStateChange)가 버린다.
+            session.gatt?.disconnect()
+            session.terminalLifecycleCause = failure
+            // 이 Disconnected 발행이 ConnectSequence.onStatePublished 를 타고 scheduleReconnect 에
+            // 이 failure 를 원인으로 넘긴다.
+            session.prepareDisconnect(DisconnectReason.Failed(failure))
+            session.connectionCoordinator.completeCleanup(
+                generation,
+                TerminalCleanupReason.LinkTimeout,
+            )
+            publishState(session)
         }
     }
 

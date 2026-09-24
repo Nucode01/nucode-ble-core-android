@@ -207,20 +207,17 @@ internal object GattFailureFactory {
 
     /** [ConnectionCoordinator]가 `Disconnecting` 이외 stage에서 deadline을 못 지킬 때. */
     fun lifecycleTimeout(session: Session, reason: TerminalCleanupReason): BleFailure {
-        val phase = when (reason) {
-            TerminalCleanupReason.LinkTimeout -> FailurePhase.Link
-            TerminalCleanupReason.ServiceDiscoveryTimeout -> FailurePhase.DiscoverServices
-            TerminalCleanupReason.ConfigurationTimeout -> FailurePhase.Configure
-            else -> FailurePhase.Close
+        // ConnectionCoordinator.timeoutReasonFor 는 이 세 reason 과 DisconnectCleanupTimeout 만 만들고,
+        // DisconnectCleanupTimeout 은 onLifecycleDeadline 이 disconnectCleanupTimeout 으로 먼저 가른다.
+        val (code, phase) = when (reason) {
+            TerminalCleanupReason.LinkTimeout -> "LINK_TIMEOUT" to FailurePhase.Link
+            TerminalCleanupReason.ServiceDiscoveryTimeout -> "SERVICE_DISCOVERY_TIMEOUT" to FailurePhase.DiscoverServices
+            TerminalCleanupReason.ConfigurationTimeout -> "CONFIGURATION_TIMEOUT" to FailurePhase.Configure
+            else -> error("unreachable: lifecycleTimeout($reason)")
         }
         return failure(
             category = "connection",
-            code = when (reason) {
-                TerminalCleanupReason.LinkTimeout -> "LINK_TIMEOUT"
-                TerminalCleanupReason.ServiceDiscoveryTimeout -> "SERVICE_DISCOVERY_TIMEOUT"
-                TerminalCleanupReason.ConfigurationTimeout -> "CONFIGURATION_TIMEOUT"
-                else -> "LIFECYCLE_TIMEOUT"
-            },
+            code = code,
             phase = phase,
             retryability = Retryability.NewConnectionMayHelp,
             context = connectionContext(session),

@@ -7,6 +7,9 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Breaking changes
 
+- `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
+- 재연결 예산을 다 쓰면 `connectionState` 가 `Disconnected(Failed(RECONNECT_EXHAUSTED))`(legacy 정책은 `RECONNECT_GIVE_UP`)가 된다. 이전에는 직전 원인의 `Disconnected(Failed)` 에 머물러 "포기했다"를 상태로 알 수 없었다. `failure.code` 로 분기하던 앱은 이 코드를 추가로 처리한다.
+- 재연결 시도 하나가 시간 제한을 넘기면 그 시도가 `Disconnected(Failed(RECONNECT_ATTEMPT_TIMEOUT))` 로 끝나고 다음 백오프로 넘어간다. 이전에는 `Disconnected(Initial)`(연결한 적 없음)이 게시됐다.
 - `OfficialBleClientEvent.Scan` 제거: 스캔 결과는 `BleClient.scanResults` 로만 나온다. `events` 는 연결·서비스·구독 복구 실패·진단만 싣는다 — 스캔이 `events` 버퍼를 채워 느린 소비자가 연결 이벤트를 잃던 문제를 없앤다. `when … else` 로 `events` 에서 스캔을 받던 코드는 컴파일은 되지만 더는 스캔을 받지 못한다.
 - deprecated `BleCore` adapter를 제거했다. Android 앱은
   `AndroidBleClientFactory.create(context, config)`로 `BleClient`를 만든다.
@@ -25,8 +28,16 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 - Android `autoConnect`, requested MTU, raw advertisement bytes는 공통 API에서 제거됐다.
   iOS와 동등한 의미가 아니므로 필요 시 별도 Android 전용 계약으로 설계한다.
 
+### Added
+
+- `BleClient.scanState: StateFlow<ScanState>` — `Idle(lastFailure)` / `Scanning(request)`. 스캔 도중 중단(`SCAN_RUNTIME_FAILED`, `SCAN_STOPPED_BY_ADAPTER`)이 유실 없이 이유와 함께 남는다.
+- `BleSession.activeSubscriptions: StateFlow<Set<CharacteristicRef>>` — 현재 연결에서 통지가 실제로 켜진 캐릭터리스틱. 끊기면 비고, 재연결 뒤 복원에 실패한 것은 `Ready` 여도 빠진다.
+
 ### Fixed
 
+- `stopScan()`·`disconnect()` 가 이미 취소된 코루틴에서 불리면 정리를 실행하지 않고 취소 예외만 던지던 것을 고쳤다. 이제 정리를 끝까지 한 뒤 취소를 전파한다 — `finally { stopScan() }` 이 화면 이탈 시에도 스캔을 멈춘다.
+- 실패 전달 규칙을 내부 `FailureCatalog` 로 확정하고 `FailureCatalogTest` 가 강제한다: 공개 명령 중 확정된 실패는 던지고, 명령 밖 실패는 그 자원의 `StateFlow` 에 남는다. 모든 실패 코드가 등록돼야 하며 위반은 0 이어야 한다.
+- 도달 불가 실패 코드 `LIFECYCLE_TIMEOUT` 를 제거했다.
 - `BleClient.events` 에 GATT 페이로드마다 `Diagnostic(Info, GATT_PAYLOAD_OBSERVED)` 가 실리던 것을 없앴다 — 관측 진단은 이제 `BleConfig.logger` 로만 간다. 고빈도 notify·장문 write 중 이 진단이 `events` 버퍼를 채워 느린 소비자에게서 연결 이벤트가 버려질 수 있었다. `events` 로 이 코드를 받던 코드는 logger 로 옮겨야 한다.
 - `BleConfig(eventBufferCapacity)` 가 1 미만이면 이제 생성 시 `IllegalArgumentException` 을 던진다. 0 은 이전에
   받아들여졌지만 모든 스트림이 사실상 전량 유실되는 값이었다.
@@ -65,3 +76,4 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
   본딩 유지·펌웨어 본딩 초기화·재본딩, BT off/on 스윕 뒤 재연결, 중복 disconnect. 결과와 알려진 간헐 이슈는
   [`docs/v1/android-real-device-results.md`](docs/v1/android-real-device-results.md).
 - 미실행: 여러 기기·OEM callback 차이, 로그 유용성·PII 검토.
+- 실패 전달 규칙 정비(startScan 예외, `scanState`, `activeSubscriptions`, 재연결 소진·시도 timeout 상태, 정리 명령 취소 무관 실행)는 **fake 드라이버 기준 unit test 로만 검증**했다 — 기기 미연결 상태에서 작업했다. 위 실기기 항목은 이 변경 이전 결과이며, 기존 실기기 테스트 재실행과 신규 시나리오 실행이 남아 있다.

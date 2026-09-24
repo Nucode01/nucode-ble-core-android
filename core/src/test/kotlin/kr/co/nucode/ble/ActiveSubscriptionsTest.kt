@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.toList
@@ -69,7 +71,7 @@ class ActiveSubscriptionsTest {
     }
 
     @Test
-    fun `user disconnect empties active while intent is kept`() = runTest {
+    fun `user disconnect empties active and clears intent`() = runTest {
         val f = fixture()
         f.connectToReady(this)
         f.subscribe(this, f.ref)
@@ -78,7 +80,83 @@ class ActiveSubscriptionsTest {
         runCurrent()
 
         assertEquals(emptySet<CharacteristicRef>(), f.bleSession.activeSubscriptions.value)
+        assertEquals(emptySet<CharacteristicRef>(), f.intent())
+        f.assertInvariant()
+    }
+
+    @Test
+    fun `user disconnect then reconnect writes no CCCD and restores nothing`() = runTest {
+        val f = fixture()
+        f.connectToReady(this)
+        f.subscribe(this, f.ref)
+        f.bleSession.disconnect()
+        runCurrent()
+        f.driver.emitLinkLoss(f.deviceId, f.session.connectionCoordinator.generation)
+        runCurrent()
+        assertTrue(f.bleSession.connectionState.value is ConnectionState.Disconnected)
+        val before = f.driver.descriptorWrites
+
+        f.reachConfiguring(this)
+        f.settleMtu(this)
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertEquals(before, f.driver.descriptorWrites)
+        assertEquals(emptySet<CharacteristicRef>(), f.bleSession.activeSubscriptions.value)
+        assertEquals(emptySet<CharacteristicRef>(), f.intent())
+    }
+
+    @Test
+    fun `link loss then reconnect restores intent with CCCD write`() = runTest {
+        val f = fixture()
+        f.reachRestore(this)
+        val before = f.driver.descriptorWrites
+
+        f.settleMtu(this)
+        f.driver.emitDescriptor(f.deviceId, f.ref)
+        runCurrent()
+
+        assertEquals(ConnectionState.Ready, f.bleSession.connectionState.value)
+        assertEquals(before + 1, f.driver.descriptorWrites)
+        assertEquals(setOf(f.ref), f.bleSession.activeSubscriptions.value)
         assertEquals(setOf(f.ref), f.intent())
+    }
+
+    @Test
+    fun `late CCCD ack after user disconnect does not mark active`() = runTest {
+        val f = fixture()
+        f.connectToReady(this)
+        val job = async { runCatching { f.bleSession.subscribe(f.ref) } }
+        runCurrent()
+
+        f.bleSession.disconnect()
+        runCurrent()
+        f.driver.emitDescriptor(f.deviceId, f.ref)
+        runCurrent()
+        val outcome = job.await()
+
+        assertEquals("OPERATION_INVALIDATED", (outcome.exceptionOrNull() as? BleException)?.failure?.code?.value)
+        assertEquals(emptySet<CharacteristicRef>(), f.bleSession.activeSubscriptions.value)
+        assertEquals(emptySet<CharacteristicRef>(), f.intent())
+        f.assertInvariant()
+    }
+
+    /** ack 가 subscribe 재개보다 먼저 처리되고, 재개 전에 사용자 disconnect 블록이 도는 순서. */
+    @Test
+    fun `user disconnect between CCCD ack and subscribe resume does not restore intent`() = runTest {
+        val f = fixture()
+        f.connectToReady(this)
+        val job = async { runCatching { f.bleSession.subscribe(f.ref) } }
+        runCurrent()
+
+        // ack 는 sink 로 동기 처리돼 subscribe 재개가 코어 큐에 들어간다 — 그보다 먼저 disconnect 블록을 돌린다.
+        f.driver.emitDescriptor(f.deviceId, f.ref)
+        launch(f.coreDispatcher, start = CoroutineStart.UNDISPATCHED) { f.bleSession.disconnect() }
+        runCurrent()
+        val outcome = job.await()
+
+        assertEquals("OPERATION_INVALIDATED", (outcome.exceptionOrNull() as? BleException)?.failure?.code?.value)
+        assertEquals(emptySet<CharacteristicRef>(), f.intent())
+        assertEquals(emptySet<CharacteristicRef>(), f.bleSession.activeSubscriptions.value)
         f.assertInvariant()
     }
 
@@ -258,8 +336,9 @@ class ActiveSubscriptionsTest {
                 cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, 0),
             )
         }
+        val coreDispatcher = StandardTestDispatcher(testScheduler)
         val core = BleRuntime(
-            config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
+            config = BleConfig(dispatcher = coreDispatcher),
             adapter = { null },
             gattDriver = driver,
             gattOperationTargetResolver = if (resolver) targetResolver else null,
@@ -276,7 +355,7 @@ class ActiveSubscriptionsTest {
         runCurrent()
         return Fixture(
             core, client, bleSession, session, driver, deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()),
-            events, officialEvents,
+            events, officialEvents, coreDispatcher,
         )
     }
 
@@ -290,7 +369,9 @@ class ActiveSubscriptionsTest {
         val ref: CharacteristicRef,
         val events: List<BleEvent>,
         val officialEvents: List<BleClientEvent>,
-    ) {
+        /** 코어 디스패처 — 경합 테스트가 코어 큐 순서에 끼어들 때 쓴다. */
+        val coreDispatcher: CoroutineDispatcher,
+) {
         /** 복원 실패의 Event 채널 — Diagnostic 또는 SubscriptionRestoreFailed 로 나간 코드. */
         fun restoreFailureEventCodes(): List<String> =
             events.filterIsInstance<BleEvent.Diagnostic>().map { it.failure.code.value } +
@@ -366,6 +447,7 @@ class ActiveSubscriptionsTest {
         var resolvable: Boolean = true
         var resolveFailure: Exception? = null
         var descriptorFailure: Exception? = null
+        var descriptorWrites: Int = 0
 
         override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
 
@@ -384,6 +466,7 @@ class ActiveSubscriptionsTest {
             descriptor: BluetoothGattDescriptor,
             value: ByteArray,
         ): Boolean {
+            descriptorWrites++
             descriptorFailure?.let { throw it }
             return descriptorStarts
         }

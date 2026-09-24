@@ -25,7 +25,8 @@ class OfficialEventsScanIsolationTest {
     @Test(timeout = 5_000)
     fun `events 수집자가 막힌 동안 스캔이 몰려도 Connection 이벤트는 유실되지 않는다`() {
         val core = BleRuntime(
-            config = BleConfig(eventBufferCapacity = 1),
+            // Unconfined — 캡처한 onResult 의 core 홉이 호출 자리에서 바로 돈다(순서 결정적).
+            config = BleConfig(eventBufferCapacity = 1, dispatcher = Dispatchers.Unconfined),
             adapter = { null },
             adapterState = { AdapterState.Ready },
         )
@@ -34,7 +35,8 @@ class OfficialEventsScanIsolationTest {
         client.session(id)
         val backing = requireNotNull(core.registry.get(PeripheralId(id.value)))
         val scanner = core.scanner
-        scanner.startOverride = { _, _ -> null }
+        var onResult: (ScanObservation) -> Unit = {}
+        scanner.startOverride = { _, _, _, result -> onResult = result; null }
         scanner.startScan(BleScanFilter(), BleScanOptions())
         val observation = ScanObservation(
             PeripheralId("AA:BB:CC:DD:EE:32"),
@@ -57,7 +59,7 @@ class OfficialEventsScanIsolationTest {
             backing.setStateForTest(ConnectionState.Connecting)
             core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Connecting))
 
-            repeat(5) { scanner.handle(observation) }
+            repeat(5) { onResult(observation) }
 
             backing.setStateForTest(ConnectionState.Disconnecting)
             core.emit(BleEvent.ConnStateChanged(backing.deviceId, ConnectionState.Disconnecting))

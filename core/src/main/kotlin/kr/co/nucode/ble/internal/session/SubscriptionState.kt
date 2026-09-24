@@ -37,6 +37,17 @@ internal class SubscriptionState {
         return desired.remove(characteristic)
     }
 
+    /**
+     * 사용자 명시 해제 — 구독 의도까지 버린다. 이미 ack 된 subscribe 의 늦은 재개는 여기서 막지 못한다
+     * ([addDesired] 가 의도를 다시 넣을 수 있다) — `BleRuntime.subscribe` 가 재개 시 시작 generation 이
+     * 아직 Ready 인지 확인해 거부한다.
+     */
+    fun clearDesired() {
+        desired.clear()
+        active.clear()
+        publishActive()
+    }
+
     fun containsDesired(characteristic: CharacteristicRef): Boolean = characteristic in desired
 
     /** A fresh connection has no active CCCD state, even if its desired intent is unchanged. */

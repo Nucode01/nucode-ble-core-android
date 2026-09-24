@@ -32,12 +32,25 @@ internal class Scanner(
 ) {
     private val androidScanner = AndroidScanner(scanner)
 
-    /** Unit-test seam for observing the immutable request handed to the platform. */
-    internal var startOverride: ((BleScanFilter, BleScanOptions) -> BleFailure?)? = null
+    /**
+     * 단위 테스트 seam — 플랫폼에 넘기는 요청과, [startScan] 이 AndroidScanner 에 넘길 **같은** 콜백
+     * 람다(onFailure, onResult — 시작 generation 캡처)를 받는다. fake 는 이 람다를 그대로 호출해야 한다.
+     */
+    internal var startOverride: (
+        (BleScanFilter, BleScanOptions, (BleFailure) -> Unit, (ScanObservation) -> Unit) -> BleFailure?
+    )? = null
 
     internal var isScanning: Boolean = false
         private set
     private var activeRequest: ScanRequest? = null
+
+    /**
+     * 시작 시도마다 1 증가(예약)하는 스캔 식별 — 실패한 시작도 자기 값을 소비하므로 이후 성공한
+     * 시작과 값을 공유하지 않는다. 플랫폼 실패·결과 콜백은 시작 시 캡처한 값을 싣고, 현재 값이 아닌
+     * 콜백은 버린다(연결 콜백의 generation 귀속과 같은 규칙). 쓰기는 [startScan] 만.
+     */
+    internal var scanGeneration: Long = 0L
+        private set
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle(null))
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
@@ -49,14 +62,19 @@ internal class Scanner(
         // between Android's platform filter, active-request identity, and final predicate.
         val frozenRequest = ScanRequest(request.filter, request.options)
         val override = startOverride
+        // 시작 시도마다 generation 을 예약한다 — 플랫폼 호출 전에 올려 콜백 람다가 이 값을 캡처한다.
+        val startGeneration = scanGeneration + 1
+        scanGeneration = startGeneration
+        val onResult: (ScanObservation) -> Unit = { observation -> scope.launch { handle(startGeneration, observation) } }
+        val onFailure: (BleFailure) -> Unit = { failure -> scope.launch { handleFailure(startGeneration, failure) } }
         val failure = if (override != null) {
-            override(frozenRequest.filter, frozenRequest.options)
+            override(frozenRequest.filter, frozenRequest.options, onFailure, onResult)
         } else {
             androidScanner.start(
                 filter = frozenRequest.filter,
                 options = frozenRequest.options,
-                onObservation = { observation -> scope.launch { handle(observation) } },
-                onFailure = { failure -> scope.launch { handleFailure(failure) } },
+                onObservation = onResult,
+                onFailure = onFailure,
             )
         }
         if (failure != null) return failure
@@ -118,16 +136,28 @@ internal class Scanner(
     internal fun toPlatformFilters(filter: BleScanFilter): List<AndroidScanFilter> =
         androidScanner.toPlatformFilters(filter)
 
-    /** 플랫폼 콜백 진입점(코어 스레드). `internal` 인 이유 — 테스트가 관측을 주입하는 seam. */
-    internal fun handle(observation: ScanObservation) {
+    /**
+     * 플랫폼 결과 콜백 진입점(코어 스레드). [generation] 은 그 콜백을 만든 시작의 generation —
+     * 다른(이전) 스캔이거나 멈춘 스캔의 결과는 버린다.
+     */
+    private fun handle(generation: Long, observation: ScanObservation) {
+        if (generation != scanGeneration || !isScanning) return
         val request = activeRequest ?: return
         if (!matches(request.filter, observation.advertisement)) return
         // One callback has exactly one projection: the structured official ingress.
         emitObservation(observation)
     }
 
-    /** 플랫폼 실패 콜백 진입점(코어 스레드). `internal` 인 이유 — 테스트가 런타임 실패를 주입하는 seam. */
-    internal fun handleFailure(failure: BleFailure) {
+    /**
+     * 플랫폼 실패 콜백 진입점(코어 스레드). [generation] 은 그 콜백을 만든 시작의 generation.
+     * 다른(이전) 스캔이거나 이미 멈춘 스캔의 실패는 상태를 바꾸지 않고 Warning Diagnostic 만 남긴다 —
+     * 먼저 확정된 종료 이유(정지·어댑터·런타임 실패)가 유지된다.
+     */
+    private fun handleFailure(generation: Long, failure: BleFailure) {
+        if (generation != scanGeneration || !isScanning) {
+            emit(BleEvent.Diagnostic(Severity.Warning, failure))
+            return
+        }
         try {
             emit(BleEvent.Diagnostic(Severity.Error, failure))
         } finally {

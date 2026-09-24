@@ -396,7 +396,7 @@ class BleHardwareIntegrationTest {
         }
         assertEquals(emptySet<CharacteristicRef>(), session.activeSubscriptions.value)
         val intent = client.snapshot().sessions.single { it.peripheralId == peripheralId }.subscriptions
-        assertTrue("subscription intent must survive user disconnect: $intent", nus.tx in intent)
+        assertTrue("user disconnect must clear subscription intent: $intent", nus.tx !in intent)
     }
 
     @Test(timeout = 180_000)

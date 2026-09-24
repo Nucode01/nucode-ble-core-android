@@ -191,6 +191,8 @@ class FailureRouteVerificationTest {
                 "$SCAN#a 다른 요청으로 재시작하면 SCAN_ALREADY_RUNNING 을 던지고 상태와 Diagnostic 은 유지된다",
             "SCAN_RUNTIME_FAILED | scan runtime callback" to
                 "$SCAN#e 런타임 실패는 Idle(lastFailure) 로 전이한다",
+            "SCAN_RUNTIME_FAILED | stale scan failure (ended/other scan)" to
+                "$SCAN#i 재시작 뒤 이전 스캔의 늦은 실패는 버리고 Warning Diagnostic 만 남긴다",
             "SCAN_START_FAILED | startScan command (startOverride seam only)" to
                 "$SCAN#b 플랫폼 시작 실패는 그 실패를 던지고 Scanning 이 되지 않는다",
             "SCAN_STOPPED_BY_ADAPTER | adapter off sweep" to

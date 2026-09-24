@@ -31,7 +31,8 @@ class ScanObservationDropTest {
         )
         val client = DefaultBleClient(core)
         val scanner = core.scanner
-        scanner.startOverride = { _, _ -> null }
+        var onResult: (ScanObservation) -> Unit = {}
+        scanner.startOverride = { _, _, _, result -> onResult = result; null }
         scanner.startScan(BleScanFilter(), BleScanOptions())
         val observation = ScanObservation(
             PeripheralId("AA:BB:CC:DD:EE:01"),
@@ -50,10 +51,10 @@ class ScanObservationDropTest {
         }
         try {
             // 수집자 구독 전 관측은 구독자 0 이라 조용히 사라진다(유실 아님) — 받을 때까지 반복.
-            while (!received.await(10, TimeUnit.MILLISECONDS)) scanner.handle(observation)
+            while (!received.await(10, TimeUnit.MILLISECONDS)) onResult(observation)
             val before = core.droppedEventCount
 
-            repeat(3) { scanner.handle(observation) }
+            repeat(3) { onResult(observation) }
 
             assertTrue(
                 "scanResults 유실이 집계돼야 한다: before=$before after=${core.droppedEventCount}",

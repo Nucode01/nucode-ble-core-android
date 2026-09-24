@@ -268,6 +268,7 @@ internal object FailureCatalog {
             "SCAN_RUNTIME_FAILED",
             listOf(
                 Route("scan runtime callback", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Scanner.kt:handleFailure(scanState=Idle(failure)) — ScanContractTest"),
+                Route("stale scan failure (ended/other scan)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(generation 불일치·정지 뒤 → 상태 불변, Warning) — ScanContractTest"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "AndroidPeripheralRediscovery.kt:rediscover, GattConnectionLifecycle.kt:connect"),
             ),
         ),

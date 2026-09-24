@@ -7,6 +7,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Breaking changes
 
+- 사용자 `disconnect()` 는 그 세션의 구독 의도를 비운다(v1 계약: 명시적으로 끊은 구독은 복원하지 않는다). 이전에는 다시 `connect()` 하면 이전 구독이 CCCD 까지 복원됐다. 재연결 후 통지가 필요하면 `subscribe()` 를 다시 부른다. 예기치 않은 끊김 뒤 자동 재연결의 복원은 그대로다.
 - `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
 - 재연결 예산을 다 쓰면 `connectionState` 가 `Disconnected(Failed(RECONNECT_EXHAUSTED))`(legacy 정책은 `RECONNECT_GIVE_UP`)가 된다. 이전에는 직전 원인의 `Disconnected(Failed)` 에 머물러 "포기했다"를 상태로 알 수 없었다. `failure.code` 로 분기하던 앱은 이 코드를 추가로 처리한다.
 - 재연결 시도 전용 시간 제한과 `RECONNECT_ATTEMPT_TIMEOUT` 코드는 0.2.0 에서 제거됐다. 재연결 시도의 상한은 연결 링크 제한(`linkTimeoutMillis`) 하나다(복구 중 시도마다 적용 — 이 값을 늘린 앱은 재연결 시도 하나도 그만큼 길어진다) — 시도가 이를 넘기면 복구 중 그 시도가 `Disconnected(Failed(LINK_TIMEOUT))` 로 끝나고 다음 백오프로 넘어가며, 소진 시 `RECONNECT_EXHAUSTED` 가 이 원인을 감싼다. `RECONNECT_ATTEMPT_TIMEOUT` 으로 분기하던 앱은 복구 중 `LINK_TIMEOUT` 으로 옮긴다.
@@ -45,6 +46,8 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- 이전 스캔 요청의 늦은 `onScanFailed` 가 새 스캔을 멈추고 `scanState` 를 그 실패로 덮던 것을 고쳤다. 스캔마다 generation 을 붙여 다른 스캔·이미 멈춘 스캔의 실패는 `Diagnostic(Warning)` 으로만 남긴다.
+- 스캔 종료 이유는 먼저 확정된 것이 유지된다 — 블루투스가 꺼져 `Idle(SCAN_STOPPED_BY_ADAPTER)` 가 된 뒤 도착한 `onScanFailed` 가 이유를 `SCAN_RUNTIME_FAILED` 로 바꾸지 않는다.
 - `stopScan()`·`disconnect()` 가 이미 취소된 코루틴에서 불리면 정리를 실행하지 않고 취소 예외만 던지던 것을 고쳤다. 이제 정리를 끝까지 한 뒤 취소를 전파한다 — `finally { stopScan() }` 이 화면 이탈 시에도 스캔을 멈춘다.
 - 실패 전달 규칙을 내부 `FailureCatalog` 로 확정하고 `FailureCatalogTest` 가 강제한다: 공개 명령 중 확정된 실패는 던지고, 명령 밖 실패는 그 자원의 `StateFlow` 에 남는다. 모든 실패 코드가 등록돼야 하며 위반은 0 이어야 한다.
 - 도달 불가 실패 코드 `LIFECYCLE_TIMEOUT` 를 제거했다.

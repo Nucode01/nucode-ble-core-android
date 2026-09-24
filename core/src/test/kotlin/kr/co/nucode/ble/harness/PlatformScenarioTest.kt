@@ -501,8 +501,6 @@ class PlatformScenarioTest {
          * 형식: "<시나리오> | <변형> | <불변식>".
          */
         val KNOWN_INVARIANT_VIOLATIONS: Set<String> = setOf(
-            // 사용자 해제 뒤 새 connect 가 이전 구독을 복원한다(CCCD write·active 남음) — 이 plan 범위 밖.
-            "subscribe→disconnect→connect | all Arrive | I7",
         )
     }
 }

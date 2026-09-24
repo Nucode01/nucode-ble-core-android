@@ -41,6 +41,7 @@ import kr.co.nucode.ble.internal.event.DiagnosticObservation
 import kr.co.nucode.ble.internal.event.NotificationHub
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattDriver
+import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
@@ -973,6 +974,8 @@ internal class BleRuntime private constructor(
         withContext(NonCancellable + coreDispatcherOnly) {
             if (closed) return@withContext
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
+            // 사용자 명시 해제는 구독 의도를 복원하지 않는다(v1 계약) — 링크 유실·재연결 경로는 의도를 유지한다.
+            session.subscriptionState.clearDesired()
             if (session.stage == ConnectionStage.Disconnected) {
                 session.suppressReconnect = true
                 session.reconnectJob?.cancel()
@@ -1028,7 +1031,13 @@ internal class BleRuntime private constructor(
             if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
             // CCCD ack 성공 후에만 기록한다(plan §접근 ③, review #18/H-1) — 먼저 기록하면
             // 실패 시 롤백 없이 남아 snapshot·재구독이 거짓 사실 위에 선다.
+            val startGeneration = session.connectionCoordinator.generation
             gattBridge.subscribe(deviceId, charRef)
+            // ack 뒤 재개 전에 사용자 disconnect(clearDesired)·정리가 시작됐으면 의도를 되살리지 않는다 —
+            // 시작한 generation 이 더 이상 Ready 가 아니면 disconnect 로 무효화된 다른 연산과 같이 던진다.
+            if (!session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
+                throw BleException(GattFailureFactory.operationInvalidated(session))
+            }
             session.subscriptionState.addDesired(charRef)
             session.subscriptionState.markActive(charRef, session.connectionCoordinator.generation)
         }

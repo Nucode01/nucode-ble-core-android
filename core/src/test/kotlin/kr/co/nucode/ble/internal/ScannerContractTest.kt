@@ -82,7 +82,7 @@ class ScannerContractTest {
             scope = CoroutineScope(EmptyCoroutineContext),
             scanner = { null },
         )
-        runningScanner.startOverride = { filter, _ -> platformFilter = filter; null }
+        runningScanner.startOverride = { filter, _, _, _ -> platformFilter = filter; null }
 
         assertNull(runningScanner.startScan(request))
         serviceUuids.clear()
@@ -117,7 +117,7 @@ class ScannerContractTest {
     fun `client level scan failure does not manufacture a session correlation`() {
         val events = mutableListOf<kr.co.nucode.ble.internal.event.BleEvent>()
         val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext)) { null }
-        scanner.startOverride = { _, _ ->
+        scanner.startOverride = { _, _, _, _ ->
             kr.co.nucode.ble.BleFailure(
                 category = FailureCategory("scan"),
                 code = FailureCode("SCAN_START_FAILED"),

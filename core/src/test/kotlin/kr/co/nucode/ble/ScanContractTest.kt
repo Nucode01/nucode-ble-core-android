@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.scan.ScanObservation
 import kr.co.nucode.ble.internal.event.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,7 +33,12 @@ class ScanContractTest {
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
             adapter = { null },
             adapterState = { probe.state },
-        ).also { it.scanner.startOverride = { _, _ -> null } }
+        ).also { it.scanner.startOverride = { _, _, onFailure, onResult -> starts += Callbacks(onFailure, onResult); null } }
+
+    /** 시작마다 Scanner 가 만든 콜백 — 테스트는 이 람다로만 실패·결과를 싣는다(production 홉과 같은 경로). */
+    private class Callbacks(val onFailure: (BleFailure) -> Unit, val onResult: (ScanObservation) -> Unit)
+
+    private val starts = mutableListOf<Callbacks>()
 
     private val first = BleScanFilter(namePrefix = "A")
     private val second = BleScanFilter(namePrefix = "B")
@@ -72,7 +78,7 @@ class ScanContractTest {
     fun `b 플랫폼 시작 실패는 그 실패를 던지고 Scanning 이 되지 않는다`() = runTest {
         val core = newCore()
         val events = collectEvents(core)
-        core.scanner.startOverride = { _, _ -> failure("SCAN_START_FAILED") }
+        core.scanner.startOverride = { _, _, _, _ -> failure("SCAN_START_FAILED") }
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
         runCurrent()
         assertEquals("SCAN_START_FAILED", (thrown as? BleException)?.failure?.code?.value)
@@ -104,13 +110,102 @@ class ScanContractTest {
         val core = newCore()
         val events = collectEvents(core)
         core.startScan(first)
-        core.scanner.handleFailure(failure("SCAN_RUNTIME_FAILED"))
+        starts.last().onFailure(failure("SCAN_RUNTIME_FAILED"))
         runCurrent()
         val state = core.scanState.value as ScanState.Idle
         assertEquals("SCAN_RUNTIME_FAILED", state.lastFailure?.code?.value)
         assertFalse(core.officialSnapshot().isScanning)
         assertTrue(events.diagnosticCodes().toString(), "SCAN_RUNTIME_FAILED" in events.diagnosticCodes())
     }
+
+    @Test
+    fun `i 재시작 뒤 이전 스캔의 늦은 실패는 버리고 Warning Diagnostic 만 남긴다`() = runTest {
+        val core = newCore()
+        val events = collectEvents(core)
+        core.startScan(first)
+        val stale = starts.last()
+        core.stopScan()
+        core.startScan(second)
+        stale.onFailure(failure("SCAN_RUNTIME_FAILED"))
+        runCurrent()
+        assertEquals(ScanState.Scanning(ScanRequest(second, BleScanOptions())), core.scanState.value)
+        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
+        assertEquals(Severity.Warning, diagnostic.severity)
+    }
+
+    @Test
+    fun `j 정지 뒤 온 실패는 Idle(null) 을 바꾸지 않는다`() = runTest {
+        val core = newCore()
+        val events = collectEvents(core)
+        core.startScan(first)
+        val started = starts.last()
+        core.stopScan()
+        started.onFailure(failure("SCAN_RUNTIME_FAILED"))
+        runCurrent()
+        assertEquals(ScanState.Idle(null), core.scanState.value)
+        assertEquals(Severity.Warning, events.filterIsInstance<BleEvent.Diagnostic>().single().severity)
+    }
+
+    @Test
+    fun `k 어댑터로 멈춘 뒤 온 늦은 실패는 SCAN_STOPPED_BY_ADAPTER 를 유지한다`() = runTest {
+        val probe = ProbeHolder(AdapterState.Ready)
+        val core = newCore(probe)
+        core.startScan(first)
+        val started = starts.last()
+        probe.state = AdapterState.PoweredOff
+        core.refreshAdapterState()
+        runCurrent()
+        started.onFailure(failure("SCAN_RUNTIME_FAILED"))
+        runCurrent()
+        val state = core.scanState.value as ScanState.Idle
+        assertEquals("SCAN_STOPPED_BY_ADAPTER", state.lastFailure?.code?.value)
+    }
+
+    @Test
+    fun `l 재시작 뒤 이전 스캔의 늦은 결과는 새 필터에 맞아도 내보내지 않는다`() = runTest {
+        val core = newCore()
+        val results = mutableListOf<ScanObservation>()
+        backgroundScope.launch { core.scanObservations.toList(results) }
+        runCurrent()
+        core.startScan(first)
+        val stale = starts.last()
+        core.stopScan()
+        core.startScan(second)
+        // 두 번째 요청(namePrefix = "B")에 맞는 광고 — 필터가 아니라 generation 으로 걸러져야 한다.
+        val matchesSecond = observation("B-device")
+        stale.onResult(matchesSecond)
+        runCurrent()
+        assertTrue(results.toString(), results.isEmpty())
+        starts.last().onResult(matchesSecond)
+        runCurrent()
+        assertEquals(1, results.size)
+    }
+
+    @Test
+    fun `m 실패한 시작도 generation 을 소비해 다음 성공한 시작과 공유하지 않는다`() = runTest {
+        val core = newCore()
+        val events = collectEvents(core)
+        var failedStart: Callbacks? = null
+        core.scanner.startOverride = { _, _, onFailure, onResult ->
+            failedStart = Callbacks(onFailure, onResult)
+            failure("SCAN_START_FAILED")
+        }
+        runCatching { core.startScan(first) }
+        core.scanner.startOverride = { _, _, onFailure, onResult -> starts += Callbacks(onFailure, onResult); null }
+        core.startScan(first)
+        // 실패한 시작의 콜백이 뒤늦게 와도 성공한 스캔을 멈추지 않는다.
+        requireNotNull(failedStart).onFailure(failure("SCAN_RUNTIME_FAILED"))
+        runCurrent()
+        assertEquals(ScanState.Scanning(ScanRequest(first, BleScanOptions())), core.scanState.value)
+        val diagnostic = events.filterIsInstance<BleEvent.Diagnostic>().single { it.failure.code.value == "SCAN_RUNTIME_FAILED" }
+        assertEquals(Severity.Warning, diagnostic.severity)
+    }
+
+    private fun observation(localName: String) = ScanObservation(
+        PeripheralId("AA:BB:CC:DD:EE:41"),
+        -50,
+        AdvertisementData(localName, emptySet(), emptyMap(), emptyMap(), null, null),
+    )
 
     @Test
     fun `f 스캔 중 어댑터가 꺼지면 Idle(SCAN_STOPPED_BY_ADAPTER)`() = runTest {
@@ -157,7 +252,7 @@ class ScanContractTest {
     fun `i 스캔 시작 권한 거부는 PERMISSION_DENIED 를 던지고 Diagnostic 을 낸다`() = runTest {
         val core = newCore()
         val events = collectEvents(core)
-        core.scanner.startOverride = { _, _ -> failure("PERMISSION_DENIED") }
+        core.scanner.startOverride = { _, _, _, _ -> failure("PERMISSION_DENIED") }
         val thrown = runCatching { core.startScan(first) }.exceptionOrNull()
         runCurrent()
         assertEquals("PERMISSION_DENIED", (thrown as? BleException)?.failure?.code?.value)

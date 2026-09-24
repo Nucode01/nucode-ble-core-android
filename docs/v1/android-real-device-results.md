@@ -466,7 +466,7 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 - `startScanWithDifferentRequestWhileScanningThrowsScanAlreadyRunning`: 스캔 중 다른 요청의 `startScan` 이
   `SCAN_ALREADY_RUNNING` 으로 거부되고 `scanState` 가 `Scanning(A)` 로 유지되는지, `stopScan` 뒤 `Idle(null)` 인지.
 - `activeSubscriptionsTracksNotifySubscriptionAcrossDisconnect`: NUS TX 구독 뒤 `activeSubscriptions` 에 들어가고,
-  disconnect 뒤 비며 `snapshot()` 의 구독 의도는 남는지.
+  사용자 disconnect 뒤 비며 `snapshot()` 의 구독 의도도 비는지(사용자 disconnect 는 구독 의도를 해제한다 — v1 계약).
 
 기존 5개 실기기 테스트도 이번 변경(`startScan` 예외, `scanState`, `activeSubscriptions`, 재연결 소진·시도 timeout 상태,
 `stopScan`/`disconnect` 취소 무관 실행) 이후 재실행이 필요하다.

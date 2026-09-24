@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.internal.scan.ScanObservation
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
@@ -136,20 +137,30 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     val scanStarts: MutableList<ScanStart> = mutableListOf()
 
     /** 성공한 시작 하나 — production 콜백 객체처럼 자기 요청을 알지만, 코어로 가는 홉은 요청을 싣지 않는다. */
-    inner class ScanStart(val request: ScanRequest) {
-        /** production `onScanFailed(errorCode)` → `FailureMapper.scanRuntimeFailed` → `scope.launch { handleFailure }` 와 같은 홉. */
+    inner class ScanStart(
+        val request: ScanRequest,
+        private val onFailure: (BleFailure) -> Unit,
+        private val onResult: (ScanObservation) -> Unit,
+    ) {
+        /**
+         * production `onScanFailed(errorCode)` → `FailureMapper.scanRuntimeFailed` → Scanner 가 만든 onFailure
+         * (자기 generation 캡처, 코어 홉 포함) 와 같은 경로 — fake 는 generation 을 계산하지 않는다.
+         */
         fun fail(errorCode: Int, variant: CallbackVariant = CallbackVariant.Arrive()) {
-            val deliver = { runtime.scanner.handleFailure(FailureMapper.scanRuntimeFailed(errorCode)) }
+            val deliver = { onFailure(FailureMapper.scanRuntimeFailed(errorCode)) }
             when (variant) {
-                is CallbackVariant.Arrive, is CallbackVariant.ArriveBeforeStartReturns -> scope.launch { deliver() }
+                is CallbackVariant.Arrive, is CallbackVariant.ArriveBeforeStartReturns -> deliver()
                 CallbackVariant.Missing -> Unit
                 is CallbackVariant.Late -> scope.launch { delay(variant.delayMillis); deliver() }
                 is CallbackVariant.Duplicate -> {
-                    scope.launch { deliver() }
-                    scope.launch { deliver() }
+                    deliver()
+                    deliver()
                 }
             }
         }
+
+        /** production `onScanResult` → Scanner 가 만든 onResult(코어 홉 포함) 와 같은 경로. */
+        fun result(observation: ScanObservation) = onResult(observation)
     }
 
     /** 가장 최근 시작한 스캔의 런타임 실패. variant 의 status 는 쓰지 않는다(errorCode 가 대신한다). */
@@ -159,10 +170,11 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     /** `core.scanner.startOverride` 로 설치 — [harness] 가 부른다. */
     fun installScanner() {
-        runtime.scanner.startOverride = { filter: BleScanFilter, options: BleScanOptions ->
+        runtime.scanner.startOverride = { filter: BleScanFilter, options: BleScanOptions, onFailure, onResult ->
             calls += "scanStart"
             scanStartFailure ?: run {
-                scanStarts += ScanStart(ScanRequest(filter, options))
+                // Scanner 가 AndroidScanner 에 넘길 같은 람다를 보관한다.
+                scanStarts += ScanStart(ScanRequest(filter, options), onFailure, onResult)
                 null
             }
         }

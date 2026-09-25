@@ -50,6 +50,9 @@ internal class Scanner(
     /** 진행 중 재발견 소비자 — [rediscover] 가 등록하고 그 finally 가 반드시 해제한다. */
     private val rediscoveries = mutableListOf<RediscoveryWaiter>()
 
+    /** [scheduleReconcile] 가 걸어 둔 턴 끝 reconcile 이 아직 돌지 않았는가. */
+    private var reconcileScheduled = false
+
     /** 지금 플랫폼에서 도는 스캔의 spec. null = 플랫폼 스캔 없음. 쓰기는 [reconcile]·[stopPlatform] 만. */
     private var platformSpec: PlatformScanSpec? = null
 
@@ -149,20 +152,47 @@ internal class Scanner(
         val waiter = RediscoveryWaiter(PeripheralId(canonical))
         rediscoveries += waiter
         try {
-            reconcile()?.let(::failConsumers)
+            scheduleReconcile()
             return withTimeoutOrNull(timeoutMillis) { waiter.outcome.await() } ?: RediscoveryOutcome.NotFound
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // 재시작 도중 포트가 던졌으면 도는 플랫폼 스캔이 없다 — 사용자 소비자도 같은 실패로 끝내
-            // Scanning 인데 스캔이 없는 상태를 남기지 않는다.
-            val failure = FailureMapper.scanStartFailed()
-            failConsumers(failure)
-            return RediscoveryOutcome.Unavailable(failure)
         } finally {
             rediscoveries -= waiter
             if (rediscoveries.isEmpty() && activeRequest == null) stopPlatform()
         }
+    }
+
+    /**
+     * 재발견 등록의 (재)시작을 이번 디스패처 턴 끝의 [reconcile] 한 번으로 모은다(review MED-3) — 같은 턴에
+     * 등록된 N 개(예: 어댑터 복귀로 재연결되는 autoReconnect 세션 N 개)가 플랫폼 스캔을 N 번 재시작하지 않는다.
+     * 시작 실패는 즉시 reconcile 때와 같이 모든 소비자에게 퍼진다([failConsumers]). 사용자 startScan/stopScan 은
+     * 동기 API 라 지금처럼 즉시 reconcile 한다.
+     */
+    private fun scheduleReconcile() {
+        if (reconcileScheduled) return
+        reconcileScheduled = true
+        scope.launch {
+            reconcileScheduled = false
+            val failure = try {
+                reconcile()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 재시작 도중 포트가 던졌으면 도는 플랫폼 스캔이 없다 — 사용자 소비자도 같은 실패로 끝내
+                // Scanning 인데 스캔이 없는 상태를 남기지 않는다.
+                FailureMapper.scanStartFailed()
+            }
+            failure?.let(::failConsumers)
+        }
+    }
+
+    /**
+     * 한 주소의 재발견 소비자를 지금 [outcome] 으로 끝낸다(review LOW-4 — 재발견 중 disconnect()).
+     * 등록 해제와 마지막 소비자일 때의 플랫폼 정지는 [rediscover] 의 finally 가 resume 에서 한다.
+     * 대기 중인 소비자가 없으면 아무 것도 하지 않는다.
+     */
+    override fun endRediscovery(deviceId: PeripheralId, outcome: RediscoveryOutcome) {
+        rediscoveries
+            .filter { it.deviceId.value.equals(deviceId.value, ignoreCase = true) }
+            .forEach { it.outcome.complete(outcome) }
     }
 
     /**

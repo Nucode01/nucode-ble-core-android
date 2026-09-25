@@ -102,6 +102,8 @@ internal class LinkSetup(
         restoreJobs[session] = scope.launch {
             for (ref in session.subscriptionState.desiredSnapshot) {
                 if (!session.isConfiguringGeneration(generation)) return@launch
+                // 스냅샷을 뜬 뒤 사용자가 해제했으면 건너뛴다 — 켜면 해제 CCCD 뒤에 켜기가 서서 기기가 계속 통지한다.
+                if (!session.subscriptionState.containsDesired(ref)) continue
                 try {
                     restoreSubscription(session.deviceId, ref)
                 } catch (e: CancellationException) {

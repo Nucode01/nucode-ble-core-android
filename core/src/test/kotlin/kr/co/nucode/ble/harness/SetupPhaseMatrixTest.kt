@@ -16,6 +16,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
@@ -48,7 +49,7 @@ class SetupPhaseMatrixTest {
         AutoFresh,
     }
 
-    private enum class Event { Disconnect, Close, AdapterOff, LinkLoss, SubscribeOther, Unsubscribe }
+    private enum class Event { Disconnect, Close, AdapterOff, LinkLoss, LinkLossStatus0, SubscribeOther, Unsubscribe }
 
     private val id = PeripheralId("AA:BB:CC:DD:EE:F4")
     private val serviceUuid = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
@@ -158,6 +159,8 @@ class SetupPhaseMatrixTest {
         val desiredOk: Boolean,
         /** 끝나는 사건 뒤 실제 복원 job 손잡이가 남았는가. */
         val restoreJobLeft: Boolean,
+        /** unsubscribe 가 CHARACTERISTIC_NOT_FOUND 진단을 냈는가(탐색 전엔 resolve 할 목록이 없다 — 거짓 진단). */
+        val notFoundDiagnostic: Boolean,
     )
 
     private fun runCell(mode: Mode, phase: Phase, event: Event): Observed {
@@ -175,6 +178,7 @@ class SetupPhaseMatrixTest {
                 Event.Close -> { closedAt = h.states(id).size; h.close() }
                 Event.AdapterOff -> { h.fake.setAdapter(AdapterState.PoweredOff); runCurrent() }
                 Event.LinkLoss -> { h.fake.linkLoss(id, 8); runCurrent() }
+                Event.LinkLossStatus0 -> { h.fake.linkLoss(id, 0); runCurrent() }
                 Event.SubscribeOther -> commandResult = h.subscribe(id, other)?.let(::describe) ?: "pending"
                 Event.Unsubscribe -> {
                     val job = async { runCatching { h.session(id).unsubscribe(ref) } }
@@ -182,7 +186,7 @@ class SetupPhaseMatrixTest {
                     commandResult = if (job.isCompleted) describe(job.getCompleted()) else "pending"
                 }
             }
-            val terminal = event in setOf(Event.Disconnect, Event.Close, Event.AdapterOff, Event.LinkLoss)
+            val terminal = event in setOf(Event.Disconnect, Event.Close, Event.AdapterOff, Event.LinkLoss, Event.LinkLossStatus0)
             val descriptorsAtEnd = count(h, "descriptor")
             if (terminal) h.advancePastAllDeadlines()
             val desired = h.core.registry.get(id)?.subscriptionState?.desiredSnapshot
@@ -215,6 +219,9 @@ class SetupPhaseMatrixTest {
                 activeLeak = activeLeak,
                 desiredOk = desiredOk,
                 restoreJobLeft = terminal && h.core.linkSetup.restoreJob(session) != null,
+                notFoundDiagnostic = event == Event.Unsubscribe &&
+                    h.events.filterIsInstance<OfficialBleClientEvent.Diagnostic>()
+                        .any { it.failure.code.value == "CHARACTERISTIC_NOT_FOUND" },
             )
             if (event != Event.Close) h.close()
         }
@@ -231,7 +238,7 @@ class SetupPhaseMatrixTest {
      * - disconnect → Requested(아직 끝나지 않은 generation), close → ClientClosed, 어댑터 꺼짐 → Failed(ADAPTER_UNAVAILABLE).
      * - 붙은 뒤 처리 중 링크 끊김 → Failed(LINK_FAILED) 로 handle 을 닫는다. autoReconnect=false 첫 연결,
      *   플랫폼 재연결 generation(plan B 결정 A), autoReconnect 세션의 첫 연결 모두 같다 — Ready 전 실패는
-     *   OS 대기(Recovering)로 돌아가지 않는다.
+     *   OS 대기(Recovering)로 돌아가지 않는다. status 0 해제도 같다(MED-2).
      * - 끝나는 사건은 handle 을 정확히 한 번 닫고, 끝난 뒤 복원 CCCD write 는 없다.
      * - subscribe(다른 ref) 는 Ready 가 아니므로 NOT_READY 로 거절되고 단계는 그대로다(대기열에 넣지 않는다).
      * - unsubscribe 는 탐색·MTU 대기 중엔 즉시 끝나고 원하는 구독에서 지운다. 복원 CCCD 가 걸려 있으면
@@ -244,6 +251,7 @@ class SetupPhaseMatrixTest {
         Event.Close -> Expected("Disconnected(ClientClosed)", 1)
         Event.AdapterOff -> Expected("Disconnected(ADAPTER_UNAVAILABLE)", 1)
         Event.LinkLoss -> Expected("Disconnected(LINK_FAILED)", 1)
+        Event.LinkLossStatus0 -> Expected("Disconnected(LINK_FAILED)", 1)
         Event.SubscribeOther -> Expected(phaseState(phase), 0, "NOT_READY")
         Event.Unsubscribe -> Expected(phaseState(phase), 0, if (phase == Phase.Restoring) "pending" else "ok")
     }
@@ -269,6 +277,7 @@ class SetupPhaseMatrixTest {
             if (observed.descriptorsAfterEnd != 0) mismatches += "$cell: 끝난 뒤 복원 CCCD write ${observed.descriptorsAfterEnd}회"
             if (observed.commandResult != want.commandResult) mismatches += "$cell: 명령 결과 ${observed.commandResult} (기대 ${want.commandResult})"
             if (observed.desiredOk.not()) mismatches += "$cell: 원하는 구독 집합이 명령 결과와 맞지 않음"
+            if (observed.notFoundDiagnostic) mismatches += "$cell: unsubscribe 가 CHARACTERISTIC_NOT_FOUND 진단을 냄"
             if (observed.restoreJobLeft) mismatches += "$cell: 끝난 뒤 복원 job 손잡이가 남음"
             if (observed.activeLeak) mismatches += "$cell: Ready/Configuring 아닌데 activeSubscriptions 남음"
             if (observed.violations.isNotEmpty()) mismatches += "$cell: 불변식 위반 ${observed.violations}"
@@ -325,5 +334,38 @@ class SetupPhaseMatrixTest {
             if (h.core.linkSetup.restoreJob(session) != null) fail("$path 뒤 복원 job 손잡이가 남음")
             if (!close) h.close()
         }
+    }
+
+    /**
+     * 복원 중 해제(LOW-7) — A 복원 CCCD 가 걸린 사이 사용자가 B 를 해제하면, 뒤이은 복원 루프가
+     * B 를 다시 켜면 안 된다. 기기에 남는 B 의 마지막 CCCD 는 끄기이고 activeSubscriptions 는 {A} 다.
+     */
+    @Test
+    fun `복원 중 해제한 구독은 복원 루프가 다시 켜지 않는다`() = runTest {
+        val h = harness(config)
+        h.fake.services = listOf(serviceSnapshot())
+        h.connectToReady(id, auto)
+        for (r in listOf(ref, other)) {
+            val result = h.subscribe(id, r)
+            if (result == null || result.isFailure) fail("전제 실패: subscribe($r) 가 성공하지 않음 ($result)")
+        }
+        h.fake.linkLoss(id, 8)
+        runCurrent()
+        if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: Recovering 아님 ${h.states(id)}")
+        h.fake.onDescriptorWrite = CallbackVariant.Late(config.operationTimeoutMillis / 2)
+        h.fake.emitConnectionState(id, BluetoothProfile.STATE_CONNECTED, 0)
+        repeat(5) { runCurrent() }
+        if (h.fake.cccdWrites.last() != (ref to true)) fail("전제 실패: A 복원 CCCD 대기 아님 ${h.fake.cccdWrites}")
+        h.fake.onDescriptorWrite = CallbackVariant.Arrive()
+        val job = async { runCatching { h.session(id).unsubscribe(other) } }
+        runCurrent()
+        testScheduler.advanceTimeBy(config.operationTimeoutMillis.toLong())
+        repeat(10) { runCurrent() }
+        if (!job.isCompleted) fail("unsubscribe 가 끝나지 않음")
+        val lastOther = h.fake.cccdWrites.last { it.first == other }
+        if (lastOther.second) fail("B 의 마지막 CCCD 가 켜기 ${h.fake.cccdWrites}")
+        val active = h.session(id).activeSubscriptions.value
+        if (active != setOf(ref)) fail("activeSubscriptions $active (기대 {A}) states=${h.states(id)}")
+        h.close()
     }
 }

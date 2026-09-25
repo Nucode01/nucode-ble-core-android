@@ -90,7 +90,6 @@ private class QueuedCccdWrite(
     override val generation: Long,
     val charRef: CharacteristicRef,
     val enabled: Boolean,
-    val restore: Boolean = false,
     descriptorIdentity: GattDescriptorIdentity,
 ) : GattOperation<Unit>, StartTrackedGattOperation {
     private var resolvedIdentity: GattDescriptorIdentity = descriptorIdentity
@@ -351,15 +350,6 @@ internal class GattOperationEngine(
      * 하염없다. [unsubscribe](끄는 방향, D8 best-effort)와 비대칭인 이유가 이것이다.
      */
     suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
-        subscribe(deviceId, charRef, restore = false)
-    }
-
-    /** Internal lifecycle path. It shares the FIFO but its timeout may recover via reconnect. */
-    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) {
-        subscribe(deviceId, charRef, restore = true)
-    }
-
-    private suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef, restore: Boolean) {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
@@ -380,13 +370,18 @@ internal class GattOperationEngine(
                 generation = session.gattOperationScheduler.currentGeneration,
                 charRef = charRef,
                 enabled = true,
-                restore = restore,
                 descriptorIdentity = identity,
             ),
         )
         startNextOperation(session)
         awaitAfterStart(session, scheduled, ackTimeoutMillis)
     }
+
+    /**
+     * LinkSetup 복원 경로. [subscribe] 와 같은 FIFO·같은 실패 처리다 — timeout 으로 poison 되면
+     * [GattConnectionLifecycle.terminateForOperationInvalidation] 이 handle 을 닫고 세션을 끝낸다(재연결로 회복하지 않는다).
+     */
+    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = subscribe(deviceId, charRef)
 
     /**
      * 구독 해제 — D8 best-effort(plan design decisions v1, review L-1). `subscribe` 와
@@ -401,7 +396,12 @@ internal class GattOperationEngine(
     suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
         val session = registry.get(deviceId) ?: return
         // 링크가 없으면 끄는 방향은 로컬 해제만으로 달성된다(BleRuntime.unsubscribe KDoc).
-        if (session.connectionCoordinator.stage == ConnectionStage.Disconnected ||
+        // 서비스 탐색이 끝나기 전(Connecting·DiscoveringServices)엔 resolve 할 목록이 없다 — 켜진 CCCD 도
+        // 아직 없으므로 로컬 해제로 충분하고, CHARACTERISTIC_NOT_FOUND 진단을 내면 거짓이다.
+        val stage = session.connectionCoordinator.stage
+        if (stage == ConnectionStage.Disconnected ||
+            stage == ConnectionStage.Connecting ||
+            stage == ConnectionStage.DiscoveringServices ||
             session.gattOperationScheduler.isPoisoned
         ) return
         val characteristicIdentity = when {
@@ -577,10 +577,10 @@ internal class GattOperationEngine(
         } else {
             GattFailureFactory.operationInvalidated(session, scheduled)
         }
-        val suppressReconnect = (scheduled.operation as? QueuedCccdWrite)?.restore != true
         // poison 꼬리(plan §접근·§잠재 에러) — completeCleanup이 driver.disconnect/close보다
         // 먼저다(callback 동기 재진입 대비). 순서는 lifecycle.terminateForOperationInvalidation이 보존한다.
-        lifecycle.terminateForOperationInvalidation(session, invalidationCause, suppressReconnect)
+        // handle 을 항상 닫으므로 복원 CCCD 도 재연결 대상이 아니다 — 모든 operation 이 suppressReconnect 다.
+        lifecycle.terminateForOperationInvalidation(session, invalidationCause, suppressReconnect = true)
     }
 
     /** Lifecycle 종료가 pending/queued waiter를 callback 없이 유한 종결하는 단일 경로. */

@@ -103,6 +103,7 @@ class FailureRouteVerificationTest {
         const val SCAN = "kr.co.nucode.ble.ScanContractTest"
         const val TERMINAL_CAUSE = "kr.co.nucode.ble.internal.TerminalCauseLifecycleTest"
         const val INFO = "kr.co.nucode.ble.FailureRouteInfoDeliveryTest"
+        const val AUTO_REDISCOVERY = "kr.co.nucode.ble.harness.AutoReconnectRediscoveryTest"
 
         /** "CODE | context" → "fqcn#JVM 메서드 이름". */
         val ROUTE_VERIFIED_BY: Map<String, String> = mapOf(
@@ -142,9 +143,11 @@ class FailureRouteVerificationTest {
                 "$ACTIVE#restore non-BleException INTERNAL_TRANSPORT_ERROR keeps ref out of active with event",
             "LINK_FAILED | link lifecycle (link status callback)" to
                 "$DELIVERY#link status callback LINK_FAILED publishes Disconnected Failed and Diagnostic",
+            "LINK_START_FAILED | adapter return relink start" to
+                "$AUTO_REDISCOVERY#g 어댑터 복귀 재연결 시작 실패는 LINK_START_FAILED Diagnostic 을 남기고 Disconnected(Failed) 로 끝난다",
             "LINK_START_FAILED | connect command" to
                 "$DELIVERY#connect start rejection LINK_START_FAILED throws and terminalizes state",
-            "LINK_TIMEOUT | link lifecycle (link deadline, 재연결 시도 포함)" to
+            "LINK_TIMEOUT | link lifecycle (link deadline)" to
                 "$DELIVERY#link deadline LINK_TIMEOUT publishes Disconnected Failed and Diagnostic",
             "NOT_CONNECTED | read/write/subscribe command" to
                 "$DELIVERY#read without platform handle throws NOT_CONNECTED",
@@ -152,6 +155,8 @@ class FailureRouteVerificationTest {
                 "$ACTIVE#restore without platform handle NOT_CONNECTED keeps ref out of active with event",
             "NOT_READY | read/write/subscribe command" to
                 "$WIRING#Slice2 public read write subscribe는 Configuring에서 driver start 전에 거부된다",
+            "OPERATION_INVALIDATED | connect command (user disconnect during rediscovery)" to
+                "$AUTO_REDISCOVERY#f 재발견 대기 중 disconnect 는 재발견을 즉시 끝내고 Disconnected(Requested) 뒤 새 connect 를 받는다",
             "OPERATION_INVALIDATED | read/write/subscribe command" to
                 "$WIRING#Slice1 public read started caller cancellation은 generation을 poison한다",
             "OPERATION_INVALIDATED | caller cancellation of started operation" to
@@ -162,6 +167,8 @@ class FailureRouteVerificationTest {
                 "$DELIVERY#queued read cut by caller timeout throws OPERATION_TIMEOUT",
             "OPERATION_TIMEOUT | subscription restore" to
                 "$ACTIVE#restore CCCD ack timeout OPERATION_TIMEOUT publishes Disconnected Failed with event",
+            "PERIPHERAL_NOT_FOUND | connect rediscovery not found (autoReconnect fallback)" to
+                "$AUTO_REDISCOVERY#a cold autoReconnect 첫 연결에서 광고가 없으면 PERIPHERAL_NOT_FOUND Diagnostic 뒤 OS 대기로 Connecting 에 남는다",
             "PERIPHERAL_NOT_FOUND | connect command (rediscovery not found)" to
                 "kr.co.nucode.ble.internal.GattBridgeRediscoveryTest#NotFound 는 fail-fast 로 PERIPHERAL_NOT_FOUND 를 던지고 driver connect 를 부르지 않는다",
             "PERMISSION_DENIED | command adapter preflight" to

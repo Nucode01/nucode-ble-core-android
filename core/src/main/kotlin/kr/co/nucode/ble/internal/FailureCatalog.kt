@@ -104,7 +104,7 @@ internal object FailureCatalog {
         FailureSpec(
             "DISCONNECT_START_FAILED",
             listOf(
-                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:disconnect, GattConnectionLifecycle.kt:beginCleanup"),
+                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:disconnect, GattConnectionLifecycle.kt:beginCleanup, GattConnectionLifecycle.kt:endPlatformWait(OS 대기 취소 — 사용자 해제·close·어댑터 꺼짐)"),
                 Route("internal cleanup (timeout/discovery/link/permission)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:beginCleanup"),
             ),
         ),
@@ -168,12 +168,13 @@ internal object FailureCatalog {
             "LINK_START_FAILED",
             listOf(
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
+                Route("adapter return relink start", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:resumeAfterAdapter(connect 즉시 실패 → Disconnected(Failed) + Warning Diagnostic, 던질 호출자 없음)"),
             ),
         ),
         FailureSpec(
             "LINK_TIMEOUT",
             listOf(
-                Route("link lifecycle (link deadline, 재연결 시도 포함)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline"),
+                Route("link lifecycle (link deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline"),
             ),
         ),
         FailureSpec(
@@ -195,6 +196,7 @@ internal object FailureCatalog {
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:invalidateScheduledOperations, OperationQueue.kt:write"),
                 Route("caller cancellation of started operation", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe"),
+                Route("connect command (user disconnect during rediscovery)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattConnectionLifecycle.kt:disconnect(Scanner.kt:endRediscovery) → GattConnectionLifecycle.kt:connect(재발견 뒤 종결 판정, Disconnected(Requested) 는 그대로)"),
             ),
         ),
         FailureSpec(
@@ -209,7 +211,8 @@ internal object FailureCatalog {
         FailureSpec(
             "PERIPHERAL_NOT_FOUND",
             listOf(
-                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
+                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "GattConnectionLifecycle.kt:connect(autoConnect 아님), BleRuntime.kt:connect"),
+                Route("connect rediscovery not found (autoReconnect fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:connect(autoConnect — Warning Diagnostic 뒤 connectGatt(autoConnect = true) OS 대기)"),
             ),
         ),
         FailureSpec(

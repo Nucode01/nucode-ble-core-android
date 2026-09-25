@@ -20,4 +20,7 @@ internal sealed interface RediscoveryOutcome {
  */
 internal fun interface PeripheralRediscovery {
     suspend fun rediscover(deviceId: PeripheralId, timeoutMillis: Long): RediscoveryOutcome
+
+    /** Ends any pending [rediscover] for [deviceId] now with [outcome] (e.g. the connect was cancelled by disconnect). */
+    fun endRediscovery(deviceId: PeripheralId, outcome: RediscoveryOutcome) = Unit
 }

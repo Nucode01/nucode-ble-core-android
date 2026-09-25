@@ -1,5 +1,8 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.BleConnectOptions
+import kr.co.nucode.ble.BleException
+import kotlinx.coroutines.async
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -73,10 +76,14 @@ class ScannerRediscoveryEndToEndTest {
     @Test
     fun `재발견 대기 중 close - 플랫폼 스캔을 멈춘다`() = runTest {
         val h = harness(scannerRediscovery = true)
-        h.connect(id)
+        val session = h.session(id)
+        // plan cross-review-fixes LOW-1 — 재발견 중 close 로 끝난 연결 명령은 CLIENT_CLOSED 로 끝난다.
+        val connect = async { runCatching { session.connect(BleConnectOptions()) } }
+        runCurrent()
         assertEquals(1, h.fake.scanStarts.size)
         assertEquals(0, h.fake.scanStops)
         h.close()
         assertEquals(1, h.fake.scanStops)
+        assertEquals("CLIENT_CLOSED", (connect.await().exceptionOrNull() as? BleException)?.failure?.code?.value)
     }
 }

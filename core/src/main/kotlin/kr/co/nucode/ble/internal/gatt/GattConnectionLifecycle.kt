@@ -21,6 +21,7 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.connection.LinkSetup
@@ -356,6 +357,7 @@ internal class GattConnectionLifecycle(
                 val preReadyFailure = coordinator.stage != ConnectionStage.Ready &&
                     coordinator.stage != ConnectionStage.Disconnecting
                 // Ready 전 실패는 첫 연결이든 플랫폼 재연결 generation 이든 handle 을 닫는다(review H3 결정 A).
+                // status 0 인 Ready 전 해제도 같은 규칙이다 — 아래 성공 status 의 STATE_DISCONNECTED 가지(MED-2).
                 val suppressReconnect = preReadyFailure
                 val failureReason = if (preReadyFailure) {
                     TerminalCleanupReason.LinkStatusFailure
@@ -400,6 +402,18 @@ internal class GattConnectionLifecycle(
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    // status 0 이어도 Ready 전(Connecting..Configuring) 해제는 링크 실패다 — OS 대기로 돌아가지 않고
+                    // handle 을 닫는다(결정 A, MED-2). 원인은 원인 없는 해제 매핑(LINK_FAILED)이 채운다.
+                    // Disconnecting 은 사용자 해제 경로라 제외한다.
+                    val stage = coordinator.stage
+                    if (
+                        callbackGeneration == coordinator.generation &&
+                        stage != ConnectionStage.Ready &&
+                        stage != ConnectionStage.Disconnecting &&
+                        stage != ConnectionStage.Disconnected
+                    ) {
+                        session.suppressReconnect = true
+                    }
                     // 고정된 원인을 지우지 않는다 — beginCleanup 이 고정한 원인이 fallback 을 이긴다.
                     completeLifecycleCleanup(
                         session = session,
@@ -574,7 +588,11 @@ internal class GattConnectionLifecycle(
      */
     fun admitConnect(session: Session, options: ConnectOptions): ConnectAdmission {
         return when (session.stage) {
-            ConnectionStage.Disconnecting -> ConnectAdmission.Conflict(code = "CONNECT_DURING_DISCONNECT")
+            ConnectionStage.Disconnecting -> ConnectAdmission.Conflict(
+                code = "CONNECT_DURING_DISCONNECT",
+                // 정리는 곧 끝난다(Disconnected) — 그 뒤 다시 걸면 된다.
+                retryability = Retryability.TransientMayHelp,
+            )
 
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -583,13 +601,13 @@ internal class GattConnectionLifecycle(
             -> if (session.hasSameEffectiveConnectOptions(options)) {
                 ConnectAdmission.Joined
             } else {
-                ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT")
+                ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT", retryability = Retryability.Never)
             }
 
             ConnectionStage.Disconnected -> when {
                 !session.awaitingPlatformRelink -> ConnectAdmission.Proceed
                 session.hasSameEffectiveConnectOptions(options) -> ConnectAdmission.Joined
-                else -> ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT")
+                else -> ConnectAdmission.Conflict(code = "CONNECTION_OPTIONS_CONFLICT", retryability = Retryability.Never)
             }
         }
     }
@@ -629,6 +647,8 @@ internal class GattConnectionLifecycle(
      *
      * cold-cache 재발견: [linkCacheWarm] 이 이 주소를 모른다고 하면 `driver.connect()` 앞에
      * [rediscovery] 로 주소 필터 스캔 1회를 선행해 BT 재시작으로 비워진 스택 캐시를 채운다.
+     * 못 찾으면(NotFound) autoConnect 가 아닐 때만 PERIPHERAL_NOT_FOUND 로 던진다 — autoConnect 는
+     * Diagnostic 을 남기고 OS 대기로 들어간다. 재발견 중 세션이 끝나면 고정된 종결 실패로 던진다.
      */
     suspend fun connect(deviceId: PeripheralId, options: ConnectOptions) {
         try {
@@ -738,12 +758,22 @@ internal class GattConnectionLifecycle(
                         fallback = TerminalCause(TerminalCleanupReason.UserRequested, null),
                     )
                 }
-                return
+                // review LOW-1 — 연결이 시작되지 않았으니 정상 반환하지 않는다. 이 generation 에 고정된 종결 실패로
+                // 던진다. 사용자 disconnect() 로 끝났으면(실패 없음) 이 connect 가 무효화된 것이라 OPERATION_INVALIDATED.
+                // close 로 끝났으면 CLIENT_CLOSED 는 BleRuntime.connect 가 반환 직후 closed 검사로 던진다.
+                val cause = coordinator.terminalCause.takeIf { coordinator.generation == connectionGeneration }
+                cause?.failure?.let { throw BleException(it) }
+                if (cause?.reason == TerminalCleanupReason.ClientClosed) return
+                throw BleException(GattFailureFactory.operationInvalidated(session))
             }
             when (outcome) {
                 RediscoveryOutcome.Found -> Unit
                 is RediscoveryOutcome.Unavailable -> emitDiagnostic(Severity.Warning, outcome.failure) // 폴백: 직접 연결
-                RediscoveryOutcome.NotFound -> {
+                // review HIGH-1 — autoConnect 는 "무기한 대기" 계약이다. 스캔에 안 보였어도 OS 대기(connectGatt
+                // autoConnect = true, deadline 없음)로 들어가고, 못 찾았다는 사실은 Diagnostic 으로만 알린다.
+                RediscoveryOutcome.NotFound -> if (options.autoConnect) {
+                    emitDiagnostic(Severity.Warning, GattFailureFactory.peripheralNotFound(session))
+                } else {
                     val failure = GattFailureFactory.peripheralNotFound(session)
                     session.suppressReconnect = true
                     completeWithoutPublish(
@@ -810,7 +840,7 @@ internal class GattConnectionLifecycle(
     /**
      * 어댑터 복귀 — 어댑터 꺼짐 스윕이 끝낸 autoConnect 세션([Session.relinkAfterAdapter], 사용자 해제·
      * close 가 아직 내리지 않음)에 connectGatt(autoConnect = true) 를 한 번 건다(새 handle). 예약·재시도는
-     * 없다 — 시작이 실패하면 connect 의 즉시 실패 경로가 Disconnected(Failed) 로 끝낸다.
+     * 없다 — 시작이 실패하면 connect 의 즉시 실패 경로가 Disconnected(Failed) 로 끝내고, 그 실패를 Diagnostic 으로 알린다.
      * 전이 관측 경로가 명령 안(ensureAdapterReady)일 수도 있으므로 코어 디스패처에 한 홉 미룬 뒤 다시 판정한다
      * — 세션 조건과 함께 어댑터가 아직 Ready 인지([adapterReady])도 본다.
      */
@@ -823,8 +853,10 @@ internal class GattConnectionLifecycle(
             if (!adapterReady()) return@launch
             try {
                 connect(deviceId, ConnectOptions(autoConnect = true, requestedMtu = session.requestedMtu))
-            } catch (_: BleException) {
-                // 시작 실패는 connect 가 이미 종결·게시했다(재연결 대상 아님) — 재던진 예외만 삼킨다.
+            } catch (e: BleException) {
+                // 시작 실패는 connect 가 이미 종결·게시했다(재연결 대상 아님). 던질 호출자가 없으니
+                // Diagnostic 으로 알린다(review MED-1 — 조용히 삼키지 않는다).
+                emitDiagnostic(Severity.Warning, e.failure)
             }
         }
     }
@@ -883,6 +915,10 @@ internal class GattConnectionLifecycle(
             cause = null,
             suppressReconnect = true,
         )
+        // review LOW-4 — connect 가 cold-cache 재발견을 기다리는 중이면 그 재발견을 지금 끝낸다. gatt 가 없어
+        // 플랫폼 콜백이 오지 않으니, 끝내지 않으면 rediscoveryMillis 까지 Disconnecting·스캔이 남는다.
+        // 재발견 resume 이 Disconnecting 을 보고 정리를 마친다(connect 의 재발견 뒤 판정).
+        if (session.gatt == null) rediscovery?.endRediscovery(deviceId, RediscoveryOutcome.NotFound)
     }
 
     /**
@@ -1071,6 +1107,6 @@ internal sealed interface ConnectAdmission {
     /** 같은 effective options 로 이미 진행·대기 중 — 기존 연결·대기에 합류한다(no-op). */
     data object Joined : ConnectAdmission
 
-    /** 충돌 — 호출자가 [code] 로 실패를 만들어 게시하고 던진다. */
-    data class Conflict(val code: String) : ConnectAdmission
+    /** 충돌 — 호출자가 [code]·[retryability] 로 실패를 만들어 게시하고 던진다. */
+    data class Conflict(val code: String, val retryability: Retryability) : ConnectAdmission
 }

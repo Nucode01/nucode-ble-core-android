@@ -233,7 +233,7 @@ class GattBridgeRediscoveryTest {
     }
 
     @Test
-    fun `재발견 대기 중 disconnect 가 generation 을 끝내면 driver connect 는 불리지 않고 예외도 없다`() = runTest {
+    fun `재발견 대기 중 disconnect 가 generation 을 끝내면 driver connect 는 불리지 않고 OPERATION_INVALIDATED 로 끝난다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:06")
         registry.getOrCreate(deviceId)
@@ -251,7 +251,7 @@ class GattBridgeRediscoveryTest {
             linkCacheWarm = { false },
         )
 
-        val connectJob = async { bridge.connect(deviceId, ConnectOptions()) }
+        val connectJob = async { runCatching { bridge.connect(deviceId, ConnectOptions()) } }
         runCurrent()
         assertEquals(1, rediscovery.calls.size)
         assertTrue(driver.connectCalls.isEmpty())
@@ -267,7 +267,9 @@ class GattBridgeRediscoveryTest {
 
         deferred.complete(RediscoveryOutcome.Found)
         runCurrent()
-        connectJob.await()
+        // plan cross-review-fixes LOW-1 — 재발견 중 사용자 해제로 끝난 연결 명령은 정상 반환하지 않고 무효화로 끝난다.
+        val thrown = connectJob.await().exceptionOrNull()
+        assertEquals("OPERATION_INVALIDATED", (thrown as? BleException)?.failure?.code?.value)
 
         assertTrue(driver.connectCalls.isEmpty())
         assertFalse(deferred.isCancelled)

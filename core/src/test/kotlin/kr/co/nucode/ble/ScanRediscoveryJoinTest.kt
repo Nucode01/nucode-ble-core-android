@@ -62,6 +62,22 @@ class ScanRediscoveryJoinTest {
     private fun TestScope.rediscover(scanner: Scanner, id: PeripheralId = target, timeout: Long = 1_000): Deferred<RediscoveryOutcome> =
         async { scanner.rediscover(id, timeout) }.also { runCurrent() }
 
+    /** review MED-3 — 한 디스패처 턴의 재발견 등록 N 개(예: 어댑터 복귀로 autoReconnect 세션 N 개 재연결)는 플랫폼 시작 1회로 합친다. */
+    @Test
+    fun `같은 턴의 재발견 등록 여러 개는 합집합으로 한 번만 시작한다`() = runTest {
+        val scanner = newScanner()
+        val third = PeripheralId("AA:BB:CC:DD:EE:03")
+        val outcomes = listOf(target, other, third).map { id -> async { scanner.rediscover(id, 1_000) } }
+        runCurrent()
+        assertEquals(PlatformScanSpec(null, setOf(target, other, third), BleScanMode.LowLatency), port.starts.single().spec)
+        port.starts.single().onResult(observation(other))
+        runCurrent()
+        assertEquals(RediscoveryOutcome.Found, outcomes[1].await())
+        assertEquals("남은 재발견이 있으면 재시작하지 않는다", 1, port.starts.size)
+        outcomes.forEach { it.cancel() }
+        runCurrent()
+    }
+
     @Test
     fun `사용자 스캔 없음 - 주소만 LowLatency 로 시작하고 Found 뒤 정지한다`() = runTest {
         val scanner = newScanner()

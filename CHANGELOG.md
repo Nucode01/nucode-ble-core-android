@@ -49,6 +49,10 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- `autoReconnect = true` 연결에서 캐시에 없는 주소를 찾는 짧은 스캔이 기기를 못 찾으면(또는 스캔을 쓸 수 없으면) `Diagnostic(Warning, PERIPHERAL_NOT_FOUND)`(스캔 실패는 그 실패)를 남기고 OS 대기(`Connecting`, 기한 없음)로 들어간다. 이전에는 앱 재시작 뒤 첫 연결이나 어댑터 복귀 재연결이 약 3초 뒤 `Disconnected(Failed(PERIPHERAL_NOT_FOUND))` 로 끝났다. `autoReconnect = false` 는 그대로 `PERIPHERAL_NOT_FOUND` 로 던진다.
+- 어댑터 복귀 재연결의 시작 실패를 조용히 삼키던 것을 고쳤다 — `Disconnected(Failed(원인))` 과 함께 `Diagnostic(Warning, 원인)` 이 나온다.
+- 기기 탐색 스캔을 기다리는 중 세션이 끝나면(어댑터 꺼짐·`close()`·`disconnect()`) `connect()` 가 정상 반환하던 것을 고쳤다. 이제 그 종결 실패(`ADAPTER_UNAVAILABLE`·`CLIENT_CLOSED` 등, 사용자 `disconnect()` 면 `OPERATION_INVALIDATED`)로 던진다. 그 중 `disconnect()` 는 탐색 스캔을 즉시 끝내 바로 `Disconnected(Requested)` 가 된다(이전에는 스캔 시간 초과까지 `Disconnecting` 에 남았다).
+- 정리 중 `connect()` 의 `CONNECT_DURING_DISCONNECT` retryability 가 `Never` 에서 `TransientMayHelp` 로 바뀌었다 — 정리가 끝난 뒤 다시 걸면 된다.
 - `autoReconnect = true` 세션에서 OS 재연결 뒤 Ready 전에 실패(서비스 탐색·구성 실패·단계 시간 초과·구독 복원 시간 초과)하면 handle 을 닫고 `Disconnected(Failed(원인))` 로 끝난다(첫 연결 실패와 같은 규칙). 이전에는 handle 이 닫혔는데도 `Recovering` 에 남아 `disconnect()` 로도 벗어나지 못했다. 사용자 해제 중 어댑터가 꺼졌다 켜지면 그 세션을 다시 연결하던 것도 고쳤다.
 - 연결 상태 콜백의 status 를 GATT 작업 status 표로 해석해 링크 끊김(8, 연결 타임아웃)이 `GATT_INSUFFICIENT_AUTHORIZATION`·`AfterEnvironmentChange` 로 보이던 것을 고쳤다. 이제 `LINK_FAILED` 의 `symbolicName` 은 `GATT_CONN_*` 이고 retryability 는 `Unknown`(0x05 인증 실패만 `AfterEnvironmentChange`).
 - 링크가 끊긴 뒤 플랫폼이 스스로 다시 연결(autoConnect 등)하면 구독은 복원되는데 `activeSubscriptions` 가 비어 있던 것을 고쳤다.

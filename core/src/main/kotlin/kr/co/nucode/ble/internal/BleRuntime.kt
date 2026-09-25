@@ -541,7 +541,7 @@ internal class BleRuntime private constructor(
                     ConnectAdmission.Proceed -> Unit
                     ConnectAdmission.Joined -> return@onCore
                     is ConnectAdmission.Conflict ->
-                        emitConnectConflict(deviceId = deviceId, code = admission.code)
+                        emitConnectConflict(deviceId = deviceId, code = admission.code, retryability = admission.retryability)
                 }
             }
 
@@ -549,6 +549,8 @@ internal class BleRuntime private constructor(
             if (existing == null) registry.getOrCreate(deviceId)
             // 시작 실패의 종결·게시·suppressReconnect 는 lifecycle connect 가 끝낸 뒤 같은 BleException 을 재던진다.
             gattBridge.connect(deviceId, options)
+            // review LOW-1 — 재발견 대기 중 close 가 연결을 끝냈으면 정상 반환하지 않는다.
+            if (closed) throw clientClosed()
         }
     }
 
@@ -567,8 +569,8 @@ internal class BleRuntime private constructor(
      * 적용됐다고 오해한다. Slice 3의 typed failure model 전까지는 기존 즉시 실패 관례에 맞춰
      * deterministic IllegalStateException과 Diagnostic을 함께 남긴다.
      */
-    private fun emitConnectConflict(deviceId: PeripheralId, code: String): Nothing {
-        val failure = transportFailure(code, FailurePhase.Connect, deviceId, retryability = Retryability.Never)
+    private fun emitConnectConflict(deviceId: PeripheralId, code: String, retryability: Retryability): Nothing {
+        val failure = transportFailure(code, FailurePhase.Connect, deviceId, retryability = retryability)
         emit(
             diagnostic(
                 Severity.Warning,
@@ -650,8 +652,8 @@ internal class BleRuntime private constructor(
     /**
      * 구독 해제 — D8 best-effort(plan design decisions v1, review L-1). 유일한 throw 는
      * `UNKNOWN_DEVICE` typed failure다. [GattBridge.unsubscribe] 는 더 이상 throw 하지 않는다 —
-     * CCCD write 실패는 Diagnostic 으로만 나간다. desired intent 제거는 그 성패와
-     * 무관하게 항상 실행한다 — 소비자 의도("이벤트 그만")는 로컬 라우팅을 껐다는 사실만으로
+     * CCCD write 실패는 Diagnostic 으로만 나간다. desired intent 제거는 CCCD 해제를 요청하기 전에
+     * 먼저 한다(성패와 무관) — 소비자 의도("이벤트 그만")는 로컬 라우팅을 껐다는 사실만으로
      * 이미 달성된다. [subscribe] 가 여전히 throw 하는 것과 비대칭이다 — 켜는 방향은 실패가
      * 안 보이면 notify 를 하염없이 기다리게 되지만, 끄는 방향은 로컬에서 이미 지웠으므로
      * 잃을 게 없다(규칙 1 — throw 로 소비자에게 재시도 상태 기계를 강제하지 않는다).
@@ -660,11 +662,10 @@ internal class BleRuntime private constructor(
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-            try {
-                gattBridge.unsubscribe(deviceId, charRef)
-            } finally {
-                session.subscriptionState.removeDesired(charRef)
-            }
+            // 의도는 요청 순간 지운다(CCCD 해제 전) — 진행 중인 복원 루프가 이 ref 를 다시 켜지 않게
+            // 매 항목 의도를 재확인한다(LinkSetup, plan cross-review-fixes LOW-7).
+            session.subscriptionState.removeDesired(charRef)
+            gattBridge.unsubscribe(deviceId, charRef)
         }
     }
 

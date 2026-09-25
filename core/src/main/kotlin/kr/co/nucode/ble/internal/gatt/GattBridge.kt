@@ -206,7 +206,7 @@ internal class GattBridge(
 
     suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.subscribe(deviceId, charRef)
 
-    /** Internal lifecycle path. It shares the FIFO but its timeout may recover via reconnect. */
+    /** LinkSetup 복원 경로. subscribe 와 같은 FIFO 이고, timeout 은 handle 을 닫아 세션을 끝낸다(재연결 없음). */
     suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.restoreSubscription(deviceId, charRef)
 
     suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.unsubscribe(deviceId, charRef)

@@ -57,6 +57,9 @@ class ScanObservationDropTest {
             val before = core.droppedEventCount
 
             repeat(3) { onResult(observation) }
+            // 결과 콜백은 코어 스레드로 홉한 뒤 방출된다 — 홉이 끝날 때까지 잠깐 기다린다(경합으로 인한 간헐 실패 방지).
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
+            while (core.droppedEventCount <= before && System.nanoTime() < deadline) Thread.sleep(5)
 
             assertTrue(
                 "scanResults 유실이 집계돼야 한다: before=$before after=${core.droppedEventCount}",

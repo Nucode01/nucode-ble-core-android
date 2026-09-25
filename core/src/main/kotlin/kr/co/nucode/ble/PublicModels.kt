@@ -212,6 +212,10 @@ public sealed interface BleDisconnectReason {
  * 붙이면 첫 연결과 같은 경로(서비스 탐색 → MTU → 구독 복원 → Ready)를 탄다. 첫 연결에도 link
  * deadline 이 없다(OS 가 무기한 기다린다) — 포기는 `disconnect()` 로 한다.
  *
+ * 이 클라이언트가 최근에 본 적 없는(cold) 주소는 연결 전에 짧은 스캔으로 먼저 찾는다. `autoReconnect` 면
+ * 스캔에서 못 찾아도(`Diagnostic(PERIPHERAL_NOT_FOUND)`, 스캔을 못 쓰면 그 실패) 연결은 OS 대기로 이어진다.
+ * `autoReconnect = false` 면 못 찾을 때 `PERIPHERAL_NOT_FOUND` 로 던진다.
+ *
  * - `Recovering` 중 다른 옵션으로 `connect()` 하면 `CONNECTION_OPTIONS_CONFLICT` 로 실패한다(같은 옵션은
  *   대기를 유지하는 no-op). 옵션을 바꾸려면 먼저 `disconnect()` 한 뒤 다시 연결한다.
  * - 어댑터가 꺼져 `Disconnected(Failed(ADAPTER_UNAVAILABLE))` 로 끝난 `autoReconnect` 세션은 어댑터가 다시
@@ -329,13 +333,15 @@ public sealed interface AdapterState {
  *
  * @param operationTimeoutMillis write ack 와 CCCD ack 공용 대기 상한(plan 결정③). 느린 기기·
  * 혼잡 환경이면 늘려라.
- * @param linkTimeoutMillis connect 시작부터 link callback까지의 상한.
+ * @param linkTimeoutMillis connect 시작부터 link callback까지의 상한. autoReconnect 연결은 link
+ * deadline 이 없다(OS 가 기기를 기다린다).
  * @param discoveryTimeoutMillis service discovery callback 대기 상한.
  * @param configurationTimeoutMillis MTU 등 필수 연결 설정 callback 대기 상한.
  * @param disconnectCleanupTimeoutMillis disconnect callback이 누락됐을 때 local cleanup을
  * 강제하는 상한.
  * @param rediscoveryTimeoutMillis Bluetooth 재시작 등으로 플랫폼 LE 캐시가 비어 있을 때 connect
- * 앞에 도는 주소 필터 스캔의 상한. link timeout 안에서 소비된다.
+ * 앞에 도는 주소 필터 스캔의 상한. autoReconnect=false 연결에선 link timeout 안에서 소비되고,
+ * autoReconnect 연결에선 link deadline 이 없어 이 상한만 적용된다.
  */
 public data class BleConfig public constructor(
     public val dispatcher: CoroutineContext? = null,

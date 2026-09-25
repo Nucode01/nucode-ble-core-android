@@ -146,6 +146,7 @@ internal class ClientEventBus(
     // ── 배선 ③ 복원 실패 공개 이벤트 — LinkSetup 에 주입된다 ──
 
     fun emitRestoreFailure(deviceId: PeripheralId, ref: CharacteristicRef, failure: BleFailure) {
+        if (isClosed()) return
         if (!_officialEvents.tryEmit(
                 OfficialBleClientEvent.SubscriptionRestoreFailed(
                     peripheralId = deviceId,

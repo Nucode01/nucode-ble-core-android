@@ -55,6 +55,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     /** null 이 아니면 연결 콜백을 STATE_DISCONNECTED + 이 status 로 낸다(예: 133). */
     var connectFailStatus: Int? = null
 
+    /** null 이 아니면 connect 시작이 이 예외를 던진다(connectGatt 시작 거절 자리). */
+    var connectThrows: Exception? = null
+
     // 근거(가정, 검증 필요): 사용자 disconnect 뒤 Android 는 status 0 STATE_DISCONNECTED 를 한 번 낸다.
     var onDisconnect: CallbackVariant = CallbackVariant.Arrive()
 
@@ -88,6 +91,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     /** 모든 driver 호출 기록 — "connect", "disconnect", "close", "discover", "mtu", "descriptor", "read", "write". */
     val calls: MutableList<String> = mutableListOf()
+
+    /** CCCD write 기록 — (ref, 켜기 여부). 값이 전부 0 이면 끄기다. */
+    val cccdWrites: MutableList<Pair<CharacteristicRef?, Boolean>> = mutableListOf()
 
     // ── 어댑터 ──────────────────────────────────────────────────────────────
 
@@ -211,6 +217,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(코드 주석 GattDriver): 테스트 driver 는 시작 성공 후 null 핸들을 돌려줄 수 있다.
     override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
         calls += "connect"
+        connectThrows?.let { throw it }
         // 근거(production): connectGatt 는 호출마다 새 BluetoothGatt 를 만든다 — 이전(닫히지 않은) handle 의 콜백은 출처가 달라진다.
         epoch++
         scheduleConnection(deviceId, onConnect, connectFailStatus, epoch, afterStartReturns = false)
@@ -270,6 +277,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         calls += "descriptor"
         if (!descriptorStarts) return false
         val ref = descriptorRefs[descriptor]
+        cccdWrites += ref to value.any { it != 0.toByte() }
         val source = sourceAt(epoch)
         schedule(onDescriptorWrite) { status ->
             GattDriverEvent.DescriptorWrite(

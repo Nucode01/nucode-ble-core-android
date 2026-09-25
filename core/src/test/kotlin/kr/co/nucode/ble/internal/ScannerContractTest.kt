@@ -19,6 +19,7 @@ import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -26,7 +27,21 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.BleException
+import kr.co.nucode.ble.AdapterState
+import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.BleScanMode
+import kr.co.nucode.ble.BleScanOptions
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.ScanState
+import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ScannerContractTest {
     private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner { null })
 
@@ -151,5 +166,176 @@ class ScannerContractTest {
             .map { it.invariantSeparatorsPath }
             .toList()
         assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/platform/android/AndroidScanner.kt"), sites)
+    }
+
+    // ── 플랫폼 스캔 시작 한도(plan scan-start-budget) — 30 s 창 + 여유 1 s 안 성공 시작 5회 ──
+
+    private var clock = 0L
+    private val throttlePort = RecordingScanPort()
+    private val throttleEvents = mutableListOf<BleEvent>()
+    private val service = BleUuid(UUID.randomUUID())
+    private val filtered = ScanRequest(BleScanFilter(serviceUuids = listOf(service)), BleScanOptions(BleScanMode.LowPower))
+    private val target = PeripheralId("AA:BB:CC:DD:EE:01")
+
+    private fun CoroutineScope.throttledScanner() =
+        Scanner(throttleEvents::add, this, port = throttlePort, now = { clock })
+
+    /** 사용자 시작·정지로 성공한 플랫폼 시작을 [count] 번 쌓는다. */
+    private fun Scanner.spendStarts(count: Int) = repeat(count) {
+        assertNull(startScan(filtered))
+        stopScan()
+    }
+
+    private fun TestScope.rediscoverAsync(scanner: Scanner) =
+        async { scanner.rediscover(target, 1_000) }.also { runCurrent() }
+
+    @Test
+    fun `30 s 안 6번째 사용자 시작은 플랫폼을 부르지 않고 SCAN_START_THROTTLED 로 거부된다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(5)
+        clock = 30_000
+        val before = scanner.scanState.value
+        val thrown = runCatching { scanner.startScan(filtered.filter, filtered.options) }.exceptionOrNull()
+        val failure = (thrown as BleException).failure
+        assertEquals("SCAN_START_THROTTLED", failure.code.value)
+        assertEquals(FailurePhase.Scan, failure.phase)
+        assertEquals(Retryability.TransientMayHelp, failure.retryability)
+        assertNull(failure.platformDetail)
+        assertEquals(5, throttlePort.starts.size)
+        assertEquals(before, scanner.scanState.value)
+        assertTrue(throttleEvents.any { it is BleEvent.Diagnostic && it.failure.code.value == "SCAN_START_THROTTLED" })
+    }
+
+    @Test
+    fun `창 31 s 가 지나면 다시 시작할 수 있다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(5)
+        clock = 31_001
+        assertNull(scanner.startScan(filtered))
+        assertEquals(6, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `플랫폼이 거절한 시작은 한도에 세지 않는다`() = runTest {
+        val scanner = throttledScanner()
+        throttlePort.onStart = {
+            BleFailure(FailureCategory("scan"), FailureCode("SCAN_START_FAILED"), FailurePhase.Scan, Retryability.Unknown)
+        }
+        repeat(5) { assertEquals("SCAN_START_FAILED", scanner.startScan(filtered)?.code?.value) }
+        throttlePort.onStart = { null }
+        scanner.spendStarts(5)
+        assertEquals(10, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `사용자 스캔 중 한도 초과면 새 재발견만 Unavailable 이고 사용자 스캔은 유지된다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(4)
+        assertNull(scanner.startScan(filtered))
+        val outcome = rediscoverAsync(scanner)
+        val result = outcome.await()
+        assertEquals("SCAN_START_THROTTLED", ((result as RediscoveryOutcome.Unavailable).failure).code.value)
+        assertEquals(5, throttlePort.starts.size)
+        assertEquals(4, throttlePort.stops)
+        assertTrue(throttlePort.running)
+        assertEquals(ScanState.Scanning(filtered), scanner.scanState.value)
+        assertTrue(throttleEvents.none { it is BleEvent.Diagnostic })
+    }
+
+    @Test
+    fun `재발견만 도는 중 한도 초과면 사용자 시작만 거부되고 재발견 스캔은 유지된다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(4)
+        val outcome = rediscoverAsync(scanner)
+        assertEquals(5, throttlePort.starts.size)
+        assertEquals("SCAN_START_THROTTLED", scanner.startScan(filtered)?.code?.value)
+        runCurrent()
+        assertEquals(5, throttlePort.starts.size)
+        assertTrue(throttlePort.running)
+        assertFalse(outcome.isCompleted)
+        assertEquals(ScanState.Idle(null), scanner.scanState.value)
+        outcome.cancel()
+        runCurrent()
+    }
+
+    private val scanAll = ScanRequest(BleScanFilter(), BleScanOptions(BleScanMode.LowLatency))
+
+    @Test
+    fun `창 경계 31_000 ms 는 거부되고 31_001 ms 는 허용된다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(5)
+        clock = 31_000
+        assertEquals("SCAN_START_THROTTLED", scanner.startScan(filtered)?.code?.value)
+        assertEquals(5, throttlePort.starts.size)
+        clock = 31_001
+        assertNull(scanner.startScan(filtered))
+        assertEquals(6, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `도는 스캔이 덮어 재시작하지 않은 재발견은 한도에 세지 않는다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(4)
+        clock = 10_000
+        assertNull(scanner.startScan(scanAll))
+        val outcomes = (1..4).map { n ->
+            async { scanner.rediscover(PeripheralId("AA:BB:CC:DD:EE:1$n"), 1_000) }.also { runCurrent() }
+        }
+        assertEquals(5, throttlePort.starts.size)
+        outcomes.forEach { it.cancel() }
+        runCurrent()
+        scanner.stopScan()
+        clock = 31_001
+        assertNull(scanner.startScan(filtered))
+        assertEquals(6, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `Balanced 전체 사용자 스캔 중 한도 초과면 재발견은 모드를 못 덮어 Unavailable 이다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(4)
+        val balancedAll = ScanRequest(BleScanFilter(), BleScanOptions(BleScanMode.Balanced))
+        assertNull(scanner.startScan(balancedAll))
+        val outcome = rediscoverAsync(scanner)
+        assertTrue(outcome.isCompleted)
+        val result = outcome.await()
+        assertEquals("SCAN_START_THROTTLED", ((result as RediscoveryOutcome.Unavailable).failure).code.value)
+        assertEquals(5, throttlePort.starts.size)
+        assertTrue(throttlePort.running)
+        assertEquals(ScanState.Scanning(balancedAll), scanner.scanState.value)
+    }
+
+    @Test
+    fun `두 Scanner 가 한 ledger 를 공유하면 시작을 합산해 거부한다`() = runTest {
+        val ledger = ScanStartLedger { clock }
+        val otherPort = RecordingScanPort()
+        val first = Scanner(throttleEvents::add, this, port = throttlePort, startLedger = ledger)
+        val second = Scanner({}, this, port = otherPort, startLedger = ledger)
+        first.spendStarts(3)
+        second.spendStarts(2)
+        clock = 30_000
+        assertEquals("SCAN_START_THROTTLED", first.startScan(filtered)?.code?.value)
+        assertEquals(3, throttlePort.starts.size)
+        assertEquals(2, otherPort.starts.size)
+    }
+
+    @Test
+    fun `어댑터 전원 꺼짐 뒤에는 시작 기록이 비워져 시작이 허용된다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(5)
+        scanner.stopForAdapter(AdapterState.PoweredOff)
+        clock = 1_000
+        assertNull(scanner.startScan(filtered))
+        assertEquals(6, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `권한 상실 이탈은 시작 기록을 비우지 않는다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(5)
+        scanner.stopForAdapter(AdapterState.Unauthorized(canRequest = true))
+        clock = 1_000
+        assertEquals("SCAN_START_THROTTLED", scanner.startScan(filtered)?.code?.value)
+        assertEquals(5, throttlePort.starts.size)
     }
 }

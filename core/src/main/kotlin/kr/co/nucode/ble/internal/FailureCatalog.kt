@@ -258,6 +258,13 @@ internal object FailureCatalog {
             ),
         ),
         FailureSpec(
+            "SCAN_START_THROTTLED",
+            listOf(
+                Route("startScan command (start budget exceeded)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← Scanner.kt:reconcile(30 s + 여유 1 s 안 성공 시작 5회 → 플랫폼 호출 없이 거부, 도는 스캔 유지) — ScannerContractTest"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:scheduleReconcile(한도 초과 → 도는 스캔이 덮지 못하는 재발견만) → Unavailable, GattConnectionLifecycle.kt:connect"),
+            ),
+        ),
+        FailureSpec(
             "SCAN_STOPPED_BY_ADAPTER",
             listOf(
                 Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), Scanner.kt:stopForAdapter(scanState=Idle(failure)) — ScanContractTest"),

@@ -665,13 +665,27 @@ class BleHardwareIntegrationTest {
         }
     }
 
+    /**
+     * 스캔 시작 — SCAN_START_THROTTLED(프로세스 공유 시작 한도, 앞 테스트의 시작 포함)면 한도 창이 풀릴 때까지
+     * 기다렸다 1회 재시도한다.
+     */
+    private suspend fun startScanRetryingThrottle(request: ScanRequest) {
+        try {
+            client.startScan(request)
+        } catch (e: BleException) {
+            if (e.failure.code.value != "SCAN_START_THROTTLED") throw e
+            delay(SCAN_START_WINDOW_WAIT_MILLIS)
+            client.startScan(request)
+        }
+    }
+
     private suspend fun discoverPeripheral(): PeripheralId {
         val expectedId = instrumentationArguments().getString(ARG_PERIPHERAL_ID)
         val request = ScanRequest(
             filter = BleScanFilter(serviceUuids = listOf(NUS_SERVICE)),
             options = BleScanOptions(BleScanMode.LowLatency),
         )
-        client.startScan(request)
+        startScanRetryingThrottle(request)
         return try {
             withTimeout(SCAN_TIMEOUT_MILLIS) {
                 client.scanResults.first { result ->
@@ -924,6 +938,8 @@ class BleHardwareIntegrationTest {
     }
 
     private companion object {
+        /** 스캔 시작 한도 창(30 s + 여유 1 s) 이상 — 창이 풀릴 때까지의 대기. */
+        const val SCAN_START_WINDOW_WAIT_MILLIS = 31_000L
         const val ARG_HARDWARE_BLE = "hardwareBle"
         const val ARG_PERIPHERAL_ID = "blePeripheralId"
         const val TAG = "BleHardwareTest"

@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -22,6 +23,7 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
@@ -135,9 +137,23 @@ class AdapterStateBaselineTest {
         withTimeout(10_000) { client.adapterState.first { it is AdapterState.Ready } }
     }
 
+    /**
+     * 스캔 시작 — SCAN_START_THROTTLED(프로세스 공유 시작 한도, 앞 테스트의 시작 포함)면 한도 창이 풀릴 때까지
+     * 기다렸다 1회 재시도한다.
+     */
+    private suspend fun startScanRetryingThrottle(request: ScanRequest) {
+        try {
+            client.startScan(request)
+        } catch (e: BleException) {
+            if (e.failure.code.value != "SCAN_START_THROTTLED") throw e
+            delay(SCAN_START_WINDOW_WAIT_MILLIS)
+            client.startScan(request)
+        }
+    }
+
     private suspend fun discoverPeripheral(): PeripheralId {
         val expectedId = InstrumentationRegistry.getArguments().getString("blePeripheralId")
-        client.startScan(ScanRequest(BleScanFilter(serviceUuids = listOf(NUS_SERVICE)), BleScanOptions(BleScanMode.LowLatency)))
+        startScanRetryingThrottle(ScanRequest(BleScanFilter(serviceUuids = listOf(NUS_SERVICE)), BleScanOptions(BleScanMode.LowLatency)))
         return try {
             withTimeout(20_000) {
                 client.scanResults.first { expectedId == null || it.peripheralId.value.equals(expectedId, ignoreCase = true) }.peripheralId
@@ -152,6 +168,8 @@ class AdapterStateBaselineTest {
     }
 
     private companion object {
+        /** 스캔 시작 한도 창(30 s + 여유 1 s) 이상 — 창이 풀릴 때까지의 대기. */
+        const val SCAN_START_WINDOW_WAIT_MILLIS = 31_000L
         const val TAG = "BleBaseline"
         val NUS_SERVICE = BleUuid(UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e"))
         fun requiredPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

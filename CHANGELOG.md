@@ -8,7 +8,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 ### Breaking changes
 
 - 사용자 `disconnect()` 는 그 세션의 구독 의도를 비운다(v1 계약: 명시적으로 끊은 구독은 복원하지 않는다). 이전에는 다시 `connect()` 하면 이전 구독이 CCCD 까지 복원됐다. 재연결 후 통지가 필요하면 `subscribe()` 를 다시 부른다. 예기치 않은 끊김 뒤 자동 재연결의 복원은 그대로다.
-- `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
+- `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`), 스캔 시작 한도 초과(`SCAN_START_THROTTLED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
 - 라이브러리 재연결 시간표(백오프·예산·소진)를 제거했다. `BleReconnectPolicy`(`Disabled`, `ExponentialBackoff`)와 `BleConnectOptions.reconnectPolicy` 가 없어지고 연결 옵션은 `BleConnectOptions(autoReconnect: Boolean = false)` 하나다. 끊긴 뒤 다시 붙이는 것은 Android autoConnect(`autoReconnect = true`) 또는 앱이 한다.
 - `ConnectionState.Recovering` 은 `Recovering(lastFailure)` 로 줄었다 — `attempt`·`retryAfterMillis` 는 라이브러리 시간표가 없어 제거됐다. `Recovering` 은 이제 `autoReconnect = true` 세션이 OS 재연결을 기다리는 동안만 나온다.
 - 실패 코드 `RECONNECT_ATTEMPT`·`RECONNECT_CONNECT_START_FAILED`·`RECONNECT_EXHAUSTED`·`RECONNECT_GIVE_UP` 과 `FailurePhase.Reconnect` 를 제거했다. 이 코드·phase 로 분기하던 앱은 `Disconnected(Failed)` 의 원 원인 코드(예: `LINK_FAILED`, `LINK_TIMEOUT`)로 옮긴다.
@@ -49,6 +49,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- 30 초 안 6번째 스캔 시작이 `Scanning` 인데 결과가 오지 않던 문제를 고쳤다(Android 는 스캔 시작 한도 초과 거절을 앱에 알리지 않는다). 이제 라이브러리가 성공한 시작을 세어 30 s(+여유 1 s) 안 5회를 넘는 시작을 `SCAN_START_THROTTLED`(`TransientMayHelp`, message 에 다음 시작 가능까지 ms)로 거부한다 — `startScan()` 은 던지고, 재발견 스캔은 `Diagnostic` 과 함께 직접 연결로 진행한다. 도는 스캔은 멈추지 않는다. 시작 기록은 프로세스 단위(여러 `BleClient` 합산, 시계 `elapsedRealtime`)이고 Bluetooth 가 꺼지면 비운다. 한계: 같은 앱이 라이브러리 밖에서 한 스캔 시작은 셀 수 없고, 한도 값은 Android 버전·OEM 마다 다를 수 있다.
 - 서비스 탐색이 `GATT_SUCCESS` 인데 서비스 0개면 `Diagnostic(Error)` 와 함께 `Disconnected(Failed(SERVICE_DISCOVERY_FAILED))` 로 끝난다(`platformDetail.statusCode` 0, 첫 연결·플랫폼 재연결 모두). 규격상 GAP 은 필수라 빈 목록은 플랫폼 캐시·L2CAP 실패다. 이전에는 빈 토폴로지로 `Ready` 가 됐다.
 - `autoReconnect = true` 연결에서 캐시에 없는 주소를 찾는 짧은 스캔이 기기를 못 찾으면(또는 스캔을 쓸 수 없으면) `Diagnostic(Warning, PERIPHERAL_NOT_FOUND)`(스캔 실패는 그 실패)를 남기고 OS 대기(`Connecting`, 기한 없음)로 들어간다. 이전에는 앱 재시작 뒤 첫 연결이나 어댑터 복귀 재연결이 약 3초 뒤 `Disconnected(Failed(PERIPHERAL_NOT_FOUND))` 로 끝났다. `autoReconnect = false` 는 그대로 `PERIPHERAL_NOT_FOUND` 로 던진다.
 - 어댑터 복귀 재연결의 시작 실패를 조용히 삼키던 것을 고쳤다 — `Disconnected(Failed(원인))` 과 함께 `Diagnostic(Warning, 원인)` 이 나온다.

@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
@@ -517,6 +518,21 @@ class FailureRouteInfoDeliveryTest {
         val f = connectWithRediscovery { _, _ -> RediscoveryOutcome.Unavailable(FailureMapper.scanStartFailed()) }
 
         assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCAN_START_FAILED").isNotEmpty())
+        assertEquals(ConnectionState.Connecting, f.state)
+    }
+
+    @Test
+    fun `rediscovery scan start throttled emits SCAN_START_THROTTLED Diagnostic and falls back to connect`() = runTest {
+        // 운영 재발견 = Scanner 소비자. 같은 시각에 성공한 시작 5회로 한도를 채운 뒤 재발견 시작은 거부된다.
+        val scanner = Scanner({}, backgroundScope, port = RecordingScanPort(), now = { 0L })
+        repeat(5) {
+            scanner.startScan(ScanRequest(BleScanFilter(), BleScanOptions()))
+            scanner.stopScan()
+        }
+        val f = connectWithRediscovery(scanner)
+        runCurrent()
+
+        assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCAN_START_THROTTLED").isNotEmpty())
         assertEquals(ConnectionState.Connecting, f.state)
     }
 

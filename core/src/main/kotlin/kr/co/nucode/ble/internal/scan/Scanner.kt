@@ -25,6 +25,9 @@ import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.Severity
+import kr.co.nucode.ble.internal.scan.ScanStartLedger.Companion.START_BUDGET
+import kr.co.nucode.ble.internal.scan.ScanStartLedger.Companion.START_WINDOW_MARGIN_MILLIS
+import kr.co.nucode.ble.internal.scan.ScanStartLedger.Companion.START_WINDOW_MILLIS
 
 /**
  * 스캔 정책·상태의 소유자이자 플랫폼 스캔의 유일한 사용자(plan scan-owner D2) — 플랫폼 시작·정지는
@@ -35,12 +38,28 @@ import kr.co.nucode.ble.Severity
  *
  * 기기 의존(확인 필요): 사용자 필터 스캔 중 cold-cache 연결의 재발견은 합집합 재시작 1회를 쓴다 — Android 스캔
  * 시작 한도(짧은 구간 안 시작 횟수 제한)에 사용자 스캔과 같이 계산된다.
+ *
+ * 시작 한도(plan scan-start-budget): 성공한 플랫폼 시작 시각을 세어, 최근 [START_BUDGET] 회의 첫 시작이
+ * [START_WINDOW_MILLIS] + [START_WINDOW_MARGIN_MILLIS] 안이면 플랫폼을 부르지 않고 SCAN_START_THROTTLED 로 거부한다.
+ * 근거: AOSP AppScanStats — 최근 5회 시작 중 첫 시작이 30 s 안이면 registerScanner 가 status 6
+ * (SCAN_FAILED_SCANNING_TOO_FREQUENTLY)으로 거절하고, BluetoothLeScanner 는 이를 앱에 알리지 않는다(onScanFailed 없음)
+ * — 실기기 P5(Pixel 5a/Android 14)에서 6번째 시작이 Scanning 인데 결과 0 으로 관측. 여유 1 s 는 라이브러리 시각과
+ * 플랫폼 기록의 차이를 흡수한다. 한계: 한도 값은 AOSP 구현값이라 버전·OEM 마다 다를 수 있고, 같은 앱이 라이브러리
+ * 밖에서 한 스캔은 셀 수 없다 — 한도 안이라는 것이 플랫폼 수락을 보장하지 않는다.
+ * 한도 초과여도 도는 플랫폼 스캔은 멈추지 않는다 — 새로 들어온 소비자만 실패한다([startScan]·[scheduleReconcile]).
  */
 internal class Scanner(
     private val emit: (BleEvent) -> Unit,
     private val scope: CoroutineScope,
     private val emitObservation: (ScanObservation) -> Unit = {},
     private val port: PlatformScanPort,
+    /** 단조 시계(ms) — 기본 [startLedger] 의 시작 한도 창 계산용. 테스트는 가상 시간을 넣는다. */
+    now: () -> Long = { System.nanoTime() / 1_000_000 },
+    /**
+     * 성공한 플랫폼 시작 기록. 기본값은 이 Scanner 전용(테스트 격리) — 운영 생성자 `BleRuntime(context, config)` 만
+     * 프로세스 공유 기록(시계 elapsedRealtime)을 넘긴다(한도는 앱 단위).
+     */
+    private val startLedger: ScanStartLedger = ScanStartLedger(now),
 ) : PeripheralRediscovery {
 
     internal var isScanning: Boolean = false
@@ -76,17 +95,25 @@ internal class Scanner(
         val frozenRequest = ScanRequest(request.filter, request.options)
         // 성공한 reconcile 뒤에만 확정한다 — 실패·예외면 되돌려 사용자 상태가 고착되지 않게 한다.
         activeRequest = frozenRequest
-        val failure = try {
+        val result = try {
             reconcile()
         } catch (e: Exception) {
             activeRequest = null
             throw e
         }
-        if (failure != null) {
-            // 사용자 요청은 등록되지 않는다(scanState 불변). 재시작으로 끊긴 재발견은 같은 실패로 끝난다.
-            activeRequest = null
-            endRediscoveries(failure)
-            return failure
+        when (result) {
+            is ReconcileResult.Throttled -> {
+                // 플랫폼은 건드리지 않았다 — 도는 재발견 스캔은 그대로 두고 사용자 요청만 거부한다(scanState 불변).
+                activeRequest = null
+                return result.failure
+            }
+            is ReconcileResult.StartFailed -> {
+                // 사용자 요청은 등록되지 않는다(scanState 불변). 재시작으로 끊긴 재발견은 같은 실패로 끝난다.
+                activeRequest = null
+                endRediscoveries(result.failure)
+                return result.failure
+            }
+            ReconcileResult.Ok -> Unit
         }
         setScanState(ScanState.Scanning(frozenRequest))
         return null
@@ -131,10 +158,16 @@ internal class Scanner(
         val failure = FailureMapper.fromAdapterState(cause)
             .copy(code = FailureCode("SCAN_STOPPED_BY_ADAPTER"), phase = FailurePhase.Scan)
         stopForAdapter(failure)
+        // 플랫폼 시작 기록이 비워지는 것은 BT off/on 에서만 실측했다(Pixel 5a / Android 14, [ScanStartLedger.clear]).
+        // 권한 상실 등 전원이 살아 있는 이탈에서는 플랫폼 기록이 남을 수 있으므로 비우지 않는다.
+        if (cause == AdapterState.PoweredOff || cause == AdapterState.Resetting) startLedger.clear()
         if (userWasScanning) emit(BleEvent.Diagnostic(Severity.Warning, failure))
     }
 
-    /** 외부 원인 [failure] 로 모든 소비자를 끝낸다(Diagnostic 없음): 사용자 Idle([failure]), 재발견 Unavailable([failure]). */
+    /**
+     * 외부 원인 [failure] 로 모든 소비자를 끝낸다(Diagnostic 없음): 사용자 Idle([failure]), 재발견 Unavailable([failure]).
+     * 시작 기록 비움은 원인을 아는 [stopForAdapter] (AdapterState) 가 정한다.
+     */
     fun stopForAdapter(failure: BleFailure) = endAll(failure)
 
     /**
@@ -163,7 +196,8 @@ internal class Scanner(
     /**
      * 재발견 등록의 (재)시작을 이번 디스패처 턴 끝의 [reconcile] 한 번으로 모은다(review MED-3) — 같은 턴에
      * 등록된 N 개(예: 어댑터 복귀로 재연결되는 autoReconnect 세션 N 개)가 플랫폼 스캔을 N 번 재시작하지 않는다.
-     * 시작 실패는 즉시 reconcile 때와 같이 모든 소비자에게 퍼진다([failConsumers]). 사용자 startScan/stopScan 은
+     * 시작 실패는 즉시 reconcile 때와 같이 모든 소비자에게 퍼진다([failConsumers]). 시작 한도 초과는 도는 스캔이
+     * 덮지 못하는(모드 포함 [covers] 규칙) 재발견만 Unavailable 로 끝낸다(사용자 스캔·Diagnostic 불변). 사용자 startScan/stopScan 은
      * 동기 API 라 지금처럼 즉시 reconcile 한다.
      */
     private fun scheduleReconcile() {
@@ -171,16 +205,20 @@ internal class Scanner(
         reconcileScheduled = true
         scope.launch {
             reconcileScheduled = false
-            val failure = try {
+            val result = try {
                 reconcile()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // 재시작 도중 포트가 던졌으면 도는 플랫폼 스캔이 없다 — 사용자 소비자도 같은 실패로 끝내
                 // Scanning 인데 스캔이 없는 상태를 남기지 않는다.
-                FailureMapper.scanStartFailed()
+                ReconcileResult.StartFailed(FailureMapper.scanStartFailed())
             }
-            failure?.let(::failConsumers)
+            when (result) {
+                is ReconcileResult.Throttled -> endUncoveredRediscoveries(result.failure)
+                is ReconcileResult.StartFailed -> failConsumers(result.failure)
+                ReconcileResult.Ok -> Unit
+            }
         }
     }
 
@@ -210,15 +248,28 @@ internal class Scanner(
     /**
      * 합류 규칙(plan scan-owner 목표 3) — 지금 소비자들이 원하는 spec 을 도는 플랫폼 스캔이 덮으면 그대로 두고,
      * 못 덮을 때만 한 번 정지 → 합집합으로 시작한다. 재시작 동안 [scanState] 는 건드리지 않는다(Idle 깜빡임 없음).
-     * 소비자가 없으면 정지. 반환값은 시작 실패(null = 성공 또는 재시작 불필요) — 소비자 정리는 호출자 몫.
+     * 소비자가 없으면 정지. 시작 한도 판정은 [stopPlatform] 전에 한다 — 초과면 도는 스캔을 그대로 두고 Throttled.
+     * 반환값의 소비자 정리는 호출자 몫.
      */
-    private fun reconcile(): BleFailure? {
+    private fun reconcile(): ReconcileResult {
         val desired = desiredSpec() ?: run {
             stopPlatform()
-            return null
+            return ReconcileResult.Ok
         }
         val current = platformSpec
-        if (current != null && current.covers(desired)) return null
+        if (current != null && current.covers(desired)) return ReconcileResult.Ok
+        // 판정 → 정지·시작 → 성공 기록은 ledger 잠금 안에서 원자적으로 — 공유 기록을 쓰는 다른 클라이언트와 경합하지 않게.
+        var failure: BleFailure? = null
+        val waitMillis = startLedger.tryStart {
+            failure = startPlatform(desired)
+            failure == null
+        }
+        if (waitMillis != null) return ReconcileResult.Throttled(startThrottled(waitMillis))
+        return failure?.let { ReconcileResult.StartFailed(it) } ?: ReconcileResult.Ok
+    }
+
+    /** 도는 스캔을 멈추고 [desired] 로 시작한다 — 반환은 플랫폼 시작 실패(null = 성공). [reconcile] 의 ledger 잠금 안에서만. */
+    private fun startPlatform(desired: PlatformScanSpec): BleFailure? {
         stopPlatform()
         // 시작 시도마다 generation 을 예약한다 — 플랫폼 호출 전에 올려 콜백 람다가 이 값을 캡처한다.
         val startGeneration = scanGeneration + 1
@@ -297,6 +348,17 @@ internal class Scanner(
         }
     }
 
+    /**
+     * 시작 한도 초과 — 도는 플랫폼 스캔이 [covers] 규칙으로 덮지 못하는 재발견만 [failure] 로 끝낸다. 재발견에 필요한
+     * spec 은 그 주소를 포함하고 모드가 LowLatency 이상이다(클래스 KDoc 불변식) — 예: Balanced 전체 스캔은 덮지 못한다.
+     */
+    private fun endUncoveredRediscoveries(failure: BleFailure) {
+        val current = platformSpec
+        rediscoveries
+            .filterNot { current != null && current.covers(PlatformScanSpec(null, setOf(it.deviceId), BleScanMode.LowLatency)) }
+            .forEach { it.outcome.complete(RediscoveryOutcome.Unavailable(failure)) }
+    }
+
     private fun endRediscoveries(failure: BleFailure) {
         rediscoveries.forEach { it.outcome.complete(RediscoveryOutcome.Unavailable(failure)) }
     }
@@ -357,6 +419,27 @@ internal class Scanner(
         phase = FailurePhase.Scan,
         retryability = Retryability.Never,
     )
+
+    private fun startThrottled(waitMillis: Long) = BleFailure(
+        category = FailureCategory("scan"),
+        code = FailureCode("SCAN_START_THROTTLED"),
+        phase = FailurePhase.Scan,
+        retryability = Retryability.TransientMayHelp,
+        platformDetail = null,
+        message = "Platform scan start budget exhausted ($START_BUDGET starts within " +
+            "${START_WINDOW_MILLIS + START_WINDOW_MARGIN_MILLIS} ms); " +
+            "next start possible in $waitMillis ms",
+    )
+
+    /** [reconcile] 결과 — 호출자가 소비자 규칙을 고른다. */
+    private sealed interface ReconcileResult {
+        /** 성공한 시작, 재시작 불필요, 또는 정지. */
+        data object Ok : ReconcileResult
+        /** 플랫폼이 시작을 거절했다(도는 스캔 없음). */
+        data class StartFailed(val failure: BleFailure) : ReconcileResult
+        /** 시작 한도 초과 — 플랫폼을 부르지 않았고 도는 스캔은 그대로다. */
+        data class Throttled(val failure: BleFailure) : ReconcileResult
+    }
 }
 
 /** Android BluetoothAdapter.checkBluetoothAddress 와 같은 형식(대문자 정규형) — scan 패키지는 Android API 를 쓰지 않는다. */

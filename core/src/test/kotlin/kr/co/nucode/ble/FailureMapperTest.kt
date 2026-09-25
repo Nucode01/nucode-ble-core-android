@@ -47,6 +47,20 @@ class FailureMapperGattStatusTest(
 
 class FailureMapperTest {
     @Test
+    fun `empty service discovery is a connection failure with GATT success status`() {
+        val failure = FailureMapper.emptyServiceDiscovery()
+
+        assertEquals(FailureCategory("connection"), failure.category)
+        assertEquals(FailureCode("SERVICE_DISCOVERY_FAILED"), failure.code)
+        assertEquals(FailurePhase.DiscoverServices, failure.phase)
+        assertEquals(Retryability.Unknown, failure.retryability)
+        val detail = failure.platformDetail as PlatformDetail.Android
+        assertEquals("android.bluetooth.gatt.status", detail.domain)
+        assertEquals(0, detail.statusCode)
+        assertEquals("onServicesDiscovered", detail.apiOperation)
+    }
+
+    @Test
     fun `synthetic start rejection does not masquerade as Android status`() {
         val failure = FailureMapper.gattStartRejected(
             phase = FailurePhase.Operation,

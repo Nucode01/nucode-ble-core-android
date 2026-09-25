@@ -195,6 +195,8 @@ class FailureRouteVerificationTest {
                 "$SCAN#i 재시작 뒤 이전 스캔의 늦은 실패는 버리고 Warning Diagnostic 만 남긴다",
             "SCAN_START_FAILED | startScan command (platform start rejected)" to
                 "$SCAN#b 플랫폼 시작 실패는 그 실패를 던지고 Scanning 이 되지 않는다",
+            "SCAN_START_THROTTLED | startScan command (start budget exceeded)" to
+                "kr.co.nucode.ble.internal.ScannerContractTest#30 s 안 6번째 사용자 시작은 플랫폼을 부르지 않고 SCAN_START_THROTTLED 로 거부된다",
             "SCAN_STOPPED_BY_ADAPTER | adapter off sweep" to
                 "$SCAN#f 스캔 중 어댑터가 꺼지면 Idle(SCAN_STOPPED_BY_ADAPTER)",
             "SERVICE_DISCOVERY_FAILED | link lifecycle (discovery status)" to
@@ -252,6 +254,8 @@ class FailureRouteVerificationTest {
                 "$INFO#rediscovery scan runtime failure emits SCAN_RUNTIME_FAILED Diagnostic and falls back to connect",
             "SCAN_START_FAILED | connect rediscovery scan (fallback)" to
                 "$INFO#rediscovery scan start failure emits SCAN_START_FAILED Diagnostic and falls back to connect",
+            "SCAN_START_THROTTLED | connect rediscovery scan (fallback)" to
+                "$INFO#rediscovery scan start throttled emits SCAN_START_THROTTLED Diagnostic and falls back to connect",
         )
 
         /** 기존 fixture 로 발생시킬 수 없어(main seam 추가 금지) 연결하지 못한 route → 사유. 비어 있어야 정상. */

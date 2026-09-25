@@ -265,29 +265,44 @@ class DevicePremiseVerificationTest {
         }
     }
 
-    /** P5 — 30 초 안에 스캔 시작 6 회: 6 번째 시작에서 결과가 오는가. 플랫폼 스로틀링은 기록만 한다. */
-    @Test(timeout = 120_000)
+    /**
+     * P5 — 30 초 안에 스캔 시작 6 회: 6 번째 시작은 라이브러리 시작 한도로 SCAN_START_THROTTLED 를 던져야 한다
+     * (플랫폼은 status 6 거절을 앱에 알리지 않는다). 결과 수·상태·진단은 기록한다.
+     */
+    @Test(timeout = 150_000)
     fun p5ScanStartThrottlingIsRecorded() = runBlocking {
         awaitAdapterReady()
+        // 시작 기록은 프로세스 공유다 — 앞 테스트의 시작이 창에 남아 있으면 처음 5회가 한도에 걸린다.
+        delay(SCAN_START_WINDOW_WAIT_MILLIS)
         val request = ScanRequest(
             filter = BleScanFilter(serviceUuids = listOf(NUS_SERVICE)),
             options = BleScanOptions(BleScanMode.LowLatency),
         )
         val thrownCodes = mutableListOf<String>()
         val idleFailures = mutableListOf<String>()
+        val firstFiveResults = mutableListOf<Int>()
         val t0 = SystemClock.elapsedRealtime()
         repeat(SCAN_START_COUNT - 1) {
+            val startResults = mutableListOf<ScanResult>()
+            val startJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                client.scanResults.collect { synchronized(startResults) { startResults += it } }
+            }
             startScanRecording(request, thrownCodes)
             delay(SHORT_SCAN_MILLIS)
+            startJob.cancel()
             client.stopScan()
+            firstFiveResults += synchronized(startResults) { startResults.size }
             (client.scanState.value as? ScanState.Idle)?.lastFailure?.let { idleFailures += it.code.value }
         }
+        val thrownInFirstFive = thrownCodes.toList()
         val results = mutableListOf<ScanResult>()
         val resultJob = launch(start = CoroutineStart.UNDISPATCHED) {
             client.scanResults.collect { synchronized(results) { results += it } }
         }
         val sixthStartAtMs = SystemClock.elapsedRealtime() - t0
+        val thrownBeforeSixth = thrownCodes.size
         startScanRecording(request, thrownCodes)
+        val sixthThrown = thrownCodes.drop(thrownBeforeSixth)
         delay(FINAL_SCAN_MILLIS)
         val stateDuringSixth = client.scanState.value
         (stateDuringSixth as? ScanState.Idle)?.lastFailure?.let { idleFailures += it.code.value }
@@ -295,6 +310,7 @@ class DevicePremiseVerificationTest {
         client.stopScan()
         premise(
             "P5",
+            "firstFiveResults" to firstFiveResults.joinToString(","),
             "sixthStartAtMs" to sixthStartAtMs,
             "sixthResults" to synchronized(results) { results.size },
             "sixthScanState" to stateDuringSixth.summary(),
@@ -302,7 +318,11 @@ class DevicePremiseVerificationTest {
             "idleFailures" to idleFailures.joinToString(","),
             "diagnostics" to diagnosticCodesSince(0).joinToString(","),
         )
+        // 한도 창이 풀릴 때까지 기다린다 — 시작 기록은 프로세스 공유라 뒤 테스트의 스캔 시작을 오염시키지 않게.
+        delay(SCAN_START_WINDOW_WAIT_MILLIS)
         // 문서화된 예외(BleException) 밖의 예외는 startScanRecording 이 그대로 던진다. 끝나면 Idle 이어야 한다.
+        assertEquals("first five startScan must not throw", emptyList<String>(), thrownInFirstFive)
+        assertEquals("sixth startScan must throw SCAN_START_THROTTLED", listOf("SCAN_START_THROTTLED"), sixthThrown)
         assertTrue("scanState must be Idle after stopScan", client.scanState.value is ScanState.Idle)
     }
 
@@ -476,9 +496,23 @@ class DevicePremiseVerificationTest {
         withTimeout(ADAPTER_ON_TIMEOUT_MILLIS) { client.adapterState.first { it is AdapterState.Ready } }
     }
 
+    /**
+     * 스캔 시작 — SCAN_START_THROTTLED(프로세스 공유 시작 한도, 앞 테스트의 시작 포함)면 한도 창이 풀릴 때까지
+     * 기다렸다 1회 재시도한다.
+     */
+    private suspend fun startScanRetryingThrottle(request: ScanRequest) {
+        try {
+            client.startScan(request)
+        } catch (e: BleException) {
+            if (e.failure.code.value != "SCAN_START_THROTTLED") throw e
+            delay(SCAN_START_WINDOW_WAIT_MILLIS)
+            client.startScan(request)
+        }
+    }
+
     private suspend fun discoverPeripheral(): PeripheralId {
         val expectedId = InstrumentationRegistry.getArguments().getString(ARG_PERIPHERAL_ID)
-        client.startScan(ScanRequest(BleScanFilter(serviceUuids = listOf(NUS_SERVICE)), BleScanOptions(BleScanMode.LowLatency)))
+        startScanRetryingThrottle(ScanRequest(BleScanFilter(serviceUuids = listOf(NUS_SERVICE)), BleScanOptions(BleScanMode.LowLatency)))
         return try {
             withTimeout(SCAN_TIMEOUT_MILLIS) {
                 client.scanResults.first { expectedId == null || it.peripheralId.value.equals(expectedId, ignoreCase = true) }.peripheralId
@@ -551,6 +585,8 @@ class DevicePremiseVerificationTest {
         /** 5 회 x (1 s 스캔 + 여유) 로 30 초 창 안에 6 번째 시작이 들어가게 한다. */
         const val SHORT_SCAN_MILLIS = 1_000L
         const val FINAL_SCAN_MILLIS = 5_000L
+        /** 스캔 시작 한도 창(30 s + 여유 1 s) 이상 — 창이 풀릴 때까지의 대기. */
+        const val SCAN_START_WINDOW_WAIT_MILLIS = 31_000L
 
         val NUS_SERVICE = BleUuid(UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e"))
         val NUS_RX = BleUuid(UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e"))

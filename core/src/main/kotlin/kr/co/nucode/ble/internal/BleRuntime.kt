@@ -2,6 +2,7 @@ package kr.co.nucode.ble.internal
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
@@ -41,6 +42,7 @@ import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
@@ -83,6 +85,11 @@ internal class BleRuntime private constructor(
      * `adapterState` 이름으로 받아 여기로 넘긴다.
      */
     private val adapterStateProbe: (() -> AdapterState)? = null,
+    /**
+     * 플랫폼 스캔 시작 기록 — null 이면 [scanner] 전용 기록(테스트 격리). 운영 생성자만 프로세스 공유
+     * [processScanStartLedger] 를 넘긴다(Android 시작 한도는 앱 단위, plan scan-start-budget v2 목표 4).
+     */
+    private val scanStartLedger: ScanStartLedger? = null,
 ) {
 
     private val closeGate = AtomicBoolean(false)
@@ -118,6 +125,7 @@ internal class BleRuntime private constructor(
         gattOperationTargetResolver = null,
         rediscoveryOverride = null,
         scanPortOverride = null,
+        scanStartLedger = processScanStartLedger,
     )
 
     /**
@@ -256,6 +264,7 @@ internal class BleRuntime private constructor(
         scope = coreScope,
         emitObservation = ::emitScanObservation,
         port = scanPortOverride ?: AndroidScanner { adapter()?.bluetoothLeScanner },
+        startLedger = scanStartLedger ?: ScanStartLedger { System.nanoTime() / 1_000_000 },
     )
     private val gattDriver = gattDriverFactory?.invoke(coreScope)
         ?: AndroidGattDriver(central?.context, adapter, coreScope)
@@ -841,3 +850,9 @@ internal class BleRuntime private constructor(
         }
     }
 }
+
+/**
+ * 프로세스 공유 스캔 시작 기록 — 운영 생성자 `BleRuntime(context, config)` 만 쓴다. 시계는
+ * `SystemClock.elapsedRealtime()`: deep sleep 에도 진행한다(nanoTime 은 멈춰 창이 늘어나 false throttle).
+ */
+private val processScanStartLedger = ScanStartLedger { SystemClock.elapsedRealtime() }

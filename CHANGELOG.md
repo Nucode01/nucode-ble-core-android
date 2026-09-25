@@ -49,7 +49,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
-- 30 초 안 6번째 스캔 시작이 `Scanning` 인데 결과가 오지 않던 문제를 고쳤다(Android 는 스캔 시작 한도 초과 거절을 앱에 알리지 않는다). 이제 라이브러리가 성공한 시작을 세어 30 s(+여유 1 s) 안 5회를 넘는 시작을 `SCAN_START_THROTTLED`(`TransientMayHelp`, message 에 다음 시작 가능까지 ms)로 거부한다 — `startScan()` 은 던지고, 재발견 스캔은 `Diagnostic` 과 함께 직접 연결로 진행한다. 도는 스캔은 멈추지 않는다. 시작 기록은 프로세스 단위(여러 `BleClient` 합산, 시계 `elapsedRealtime`)이고 Bluetooth 가 꺼지면 비운다. 한계: 같은 앱이 라이브러리 밖에서 한 스캔 시작은 셀 수 없고, 한도 값은 Android 버전·OEM 마다 다를 수 있다.
+- 30 초 안 6번째 스캔 시작이 `Scanning` 인데 결과가 오지 않던 문제를 고쳤다(Android 는 스캔 시작 한도 초과 거절을 앱에 알리지 않는다). 이제 라이브러리가 성공한 시작을 세어 30 s(+여유 1 s) 안 5회를 넘는 시작을 `SCAN_START_THROTTLED`(`TransientMayHelp`, message 에 다음 시작 가능까지 ms)로 거부한다 — `startScan()` 은 던지고, 재발견 스캔은 `Diagnostic` 과 함께 직접 연결로 진행한다. 도는 스캔은 멈추지 않는다. 시작 기록은 프로세스 단위(여러 `BleClient` 합산, 시계 `elapsedRealtime`)이고 Bluetooth 가 꺼지면 비운다. 한계: 같은 앱이 라이브러리 밖에서 한 스캔 시작과 같은 앱(같은 UID)의 다른 프로세스가 한 스캔 시작은 셀 수 없고, 한도 값은 Android 버전·OEM 마다 다를 수 있다.
 - 서비스 탐색이 `GATT_SUCCESS` 인데 서비스 0개면 `Diagnostic(Error)` 와 함께 `Disconnected(Failed(SERVICE_DISCOVERY_FAILED))` 로 끝난다(`platformDetail.statusCode` 0, 첫 연결·플랫폼 재연결 모두). 규격상 GAP 은 필수라 빈 목록은 플랫폼 캐시·L2CAP 실패다. 이전에는 빈 토폴로지로 `Ready` 가 됐다.
 - `autoReconnect = true` 연결에서 캐시에 없는 주소를 찾는 짧은 스캔이 기기를 못 찾으면(또는 스캔을 쓸 수 없으면) `Diagnostic(Warning, PERIPHERAL_NOT_FOUND)`(스캔 실패는 그 실패)를 남기고 OS 대기(`Connecting`, 기한 없음)로 들어간다. 이전에는 앱 재시작 뒤 첫 연결이나 어댑터 복귀 재연결이 약 3초 뒤 `Disconnected(Failed(PERIPHERAL_NOT_FOUND))` 로 끝났다. `autoReconnect = false` 는 그대로 `PERIPHERAL_NOT_FOUND` 로 던진다.
 - 어댑터 복귀 재연결의 시작 실패를 조용히 삼키던 것을 고쳤다 — `Disconnected(Failed(원인))` 과 함께 `Diagnostic(Warning, 원인)` 이 나온다.

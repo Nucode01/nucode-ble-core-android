@@ -40,6 +40,34 @@ class ScanStartLedgerTest {
     }
 
     @Test
+    fun `시작 시각은 플랫폼 시작이 돌아온 뒤 시계로 기록하고 판정은 호출 전 시계로 한다`() {
+        // 플랫폼은 scanner 등록 왕복 뒤에 시작을 기록한다 — 시작 람다 안에서 시계를 진행해 흉내 낸다. 첫 시작만 지연을
+        // 다르게(500 ms) 둬 "호출 전 시각 + 고정 상수" 기록이 통과하지 못하게 한다.
+        var now = 0L
+        val ledger = ScanStartLedger { now }
+        val firstBegin = now
+        val delays = listOf(500L, 2_000L, 2_000L, 2_000L, 2_000L)
+        delays.forEach { delay ->
+            ledger.tryStart {
+                now += delay
+                true
+            }
+            now += 10
+        }
+        val firstEnd = firstBegin + delays.first()
+        val window = ScanStartLedger.START_WINDOW_MILLIS + ScanStartLedger.START_WINDOW_MARGIN_MILLIS
+
+        now = firstBegin + window + 1
+        assertEquals("호출 전 시각 기준으로는 허용되는 위험 지점", 500L, ledger.tryStart { now += 2_000; true })
+
+        now = firstEnd + window
+        assertEquals(1L, ledger.tryStart { now += 2_000; true })
+
+        now = firstEnd + window + 1
+        assertEquals(null, ledger.tryStart { true })
+    }
+
+    @Test
     fun `운영 생성자는 elapsedRealtime 시계의 프로세스 ledger 를 넘긴다`() {
         // 블록 주석과 // 주석 줄을 빼고 줄 단위로 본다 — 주석 처리한 배선이 통과하지 않게. 텍스트 가드라 실수로 끊긴
         // 배선을 잡는 데까지다(일부러 우회하는 편집은 못 막는다).

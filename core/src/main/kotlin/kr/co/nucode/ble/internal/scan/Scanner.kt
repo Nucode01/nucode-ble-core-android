@@ -41,11 +41,12 @@ import kr.co.nucode.ble.internal.scan.ScanStartLedger.Companion.START_WINDOW_MIL
  *
  * 시작 한도(plan scan-start-budget): 성공한 플랫폼 시작 시각을 세어, 최근 [START_BUDGET] 회의 첫 시작이
  * [START_WINDOW_MILLIS] + [START_WINDOW_MARGIN_MILLIS] 안이면 플랫폼을 부르지 않고 SCAN_START_THROTTLED 로 거부한다.
- * 근거: AOSP AppScanStats — 최근 5회 시작 중 첫 시작이 30 s 안이면 registerScanner 가 status 6
- * (SCAN_FAILED_SCANNING_TOO_FREQUENTLY)으로 거절하고, BluetoothLeScanner 는 이를 앱에 알리지 않는다(onScanFailed 없음)
- * — 실기기 P5(Pixel 5a/Android 14)에서 6번째 시작이 Scanning 인데 결과 0 으로 관측. 여유 1 s 는 라이브러리 시각과
- * 플랫폼 기록의 차이를 흡수한다. 한계: 한도 값은 AOSP 구현값이라 버전·OEM 마다 다를 수 있고, 같은 앱이 라이브러리
- * 밖에서 한 스캔은 셀 수 없다 — 한도 안이라는 것이 플랫폼 수락을 보장하지 않는다.
+ * 근거: AOSP AppScanStats — 최근 멈춘 스캔 5개 중 가장 오래된 것의 시작이 30 s 안이면(DeviceConfig 기본값)
+ * registerScanner 가 status 6(SCAN_FAILED_SCANNING_TOO_FREQUENTLY)으로 거절하고, BluetoothLeScanner 는 이를 앱에
+ * 알리지 않는다(onScanFailed 없음) — 실기기 P5(Pixel 5a/Android 14)에서 6번째 시작이 Scanning 인데 결과 0 으로 관측. 기록 시각은 플랫폼 시작 호출이
+ * 돌아온 뒤라 플랫폼 기록(등록 왕복 뒤)보다 늦다. 여유 1 s 는 그 밖의 시계 차이를 위한 것이다. 한계: 한도 값은
+ * AOSP 구현값이라 버전·OEM 마다 다를 수 있고, 같은 앱이 라이브러리 밖에서 한 스캔은 셀 수 없다 — 한도 안이라는 것이
+ * 플랫폼 수락을 보장하지 않는다.
  * 한도 초과여도 도는 플랫폼 스캔은 멈추지 않는다 — 새로 들어온 소비자만 실패한다([startScan]·[scheduleReconcile]).
  */
 internal class Scanner(

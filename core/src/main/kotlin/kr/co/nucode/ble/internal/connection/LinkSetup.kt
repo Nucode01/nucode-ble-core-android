@@ -47,7 +47,8 @@ internal class LinkSetupWiring(
  *   → [onMtuSettled] → 구독 복원(직렬) → [LinkSteps.completeReady]
  *
  * ★ 상태 기계가 아니다 — stage 전이는 lifecycle 이 하고, 이 클래스는 순서와 복원 job 만 안다.
- * 복원 job 손잡이는 이 클래스 private 상태다(Session 필드가 아니다) — 정리 경로는 [cancel] 로만 끊는다.
+ * 복원 job 손잡이는 이 클래스 private 상태다(Session 필드가 아니다) — 시작과 취소 모두 이 클래스가 한다
+ * (취소는 job 을 만들 때 건 [Session.onLeaveLink] listener).
  * 런타임이 닫혔으면 절차 입력은 아무 것도 하지 않는다.
  */
 internal class LinkSetup(
@@ -88,8 +89,8 @@ internal class LinkSetup(
         }
     }
 
-    /** 진행 중인 복원 job 을 끊는다 — lifecycle 정리 경로가 부른다. */
-    fun cancel(session: Session) {
+    /** 진행 중인 복원 job 을 끊는다 — [restoreSubscriptions] 가 건 링크 이탈 listener 만 부른다. */
+    private fun cancel(session: Session) {
         restoreJobs.remove(session)?.cancel()
     }
 
@@ -99,6 +100,10 @@ internal class LinkSetup(
     /** Restores the desired CCCD intent serially while this generation remains Configuring. */
     private fun restoreSubscriptions(session: Session, generation: Long, wiring: LinkSetupWiring) {
         restoreJobs.remove(session)?.cancel()
+        // 복원 job 취소의 유일한 지점 — generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected).
+        // Connecting 에서는 끊지 않는다: 이전 generation 은 이미 Disconnected 를 지나며 끊겼고, 남았더라도
+        // job 의 generation 확인이 멈춘다. job 을 만들기 전에 건다 — 같은 Session 에 다시 걸어도 같은 동작이다(멱등).
+        session.onLeaveLink = { cancel(session) }
         restoreJobs[session] = scope.launch {
             for (ref in session.subscriptionState.desiredSnapshot) {
                 if (!session.isConfiguringGeneration(generation)) return@launch

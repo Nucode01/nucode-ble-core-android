@@ -56,19 +56,38 @@ class GattConnectionLifecycleTest {
     }
 
     /**
-     * plan link-setup 불변식 ① — 연결 단계(stage) 전이 호출은 lifecycle 에만 있다. 허용 파일은
-     * GattConnectionLifecycle.kt 하나다(ConnectionCoordinator 는 정의만 하고 자기 자신을 이 형태로 부르지 않는다).
-     * 한계: 수신자 이름 `connectionCoordinator`/`coordinator` 로 부르는 호출만 잡는다.
+     * 보장: 토큰 없이는 ConnectionCoordinator 전이 API 가 컴파일되지 않는다. 이 가드는 main 에서 식별자
+     * `StageAuthority` 가 나오는 코드 줄을 허용 목록으로 고정한다 — 정의(abstract class)·전이 API 파라미터
+     * (`authority: StageAuthority`)·lifecycle 의 import 와 file-private object 하나. 그래서 하위 타입 선언은 형태
+     * (보조 생성자 `super()`·공백·줄바꿈·주석·typealias)와 무관하게, 토큰을 상위 타입으로 내보내는 선언도 막힌다.
+     * 한계: 주석으로 시작하는 줄(KDoc 본문·줄 주석·블록 주석 시작)은 보지 않는다.
      */
     @Test
-    fun `stage 전이 호출은 GattConnectionLifecycle 에만 있다`() {
-        val call = Regex("""\b(connectionCoordinator|coordinator)\.(transition|beginCleanup|completeCleanup|beginConnection|beginPlatformRelink|supersedeForClose|supersedePlatformWait|closeIdle|latchIfAbsent)\(""")
-        val offenders = File("src/main/kotlin").walkTopDown()
+    fun `StageAuthority 는 정의·전이 파라미터·lifecycle 토큰에만 나온다`() {
+        val coordinator = "src/main/kotlin/kr/co/nucode/ble/internal/session/ConnectionCoordinator.kt"
+        val lifecycle = "src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"
+        val identifier = Regex("""\bStageAuthority\b""")
+        val uses = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
-            .filter { call.containsMatchIn(it.readText()) }
-            .map { it.invariantSeparatorsPath }
+            .flatMap { file ->
+                file.readLines().mapIndexedNotNull { index, line ->
+                    val code = line.trim()
+                    val comment = code.startsWith("*") || code.startsWith("//") || code.startsWith("/*")
+                    if (!comment && identifier.containsMatchIn(code)) Triple(file.invariantSeparatorsPath, index + 1, code) else null
+                }
+            }
             .toList()
-        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"), offenders)
+        val unexpected = uses.filterNot { (path, _, code) ->
+            when (path) {
+                coordinator -> code == "internal abstract class StageAuthority protected constructor()" ||
+                    !identifier.containsMatchIn(code.replace("authority: StageAuthority", ""))
+                lifecycle -> code == "import kr.co.nucode.ble.internal.session.StageAuthority" ||
+                    code == "private object LifecycleStageAuthority : StageAuthority()"
+                else -> false
+            }
+        }
+        assertEquals(unexpected.joinToString("\n") { "${it.first}:${it.second}: ${it.third}" }, emptyList<Any>(), unexpected)
+        assertEquals(1, uses.count { it.third == "private object LifecycleStageAuthority : StageAuthority()" })
     }
 
     /**
@@ -106,22 +125,27 @@ class GattConnectionLifecycleTest {
     }
 
     /**
-     * 복원 job 취소(LinkSetup.cancel)는 main 에서 한 곳 — generation 이 링크를 떠나는 stage 이벤트
-     * listener(Session.onLeaveLink) 등록 — 에서만 부른다. 한계: `linkSetup()?.cancel(`/`linkSetup.cancel(` 형태만 잡는다.
+     * 복원 job 취소(LinkSetup.cancel)는 private 이라 호출 위치는 컴파일러가 막는다. 남은 구멍은 취소를 부르는
+     * 링크 이탈 listener(Session.onLeaveLink)를 다른 곳이 덮어쓰거나 직접 부르는 것 — main 에서 대입(참조 `::` 포함)은
+     * LinkSetup 한 곳, 호출은 Session(publishStage) 한 곳뿐이다. 파일 전체 텍스트로 찾으므로 대입·호출 사이 줄바꿈도 잡는다.
      */
     @Test
-    fun `LinkSetup cancel 호출은 main 에 한 곳뿐이다`() {
-        val call = Regex("""\blinkSetup(\(\)\?)?\.cancel\(""")
-        val sites = File("src/main/kotlin").walkTopDown()
+    fun `onLeaveLink 대입은 LinkSetup, 호출은 Session 에만 있다`() {
+        fun sites(pattern: Regex): List<String> = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .flatMap { file ->
-                file.readLines().mapIndexedNotNull { index, line ->
-                    if (call.containsMatchIn(line)) "${file.invariantSeparatorsPath}:${index + 1}" else null
+                val text = file.readText()
+                pattern.findAll(text).map { match ->
+                    "${file.invariantSeparatorsPath}:${text.substring(0, match.range.first).count { it == '\n' } + 1}"
                 }
             }
             .toList()
-        assertEquals(sites.toString(), 1, sites.size)
-        assertTrue(sites.single(), sites.single().startsWith("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt:"))
+        val assigns = sites(Regex("""\bonLeaveLink\s*=(?!=)|::onLeaveLink\b"""))
+        assertEquals(assigns.toString(), 1, assigns.size)
+        assertTrue(assigns.single(), assigns.single().startsWith("src/main/kotlin/kr/co/nucode/ble/internal/connection/LinkSetup.kt:"))
+        val calls = sites(Regex("""\bonLeaveLink\s*(\(|\.invoke\b)"""))
+        assertEquals(calls.toString(), 1, calls.size)
+        assertTrue(calls.single(), calls.single().startsWith("src/main/kotlin/kr/co/nucode/ble/internal/session/Session.kt:"))
     }
 
     private class FakeGattDriver : NoopGattDriver()

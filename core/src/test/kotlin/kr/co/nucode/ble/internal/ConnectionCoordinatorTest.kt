@@ -37,11 +37,12 @@ class ConnectionCoordinatorTest {
     @Test
     fun `readiness state machine은 discovery와 configuration을 건너뛰지 않는다`() = runTest {
         val coordinator = ConnectionCoordinator()
-        val generation = coordinator.beginConnection(this, 100) {}
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         assertEquals(ConnectionStage.Connecting, coordinator.stage)
         assertFailsWithIllegalState {
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.Ready,
@@ -51,6 +52,7 @@ class ConnectionCoordinatorTest {
 
         assertTrue(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,
@@ -60,6 +62,7 @@ class ConnectionCoordinatorTest {
         )
         assertTrue(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.DiscoveringServices,
                 nextStage = ConnectionStage.Configuring,
@@ -69,6 +72,7 @@ class ConnectionCoordinatorTest {
         )
         assertTrue(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Configuring,
                 nextStage = ConnectionStage.Ready,
@@ -85,13 +89,14 @@ class ConnectionCoordinatorTest {
     fun `stage 전이는 이전 deadline을 취소해 동시에 하나만 활성화한다`() = runTest {
         val coordinator = ConnectionCoordinator()
         val timedOut = mutableListOf<ConnectionStageDeadline>()
-        val generation = coordinator.beginConnection(this, 100, timedOut::add)
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 100, timedOut::add)
         val linkDeadline = coordinator.activeDeadline
 
         advanceTimeBy(50)
         runCurrent()
         assertTrue(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,
@@ -119,11 +124,12 @@ class ConnectionCoordinatorTest {
     @Test
     fun `stale generation과 wrong stage callback은 lifecycle을 바꾸지 않는다`() = runTest {
         val coordinator = ConnectionCoordinator()
-        val generation = coordinator.beginConnection(this, 100) {}
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
         val currentDeadline = coordinator.activeDeadline
 
         assertFalse(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation - 1,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,
@@ -133,6 +139,7 @@ class ConnectionCoordinatorTest {
         )
         assertFalse(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Configuring,
                 nextStage = ConnectionStage.Ready,
@@ -149,10 +156,11 @@ class ConnectionCoordinatorTest {
     fun `cleanup은 active stage 어디서든 멱등적이고 terminal reason을 보존한다`() = runTest {
         val coordinator = ConnectionCoordinator()
         val timedOut = mutableListOf<ConnectionStageDeadline>()
-        val generation = coordinator.beginConnection(this, 100) {}
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(
             coordinator.beginCleanup(
+                TestStageAuthority,
                 targetGeneration = generation,
                 cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
                 scope = this,
@@ -166,6 +174,7 @@ class ConnectionCoordinatorTest {
 
         assertFalse(
             coordinator.beginCleanup(
+                TestStageAuthority,
                 targetGeneration = generation,
                 cause = TerminalCause(TerminalCleanupReason.LinkStatusFailure, null),
                 scope = this,
@@ -176,8 +185,8 @@ class ConnectionCoordinatorTest {
         assertSame(cleanupDeadline, coordinator.activeDeadline)
         assertEquals(TerminalCleanupReason.UserRequested, coordinator.terminalCleanupReason)
 
-        assertTrue(coordinator.completeCleanup(generation, PLATFORM_FALLBACK))
-        assertFalse(coordinator.completeCleanup(generation, PLATFORM_FALLBACK))
+        assertTrue(coordinator.completeCleanup(TestStageAuthority, generation, PLATFORM_FALLBACK))
+        assertFalse(coordinator.completeCleanup(TestStageAuthority, generation, PLATFORM_FALLBACK))
         assertEquals(ConnectionStage.Disconnected, coordinator.stage)
         assertEquals(TerminalCleanupReason.UserRequested, coordinator.terminalCleanupReason)
         assertNull(coordinator.activeDeadline)
@@ -191,7 +200,7 @@ class ConnectionCoordinatorTest {
     fun `deadline callback은 generation stage timeout reason을 함께 전달한다`() = runTest {
         val coordinator = ConnectionCoordinator()
         var observed: ConnectionStageDeadline? = null
-        val generation = coordinator.beginConnection(this, 25) { observed = it }
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 25) { observed = it }
 
         advanceTimeBy(25)
         runCurrent()
@@ -211,17 +220,18 @@ class ConnectionCoordinatorTest {
     @Test
     fun `disconnect cleanup callback이 누락돼도 deadline에서 Disconnected로 끝난다`() = runTest {
         val coordinator = ConnectionCoordinator()
-        val generation = coordinator.beginConnection(this, 100) {}
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(
             coordinator.beginCleanup(
+                TestStageAuthority,
                 targetGeneration = generation,
                 cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
                 scope = this,
                 disconnectCleanupTimeoutMillis = 25,
                 onTimeout = { deadline ->
                     assertEquals(TerminalCleanupReason.DisconnectCleanupTimeout, deadline.timeoutReason)
-                    coordinator.completeCleanup(deadline.generation, PLATFORM_FALLBACK)
+                    coordinator.completeCleanup(TestStageAuthority, deadline.generation, PLATFORM_FALLBACK)
                 },
             ),
         )
@@ -238,11 +248,12 @@ class ConnectionCoordinatorTest {
     fun `ClientClosed terminalization은 lifecycle deadline을 취소하고 stale callback을 거부한다`() = runTest {
         val coordinator = ConnectionCoordinator()
         val timedOut = mutableListOf<ConnectionStageDeadline>()
-        val generation = coordinator.beginConnection(this, 50, timedOut::add)
+        val generation = coordinator.beginConnection(TestStageAuthority, this, 50, timedOut::add)
 
-        assertTrue(coordinator.completeCleanup(generation, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
+        assertTrue(coordinator.completeCleanup(TestStageAuthority, generation, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
         assertFalse(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,
@@ -262,21 +273,23 @@ class ConnectionCoordinatorTest {
     @Test
     fun `retained reconnect는 fresh generation을 deadline 없이 시작한다`() = runTest {
         val coordinator = ConnectionCoordinator()
-        val firstGeneration = coordinator.beginConnection(this, 100) {}
+        val firstGeneration = coordinator.beginConnection(TestStageAuthority, this, 100) {}
         assertTrue(
             coordinator.completeCleanup(
+                TestStageAuthority,
                 firstGeneration,
                 PLATFORM_FALLBACK,
             ),
         )
 
-        val reconnectGeneration = coordinator.beginPlatformRelink(this)
+        val reconnectGeneration = coordinator.beginPlatformRelink(TestStageAuthority, this)
 
         assertEquals(firstGeneration + 1, reconnectGeneration)
         assertEquals(ConnectionStage.Connecting, coordinator.stage)
         assertNull(coordinator.activeDeadline)
         assertFalse(
             coordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = firstGeneration,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,

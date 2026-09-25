@@ -55,6 +55,22 @@ class SubscriptionStateTest {
     }
 
     @Test
+    fun `confirmSubscribed records intent and current-generation active state together`() {
+        val state = SubscriptionState()
+        val ref = characteristic()
+        state.beginGeneration(2)
+
+        assertTrue(state.confirmSubscribed(ref, 2))
+        assertTrue(ref in state.desiredSnapshot)
+        assertEquals(setOf(ref), state.activeFlow.value)
+
+        val stale = characteristic()
+        assertFalse(state.confirmSubscribed(stale, 1))
+        assertTrue(stale in state.desiredSnapshot)
+        assertFalse(stale in state.activeSnapshot)
+    }
+
+    @Test
     fun `snapshots are not mutable backing collections`() {
         val state = SubscriptionState()
         val desired = characteristic()

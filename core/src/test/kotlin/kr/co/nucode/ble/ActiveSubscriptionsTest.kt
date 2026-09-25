@@ -20,6 +20,7 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.charRef
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
@@ -396,8 +397,9 @@ class ActiveSubscriptionsTest {
 
         /** Slice5 와 같은 seam — 새 generation 을 열고 Configuring 까지 세운다. */
         fun reachConfiguring(scope: TestScope) {
-            val generation = session.connectionCoordinator.beginConnection(scope, 100) {}
+            val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, scope, 100) {}
             session.connectionCoordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.Connecting,
                 nextStage = ConnectionStage.DiscoveringServices,
@@ -405,6 +407,7 @@ class ActiveSubscriptionsTest {
                 timeoutMillis = 100,
             )
             session.connectionCoordinator.transition(
+                TestStageAuthority,
                 callbackGeneration = generation,
                 expectedStage = ConnectionStage.DiscoveringServices,
                 nextStage = ConnectionStage.Configuring,

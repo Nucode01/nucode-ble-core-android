@@ -12,6 +12,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
@@ -200,7 +201,7 @@ class NotificationRoutingTest {
         val session = client.session(id)
         // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
         requireNotNull(core.registry.get(id)).connectionCoordinator
-            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
+            .beginConnection(TestStageAuthority, CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
         val received = mutableListOf<Int>()
         val otherReceived = mutableListOf<Int>()
         val job = collect(session, ch) { received += it[0].toInt() }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
@@ -58,7 +59,7 @@ class PayloadObservationRoutingTest {
         val session = client.session(id)
         // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
         requireNotNull(core.registry.get(id)).connectionCoordinator
-            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
+            .beginConnection(TestStageAuthority, CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
         val events = mutableListOf<BleClientEvent>()
         val received = mutableListOf<Int>()
         val eventsJob = collectEvents(client, events)
@@ -88,7 +89,7 @@ class PayloadObservationRoutingTest {
         client.session(id)
         // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
         requireNotNull(core.registry.get(id)).connectionCoordinator
-            .beginConnection(CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
+            .beginConnection(TestStageAuthority, CoroutineScope(Dispatchers.Unconfined + Job()), linkTimeoutMillis = 60_000) {}
 
         driver.notify(id, 9)
 

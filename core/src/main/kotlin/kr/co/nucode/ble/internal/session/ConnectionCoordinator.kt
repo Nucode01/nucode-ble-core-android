@@ -125,6 +125,7 @@ internal class ConnectionCoordinator(
      * OS 가 무기한 기다리는 것이 의미라 끝내는 쪽은 사용자 해제·close·어댑터 스윕뿐이다.
      */
     fun beginConnection(
+        authority: StageAuthority,
         scope: CoroutineScope,
         linkTimeoutMillis: Long?,
         onTimeout: (ConnectionStageDeadline) -> Unit,
@@ -138,7 +139,7 @@ internal class ConnectionCoordinator(
      * 끝난 generation 의 platform handle 에 OS 가 다시 붙인 것을 새 generation 에 귀속한다.
      * link deadline 은 두지 않는다 — Bootstrap 은 링크 성공 콜백 안에서 곧바로 Connecting 을 떠난다.
      */
-    fun beginPlatformRelink(scope: CoroutineScope): Long = beginAttempt(
+    fun beginPlatformRelink(authority: StageAuthority, scope: CoroutineScope): Long = beginAttempt(
         scope = scope,
         linkTimeoutMillis = null,
     )
@@ -169,6 +170,7 @@ internal class ConnectionCoordinator(
      * stale callback은 false를 반환하고 현재 deadline을 포함한 상태를 바꾸지 않는다.
      */
     fun transition(
+        authority: StageAuthority,
         callbackGeneration: Long,
         expectedStage: ConnectionStage,
         nextStage: ConnectionStage,
@@ -194,6 +196,7 @@ internal class ConnectionCoordinator(
      * 때만 기록된다(first wins) — 먼저 고정된 원인을 바꾸는 인자는 없다.
      */
     fun beginCleanup(
+        authority: StageAuthority,
         targetGeneration: Long,
         cause: TerminalCause,
         scope: CoroutineScope,
@@ -224,6 +227,7 @@ internal class ConnectionCoordinator(
      * 게시(onStageChanged) 전에 고정되므로 게시 시점의 파생이 최종 원인을 본다.
      */
     fun completeCleanup(
+        authority: StageAuthority,
         targetGeneration: Long,
         fallback: TerminalCause,
     ): Boolean {
@@ -247,7 +251,7 @@ internal class ConnectionCoordinator(
      * generation(또는 stale generation)은 원래 원인을 유지하고 false — 플랫폼 재연결 대기 중인 종결
      * generation 은 [supersedePlatformWait] 이 다룬다.
      */
-    fun supersedeForClose(targetGeneration: Long): Boolean {
+    fun supersedeForClose(authority: StageAuthority, targetGeneration: Long): Boolean {
         if (targetGeneration != generation || stage == ConnectionStage.Disconnected) return false
         terminalCause = TerminalCause(TerminalCleanupReason.ClientClosed, null)
         return true
@@ -266,7 +270,7 @@ internal class ConnectionCoordinator(
      *
      * 다른 reason 은 거부한다(require). stale generation·종결되지 않은 generation·generation 0 이면 false.
      */
-    fun supersedePlatformWait(targetGeneration: Long, cause: TerminalCause): Boolean {
+    fun supersedePlatformWait(authority: StageAuthority, targetGeneration: Long, cause: TerminalCause): Boolean {
         require(cause.reason in PLATFORM_WAIT_SUPERSEDERS) { "supersedePlatformWait: ${cause.reason} is not an owner" }
         if (targetGeneration != generation || stage != ConnectionStage.Disconnected || generation == 0L) return false
         terminalCause = cause
@@ -278,7 +282,7 @@ internal class ConnectionCoordinator(
      * 연결 시도 전(generation 0) 세션의 닫힘을 첫 원인으로 고정하고 Disconnected 를 다시 게시한다.
      * 시작된 generation 이거나 이미 원인이 있으면 아무 것도 하지 않는다(first wins).
      */
-    fun closeIdle(): Boolean {
+    fun closeIdle(authority: StageAuthority): Boolean {
         if (generation != 0L || stage != ConnectionStage.Disconnected || terminalCause != null) return false
         terminalCause = TerminalCause(TerminalCleanupReason.ClientClosed, null)
         onStageChanged(stage)
@@ -290,6 +294,7 @@ internal class ConnectionCoordinator(
      * stale generation이거나 이미 latch된 원인이 있으면 false.
      */
     fun latchIfAbsent(
+        authority: StageAuthority,
         targetGeneration: Long,
         cause: TerminalCause,
     ): Boolean {
@@ -390,3 +395,11 @@ internal class ConnectionCoordinator(
         )
     }
 }
+
+/**
+ * 연결 단계 전이 권한. [ConnectionCoordinator] 의 상태 변경 API 는 이 값을 첫 인자로 요구한다 —
+ * main 의 유일한 인스턴스는 GattConnectionLifecycle.kt 의 file-private object 다(전이 소유자 = lifecycle).
+ * sealed 가 아닌 이유: 테스트 소스셋은 다른 모듈이라 sealed 하위 타입을 만들 수 없다.
+ * main 에서 새 하위 타입을 선언하지 못하게 하는 것은 GattConnectionLifecycleTest 가드가 맡는다.
+ */
+internal abstract class StageAuthority protected constructor()

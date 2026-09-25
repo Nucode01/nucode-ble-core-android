@@ -57,22 +57,25 @@ class GattLifecycleCharacterizationTest {
     @Test
     fun `stale cleanup generation cannot replace current disconnect reason projection`() = runTest {
         val session = Session(DEVICE_ID)
-        val firstGeneration = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val firstGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         assertTrue(
             session.connectionCoordinator.completeCleanup(
+                TestStageAuthority,
                 firstGeneration,
                 TerminalCause(TerminalCleanupReason.UserRequested, null),
             ),
         )
-        val secondGeneration = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val secondGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         assertTrue(
             session.connectionCoordinator.completeCleanup(
+                TestStageAuthority,
                 secondGeneration,
                 TerminalCause(TerminalCleanupReason.ClientClosed, null),
             ),
         )
 
         val rejected = session.connectionCoordinator.completeCleanup(
+            TestStageAuthority,
             firstGeneration,
             TerminalCause(TerminalCleanupReason.PlatformDisconnected, null),
         )
@@ -124,7 +127,7 @@ class GattLifecycleCharacterizationTest {
             ackTimeoutMillis = 5_000,
             readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000, 20),
         )
-        session.connectionCoordinator.beginConnection(this, 15_000) {}
+        session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
 
         bridge.disconnect(DEVICE_ID)
 
@@ -150,8 +153,9 @@ class GattLifecycleCharacterizationTest {
             ackTimeoutMillis = 5_000,
             readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000, 20),
         )
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -185,8 +189,9 @@ class GattLifecycleCharacterizationTest {
             readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000, 20),
             operationStarter = { _, _ -> throw SecurityException() },
         )
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -194,6 +199,7 @@ class GattLifecycleCharacterizationTest {
             timeoutMillis = 10_000,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.DiscoveringServices,
             ConnectionStage.Configuring,
@@ -201,6 +207,7 @@ class GattLifecycleCharacterizationTest {
             timeoutMillis = 10_000,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.Configuring,
             ConnectionStage.Ready,
@@ -224,7 +231,7 @@ class GattLifecycleCharacterizationTest {
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
             requestedMtu = 185
         }
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         // MtuChanged 는 공개 흐름에 없다 — Ready 게시 순간의 MTU 를 찍어 "MTU 반영 뒤 Ready" 를 본다.
         val mtuAtReady = mutableListOf<Pair<Int?, Int?>>()
@@ -322,9 +329,9 @@ class GattLifecycleCharacterizationTest {
             platformHandleOpen = true
             requestedMtu = 185
         }
-        val ended = session.connectionCoordinator.beginConnection(this, null) {}
+        val ended = session.connectionCoordinator.beginConnection(TestStageAuthority, this, null) {}
         session.beginPlatformWait {
-            session.connectionCoordinator.completeCleanup(ended, TerminalCause(TerminalCleanupReason.PlatformDisconnected, null))
+            session.connectionCoordinator.completeCleanup(TestStageAuthority, ended, TerminalCause(TerminalCleanupReason.PlatformDisconnected, null))
         }
         val driver = FakeGattDriver(this)
         val observed = mutableListOf<BleEvent>()
@@ -380,8 +387,9 @@ class GattLifecycleCharacterizationTest {
         val session = registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = false
         }
-        val firstGeneration = session.connectionCoordinator.beginConnection(this, 40) {}
+        val firstGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 40) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             firstGeneration,
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -389,6 +397,7 @@ class GattLifecycleCharacterizationTest {
             40,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             firstGeneration,
             ConnectionStage.DiscoveringServices,
             ConnectionStage.Configuring,
@@ -396,6 +405,7 @@ class GattLifecycleCharacterizationTest {
             40,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             firstGeneration,
             ConnectionStage.Configuring,
             ConnectionStage.Ready,
@@ -443,6 +453,7 @@ class GattLifecycleCharacterizationTest {
 
         val secondGeneration = session.connectionCoordinator.generation
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             secondGeneration,
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -450,6 +461,7 @@ class GattLifecycleCharacterizationTest {
             40,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             secondGeneration,
             ConnectionStage.DiscoveringServices,
             ConnectionStage.Configuring,
@@ -457,6 +469,7 @@ class GattLifecycleCharacterizationTest {
             40,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             secondGeneration,
             ConnectionStage.Configuring,
             ConnectionStage.Ready,
@@ -491,7 +504,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
@@ -562,8 +575,9 @@ class GattLifecycleCharacterizationTest {
         val session = registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = false
         }
-        val generation = session.connectionCoordinator.beginConnection(this, 40) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 40) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.Connecting,
             ConnectionStage.DiscoveringServices,
@@ -601,6 +615,7 @@ class GattLifecycleCharacterizationTest {
         assertTrue(driver.commands.isEmpty())
 
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.DiscoveringServices,
             ConnectionStage.Configuring,
@@ -627,6 +642,7 @@ class GattLifecycleCharacterizationTest {
         assertTrue(driver.commands.isEmpty())
 
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             generation,
             ConnectionStage.Configuring,
             ConnectionStage.Ready,
@@ -650,7 +666,7 @@ class GattLifecycleCharacterizationTest {
         assertFalse(session.suppressReconnect)
         assertTrue(driver.commands.isEmpty())
         assertEquals(3, observed.filterIsInstance<BleEvent.Diagnostic>().size)
-        session.connectionCoordinator.completeCleanup(generation, TerminalCause(TerminalCleanupReason.ClientClosed, null))
+        session.connectionCoordinator.completeCleanup(TestStageAuthority, generation, TerminalCause(TerminalCleanupReason.ClientClosed, null))
     }
 
     @Test
@@ -658,7 +674,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
@@ -695,7 +711,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID)
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
@@ -723,7 +739,7 @@ class GattLifecycleCharacterizationTest {
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = true
         }
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(observed) }
         runCurrent()
@@ -896,7 +912,7 @@ class GattLifecycleCharacterizationTest {
     ): Pair<Session, List<Pair<Int?, Int?>>> {
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply { requestedMtu = 185 }
-        val generation = session.connectionCoordinator.beginConnection(this, 15_000) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         val mtuAtReady = mutableListOf<Pair<Int?, Int?>>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {

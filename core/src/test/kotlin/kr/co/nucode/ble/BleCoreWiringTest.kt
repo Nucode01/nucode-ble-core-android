@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
+import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.WriteResult
 import kr.co.nucode.ble.internal.WriteType
 import kr.co.nucode.ble.internal.charRef
@@ -337,7 +338,7 @@ class BleCoreWiringTest {
         val core = newCore(gattDriver = driver)
         val id = PeripheralId("AA:BB:CC:DD:EE:A3")
         val session = core.registry.getOrCreate(id)
-        session.connectionCoordinator.beginConnection(this, 100) {}
+        session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         var thrown: Throwable? = null
         val job = launch {
@@ -1111,7 +1112,7 @@ class BleCoreWiringTest {
         )
         val id = testDeviceId("D1")
         val session = core.registry.getOrCreate(id)
-        session.connectionCoordinator.beginConnection(this, 100) {}
+        session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         core.disconnect(id)
         core.disconnect(id)
@@ -1158,8 +1159,9 @@ class BleCoreWiringTest {
         val id = testDeviceId("A1")
         val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
         val session = core.registry.getOrCreate(id)
-        val generation = session.connectionCoordinator.beginConnection(this, 100) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = generation,
             expectedStage = ConnectionStage.Connecting,
             nextStage = ConnectionStage.DiscoveringServices,
@@ -1167,6 +1169,7 @@ class BleCoreWiringTest {
             timeoutMillis = 100,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = generation,
             expectedStage = ConnectionStage.DiscoveringServices,
             nextStage = ConnectionStage.Configuring,
@@ -1209,8 +1212,9 @@ class BleCoreWiringTest {
         val core = newCore(gattDriver = driver, gattOperationTargetResolver = resolver)
         val id = testDeviceId("R5")
         val session = core.registry.getOrCreate(id)
-        val generation = session.connectionCoordinator.beginConnection(this, 100) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = generation,
             expectedStage = ConnectionStage.Connecting,
             nextStage = ConnectionStage.DiscoveringServices,
@@ -1218,6 +1222,7 @@ class BleCoreWiringTest {
             timeoutMillis = 100,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = generation,
             expectedStage = ConnectionStage.DiscoveringServices,
             nextStage = ConnectionStage.Configuring,
@@ -1270,7 +1275,7 @@ class BleCoreWiringTest {
             autoConnect = false
             requestedMtu = 185
         }
-        val generation = session.connectionCoordinator.beginConnection(this, 100) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         core.connect(id, ConnectOptions(requestedMtu = 185))
 
@@ -1290,7 +1295,7 @@ class BleCoreWiringTest {
             autoConnect = false
             requestedMtu = 185
         }
-        val generation = session.connectionCoordinator.beginConnection(this, 100) {}
+        val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         val optionsConflict = runCatching {
             core.connect(id, ConnectOptions(requestedMtu = 247))
@@ -1303,6 +1308,7 @@ class BleCoreWiringTest {
         assertEquals(ConnectionState.Connecting, session.connectionState.value)
 
         session.connectionCoordinator.beginCleanup(
+            TestStageAuthority,
             targetGeneration = generation,
             cause = TerminalCause(TerminalCleanupReason.UserRequested, null),
             scope = this,
@@ -1359,6 +1365,7 @@ class BleCoreWiringTest {
         val id = testDeviceId("A2")
         val session = core.registry.getOrCreate(id)
         session.connectionCoordinator.beginConnection(
+            TestStageAuthority,
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
             60_000,
         ) {}
@@ -1436,8 +1443,9 @@ class BleCoreWiringTest {
         val session = core.registry.getOrCreate(deviceId).apply {
             chunkSize = 20
         }
-        val connectionGeneration = session.connectionCoordinator.beginConnection(this, 100) {}
+        val connectionGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = connectionGeneration,
             expectedStage = ConnectionStage.Connecting,
             nextStage = ConnectionStage.DiscoveringServices,
@@ -1445,6 +1453,7 @@ class BleCoreWiringTest {
             timeoutMillis = 100,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = connectionGeneration,
             expectedStage = ConnectionStage.DiscoveringServices,
             nextStage = ConnectionStage.Configuring,
@@ -1452,6 +1461,7 @@ class BleCoreWiringTest {
             timeoutMillis = 100,
         )
         session.connectionCoordinator.transition(
+            TestStageAuthority,
             callbackGeneration = connectionGeneration,
             expectedStage = ConnectionStage.Configuring,
             nextStage = ConnectionStage.Ready,

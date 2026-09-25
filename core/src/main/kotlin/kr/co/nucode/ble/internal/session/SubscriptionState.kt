@@ -29,7 +29,20 @@ internal class SubscriptionState {
     val activeSnapshot: Set<CharacteristicRef>
         get() = active.immutableSnapshot()
 
+    /**
+     * 테스트 seam — 의도만 심는다("의도는 있고 활성은 없음" 상태 재현). 프로덕션의 의도 추가는
+     * [confirmSubscribed] 하나다.
+     */
     fun addDesired(characteristic: CharacteristicRef): Boolean = desired.add(characteristic)
+
+    /**
+     * CCCD 켜기 ack 뒤 사용자 구독을 한 번에 기록한다 — 의도 추가와 [generation] 의 활성 표시.
+     * 둘을 따로 부르면 하나를 빠뜨려도 컴파일된다. 반환값은 [markActive] 와 같다.
+     */
+    fun confirmSubscribed(characteristic: CharacteristicRef, generation: Long): Boolean {
+        desired.add(characteristic)
+        return markActive(characteristic, generation)
+    }
 
     /** Removing intent must also prevent a late completion from restoring active state. */
     fun removeDesired(characteristic: CharacteristicRef): Boolean {
@@ -39,7 +52,7 @@ internal class SubscriptionState {
 
     /**
      * 사용자 명시 해제 — 구독 의도까지 버린다. 이미 ack 된 subscribe 의 늦은 재개는 여기서 막지 못한다
-     * ([addDesired] 가 의도를 다시 넣을 수 있다) — `BleRuntime.subscribe` 가 재개 시 시작 generation 이
+     * ([confirmSubscribed] 가 의도를 다시 넣을 수 있다) — `BleRuntime.subscribe` 가 재개 시 시작 generation 이
      * 아직 Ready 인지 확인해 거부한다.
      */
     fun clearDesired() {

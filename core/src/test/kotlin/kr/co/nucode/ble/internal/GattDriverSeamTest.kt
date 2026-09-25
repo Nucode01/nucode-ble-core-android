@@ -1315,7 +1315,7 @@ class GattDriverSeamTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).
-        session.connectionCoordinator.beginConnection(scope, linkTimeoutMillis = 30_000) {}
+        session.connectionCoordinator.beginConnection(TestStageAuthority, scope, linkTimeoutMillis = 30_000) {}
         val driver = FakeGattDriver()
         GattBridge(registry, {}, scope, driver, ackTimeoutMillis = 5_000)
         val target = characteristicIdentity()

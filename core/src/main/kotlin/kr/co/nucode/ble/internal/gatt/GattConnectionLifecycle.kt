@@ -34,9 +34,13 @@ import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
+import kr.co.nucode.ble.internal.session.StageAuthority
 import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import kr.co.nucode.ble.internal.session.toDisconnectReason
+
+/** 이 파일만 연결 단계 전이 권한을 가진다. */
+private object LifecycleStageAuthority : StageAuthority()
 
 /** operation → lifecycle. */
 internal interface GattLifecycleHooks {
@@ -87,6 +91,7 @@ internal class GattConnectionLifecycle(
     /** 복원이 끝난 [generation] 을 Ready 로 — generation·stage 를 다시 확인하고 전이한 뒤 게시한다. */
     override fun completeReady(session: Session, generation: Long): Boolean {
         val accepted = session.connectionCoordinator.transition(
+            LifecycleStageAuthority,
             callbackGeneration = generation,
             expectedStage = ConnectionStage.Configuring,
             nextStage = ConnectionStage.Ready,
@@ -106,7 +111,7 @@ internal class GattConnectionLifecycle(
         // 대기는 새 generation 시작과 함께 끝난다 — 이 generation 이 Ready 전에 실패하면 첫 연결 실패와 같은
         // 규칙으로 handle 을 닫고 Disconnected(Failed) 로 끝난다(대기로 돌아가지 않는다, review H3 결정 A).
         var generation = 0L
-        session.endPlatformWait { generation = session.connectionCoordinator.beginPlatformRelink(scope) }
+        session.endPlatformWait { generation = session.connectionCoordinator.beginPlatformRelink(LifecycleStageAuthority, scope) }
         return generation
     }
 
@@ -152,6 +157,7 @@ internal class GattConnectionLifecycle(
         val timeouts = readinessTimeouts
         val generation = session.connectionCoordinator.generation
         val started = session.connectionCoordinator.beginCleanup(
+            LifecycleStageAuthority,
             targetGeneration = generation,
             cause = TerminalCause(reason, cause),
             scope = scope,
@@ -224,7 +230,7 @@ internal class GattConnectionLifecycle(
         session.suppressReconnect = true
         // 대기 종료와 원인 대체를 한 번에 게시한다 — 중간에 옛 원인의 Disconnected 가 보이지 않는다.
         var superseded = false
-        session.endPlatformWait { superseded = coordinator.supersedePlatformWait(generation, cause) }
+        session.endPlatformWait { superseded = coordinator.supersedePlatformWait(LifecycleStageAuthority, generation, cause) }
         if (!superseded) return false
         try {
             driver.disconnect(session.deviceId, session.gatt)
@@ -244,7 +250,7 @@ internal class GattConnectionLifecycle(
      */
     private fun completeWithoutPublish(session: Session, generation: Long, fallback: TerminalCause): Boolean {
         finalizeTerminalCause(session, generation, fallback, status = 0)
-        return session.connectionCoordinator.completeCleanup(generation, fallback)
+        return session.connectionCoordinator.completeCleanup(LifecycleStageAuthority, generation, fallback)
     }
 
     /**
@@ -262,7 +268,7 @@ internal class GattConnectionLifecycle(
         val derivedFailure = (derived as? DisconnectReason.Failed)?.failure
         if (candidate.failure == null && derivedFailure != null) {
             // 원인 없는 해제도 status 를 담은 실패 자체를 고정한다 — 게시 시점 파생에 status 가 필요 없다.
-            coordinator.latchIfAbsent(generation, TerminalCause(candidate.reason, derivedFailure))
+            coordinator.latchIfAbsent(LifecycleStageAuthority, generation, TerminalCause(candidate.reason, derivedFailure))
             // LINK_FAILED 는 State 와 함께 Event 로도 전달한다(AsyncResource 규칙).
             emitDiagnostic(Severity.Warning, derivedFailure)
         }
@@ -285,9 +291,9 @@ internal class GattConnectionLifecycle(
             generation == coordinator.generation &&
             coordinator.stage != ConnectionStage.Disconnected
         val completed = if (keepForPlatformWait) {
-            session.beginPlatformWait { coordinator.completeCleanup(generation, fallback) }
+            session.beginPlatformWait { coordinator.completeCleanup(LifecycleStageAuthority, generation, fallback) }
         } else {
-            coordinator.completeCleanup(generation, fallback)
+            coordinator.completeCleanup(LifecycleStageAuthority, generation, fallback)
         }
         if (!completed) return false
 
@@ -365,7 +371,7 @@ internal class GattConnectionLifecycle(
                     TerminalCleanupReason.PlatformDisconnected
                 }
                 // 먼저 고정된 원인(예: 사용자 해제)이 있으면 이 실패는 Diagnostic 으로만 남는다.
-                coordinator.latchIfAbsent(callbackGeneration, TerminalCause(failureReason, cause))
+                coordinator.latchIfAbsent(LifecycleStageAuthority, callbackGeneration, TerminalCause(failureReason, cause))
                 if (suppressReconnect) session.suppressReconnect = true
                 if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     completeLifecycleCleanup(
@@ -388,6 +394,7 @@ internal class GattConnectionLifecycle(
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     val accepted = coordinator.transition(
+                        LifecycleStageAuthority,
                         callbackGeneration = callbackGeneration,
                         expectedStage = ConnectionStage.Connecting,
                         nextStage = ConnectionStage.DiscoveringServices,
@@ -444,6 +451,7 @@ internal class GattConnectionLifecycle(
         val callbackGeneration = attributedGeneration(session, event) ?: return
         if (status == BluetoothGatt.GATT_SUCCESS) {
             val accepted = session.connectionCoordinator.transition(
+                LifecycleStageAuthority,
                 callbackGeneration = callbackGeneration,
                 expectedStage = ConnectionStage.DiscoveringServices,
                 nextStage = ConnectionStage.Configuring,
@@ -681,6 +689,7 @@ internal class GattConnectionLifecycle(
         // 도달하면 정확히 M-7 유령 Connecting 이다.
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val connectionGeneration = session.connectionCoordinator.beginConnection(
+            LifecycleStageAuthority,
             scope = scope,
             linkTimeoutMillis = options.linkDeadlineMillis(readinessTimeouts.linkMillis),
             onTimeout = { onLifecycleDeadline(deviceId, it) },
@@ -710,10 +719,6 @@ internal class GattConnectionLifecycle(
         // autoConnect 가 아니면 이 handle 은 처음부터 OS 대기용이 아니다(링크가 끊기면 닫고 Disconnected).
         // connectGatt 호출 뒤로 미루면 그 사이 콜백이 (이례적으로) 동기 재진입해 stale 한 값을 보는 창이 생긴다.
         session.suppressReconnect = !options.autoConnect
-        // 복원 job 취소의 유일한 지점 — generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected).
-        // Connecting 에서는 끊지 않는다: 이전 generation 은 이미 Disconnected 를 지나며 끊겼고, 남았더라도
-        // job 의 generation 확인이 멈춘다. 같은 Session 에 다시 걸어도 같은 동작이다(멱등).
-        session.onLeaveLink = { linkSetup()?.cancel(session) }
         session.autoConnect = options.autoConnect
         // 새 시도는 어댑터 복귀 재연결 대상이 아니다 — 이 시도 자체가 그 재연결이거나 사용자가 새로 건 것이다.
         session.relinkAfterAdapter = false
@@ -1012,7 +1017,8 @@ internal class GattConnectionLifecycle(
      * coordinator 게시(onStageChanged → Session.connectionState)로 한 번 바뀌고, 시작된 generation 은
      * ConnStateChanged 도 낸다(BleRuntime 경유 시 close 게이트 뒤라 이벤트 버스에서는 버려진다 —
      * 닫힌 클라이언트의 최종 상태는 connectionState·closed snapshot 이 전달한다). 붙은 뒤 절차는
-     * 진행하지 않고 복원 job 만 끊는다(닫힌 런타임에서 다음 단계를 진행할 이유가 없다).
+     * 진행하지 않는다(닫힌 런타임에서 다음 단계를 진행할 이유가 없다) — 진행 중인 복원 job 은 종결 stage 게시에서
+     * LinkSetup 의 링크 이탈 listener 가 끊는다.
      */
     fun close(session: Session) {
         session.relinkAfterAdapter = false
@@ -1023,7 +1029,7 @@ internal class GattConnectionLifecycle(
             return
         }
         session.suppressReconnect = true
-        val superseded = coordinator.supersedeForClose(generation)
+        val superseded = coordinator.supersedeForClose(LifecycleStageAuthority, generation)
         val completed = completeWithoutPublish(
             session,
             generation,
@@ -1031,7 +1037,7 @@ internal class GattConnectionLifecycle(
         )
         // 연결 시도 전(고정된 원인 없음) 세션은 종결할 generation 이 없다 — 닫힘이 첫 원인이다.
         // 이미 종결된 generation 의 원인은 바꾸지 않는다(first wins).
-        if (!completed && !superseded) coordinator.closeIdle()
+        if (!completed && !superseded) coordinator.closeIdle(LifecycleStageAuthority)
         if (generation > 0L && (superseded || completed)) {
             publishState(session)
         }

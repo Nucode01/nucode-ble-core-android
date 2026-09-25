@@ -644,8 +644,7 @@ internal class BleRuntime private constructor(
             if (!session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
                 throw BleException(GattFailureFactory.operationInvalidated(session))
             }
-            session.subscriptionState.addDesired(charRef)
-            session.subscriptionState.markActive(charRef, session.connectionCoordinator.generation)
+            session.subscriptionState.confirmSubscribed(charRef, session.connectionCoordinator.generation)
         }
     }
 
@@ -758,7 +757,7 @@ internal class BleRuntime private constructor(
         sessions.forEach { session ->
             runCatching {
                 // Scheduler completion은 GattBridge.close의 poison/drain이 유한 종결한다.
-                // 복원 job 도 lifecycle close 가 끊는다.
+                // 복원 job 은 lifecycle close 가 게시하는 종결 stage 에서 LinkSetup 의 링크 이탈 listener 가 끊는다.
                 // lifecycle close 가 ClientClosed 를 고정·종결하고 suppressReconnect 를 세운다. 플랫폼 재연결
                 // 대기 중 세션도 ClientClosed 로 끝난다.
                 gattBridge.close(session)

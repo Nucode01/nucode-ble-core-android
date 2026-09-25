@@ -56,19 +56,19 @@ class CallbackAttributionTest {
     private fun TestScope.sessionAt(stage: ConnectionStage, wait: Wait): Session {
         val session = Session(deviceId)
         val c = session.connectionCoordinator
-        val g = c.beginConnection(this, 10_000) {}
+        val g = c.beginConnection(TestStageAuthority, this, 10_000) {}
         when (stage) {
             ConnectionStage.Connecting -> Unit
             ConnectionStage.Ready -> {
-                c.transition(g, ConnectionStage.Connecting, ConnectionStage.DiscoveringServices, this, 10_000)
-                c.transition(g, ConnectionStage.DiscoveringServices, ConnectionStage.Configuring, this, 10_000)
-                c.transition(g, ConnectionStage.Configuring, ConnectionStage.Ready, this)
+                c.transition(TestStageAuthority, g, ConnectionStage.Connecting, ConnectionStage.DiscoveringServices, this, 10_000)
+                c.transition(TestStageAuthority, g, ConnectionStage.DiscoveringServices, ConnectionStage.Configuring, this, 10_000)
+                c.transition(TestStageAuthority, g, ConnectionStage.Configuring, ConnectionStage.Ready, this)
             }
             ConnectionStage.Disconnecting ->
-                c.beginCleanup(g, cause(), this, 10_000) {}
+                c.beginCleanup(TestStageAuthority, g, cause(), this, 10_000) {}
             ConnectionStage.Disconnected -> when (wait) {
-                Wait.Waiting -> session.beginPlatformWait { c.completeCleanup(g, cause()) }
-                Wait.NotWaiting -> c.completeCleanup(g, cause())
+                Wait.Waiting -> session.beginPlatformWait { c.completeCleanup(TestStageAuthority, g, cause()) }
+                Wait.NotWaiting -> c.completeCleanup(TestStageAuthority, g, cause())
             }
             else -> error("unused stage $stage")
         }
@@ -165,7 +165,7 @@ class CallbackAttributionTest {
         }
         // 끝난 세션이 새 재연결 generation 을 열어 Connecting 이면 그 generation 의 사실이다.
         val reconnecting = sessionAt(ConnectionStage.Disconnected, Wait.Waiting)
-        val next = reconnecting.connectionCoordinator.beginConnection(this, 10_000) {}
+        val next = reconnecting.connectionCoordinator.beginConnection(TestStageAuthority, this, 10_000) {}
         assertEquals(ConnectionStage.Connecting, reconnecting.connectionCoordinator.stage)
         for (event in operationEvents(GattCallbackSource { true })) {
             assertEquals("$event", Attribution.Current(next), CallbackAttribution.attribute(reconnecting, event))

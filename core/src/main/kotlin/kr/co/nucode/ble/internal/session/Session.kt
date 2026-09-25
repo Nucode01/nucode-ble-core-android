@@ -76,7 +76,7 @@ internal class Session(val deviceId: PeripheralId) {
 
     /**
      * generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected)의 단일 listener 슬롯.
-     * 붙은 뒤 절차의 소유자(lifecycle)가 연결 시작 때 건다 — Session 은 누가 거는지 모른다.
+     * 복원 job 의 소유자(LinkSetup)가 job 을 만들 때 건다 — Session 은 누가 거는지 모른다.
      */
     var onLeaveLink: () -> Unit = {}
 

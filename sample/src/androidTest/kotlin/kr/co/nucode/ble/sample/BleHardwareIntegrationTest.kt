@@ -307,6 +307,9 @@ class BleHardwareIntegrationTest {
         }
 
         try {
+            // 사용자 disconnect 는 구독 의도를 버린다 — 다시 켜지 않으면 notify 는 보드가 본딩 상대의
+            // CCCD 를 기억할 때만 온다(직전 본딩 테스트가 bond 를 지우면 오지 않는다).
+            secondSession.subscribe(secondNus.tx)
             secondMessages.awaitSequence()
             readStatus(secondSession, secondNus.rx, secondMessages)
         } finally {

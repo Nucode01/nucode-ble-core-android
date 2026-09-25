@@ -473,3 +473,54 @@ NUS 에는 Read 속성 characteristic 이 없어 표준 GAP Device Name(0x2A00)�
 
 수동 절차(자동화 불가 — API 33+ 에서 앱이 어댑터를 끌 수 없음): 스캔 중 설정에서 블루투스 끄기 →
 `scanState` 가 `Idle(lastFailure.code == SCAN_STOPPED_BY_ADAPTER)` 인지 sample 로그로 확인. 결과: **미실행**.
+
+### 미확인 전제 P1–P7 첫 실행·plan H(소유권 강제력) 전후 전체 스위트 (2026-09-25)
+
+환경: Pixel 5a / Android 14, nRF52840 NUS 보드 `F0:2F:24:A8:0F:9E`, `scripts/device-verify.sh`(gradle 재설치 전체 16개).
+
+| 실행 | HEAD | 결과 |
+|---|---|---|
+| 기준선 | `cc99694` | 14 pass / 1 fail / 1 skip(권한 — 수동) |
+| 테스트 수정 뒤 해당 순서만 | `3397ca1` | 본딩 → duplicate 2/2 pass |
+| plan H 뒤 | `7de1739` | 13 pass / 2 fail / 1 skip |
+| plan H 뒤 해당 순서만 ×2 | `7de1739` | 본딩 → duplicate → read → autoReconnect 4/4 pass, 2회 |
+| 권한 회수(수동 절차, adb) | `7de1739` | pass — `Unauthorized(canRequest=true)`, `startScan` → `PERMISSION_DENIED` |
+
+**기준선 실패 — 테스트 결함(`3397ca1` 수정).** `duplicateDisconnectEmitsOneTransitionAndSessionRemainsReusable` 의 두 번째 세션이
+`subscribe` 없이 notify 를 기다렸다. 사용자 disconnect 는 구독 의도를 버리므로 notify 는 보드가 본딩 상대의 CCCD 를 기억할 때만
+온다. 직전 본딩 테스트가 bond 를 지우면 오지 않아 `STATUS_TIMEOUT_MILLIS`(10 s)로 실패(해당 창 CCCD write 1회·NTFY 0건).
+
+**plan H 뒤 실패 — 간헐 `NUS service was not discovered` 의 직접 원인 관측.** 위 수정으로 duplicate 테스트가 빨리 끝나자
+본딩 테스트(bond 삭제 → 폰 GATT 캐시 파일 삭제) 직후 1 s 안에 재연결이 이어졌고, 두 연결이 연속으로 빈 서비스 목록으로 Ready 가 됐다.
+- `connect()` 10 ms 뒤 연결, `bt_stack: attp_send_msg_to_l2cap: failed to write data to L2CAP` ×2,
+  `bta_gattc_load_db: can't open GATT cache file ... gatt_cache_f02f24a80f9e`, `bta_gattc_cache: No server cache available`.
+- 그런데도 `onSearchComplete() Status=0`(6–9 ms) — **플랫폼이 GATT_SUCCESS + 빈 목록**을 준다. 라이브러리는 status 만 보고
+  Configuring → Ready 로 진행해 빈 토폴로지로 Ready 를 게시했다(`read…`: GAP Device Name 없음, `autoReconnect…`: NUS 없음,
+  뒤이어 status 22 끊김).
+- 같은 순서 재실행 2회는 재현 안 됨 — 간헐. 원인 미상이던 2026-09-23 기록(재설치 직후·본딩 뒤 순서 미포함)과 조건이 맞는다.
+- 라이브러리 쪽 판정: GAP 서비스는 규격상 필수라 빈 목록은 정상 결과가 아니다. 처리 방식(실패 종결 / 재탐색)은 미결정.
+
+**전제 관측** (두 전체 실행 값, 앞이 `cc99694`·뒤가 `7de1739`):
+
+| id | 결과 | 관측 | 결정 영향 |
+|---|---|---|---|
+| P1 autoConnect 재연결 | pass | Recovering → Ready 1033 / 1037 ms, lastFailure LINK_FAILED status 19, 구독 복원(seq 진행) | 유지 |
+| P2 BT off/on + autoReconnect | pass | off → `Disconnected(Failed:ADAPTER_UNAVAILABLE)`, on 뒤 connect 1회로 Ready 2671 / 2771 ms, PERIPHERAL_NOT_FOUND 없음 | 유지 |
+| P3 cold cache autoReconnect | pass | outcome=ready 3571 / 2032 ms, PERIPHERAL_NOT_FOUND 없음 | 유지 |
+| P4 스캔 필터 합집합 | pass | 주소 결과로 연결 진행, 사용자 결과 0·필터 밖 누출 0 | 유지 |
+| P5 스캔 시작 한도 | pass(기록) | 6번째 시작: `Scanning`, 결과 0, 예외·실패 없음. 시스템 로그 `App '…' is scanning too frequently`, `onScannerRegistered status=6` — Android 는 이 경우 `onScanFailed` 를 보내지 않는다 | **재검토 필요** — 라이브러리가 `Scanning` 을 보이는데 실제 스캔은 없다 |
+| P6a 사용자 해제 | pass | `Disconnected(Requested)` | 유지 |
+| P6b 상대 해제 | pass | LINK_FAILED, status 19 `GATT_CONN_TERMINATE_PEER_USER`(기대값) | 유지 |
+| P6c RF 손실 | 미실행 | 보드 전원 차단 필요(수동) | — |
+| P7 스캔 중 BT off | pass | `Idle(SCAN_STOPPED_BY_ADAPTER)` 363 ms, `onScanFailed` 미도착 | 어댑터 스윕의 스캔 정지가 유일한 경로임을 확인 |
+
+### plan I(빈 서비스 목록)·J v2(스캔 시작 한도) 뒤 (2026-09-25)
+
+| 실행 | HEAD | 결과 |
+|---|---|---|
+| plan J v1 뒤 전체 | `b4c2527` | 15 pass / 1 skip. P5 6번째 `SCAN_START_THROTTLED`. 단 앞 테스트 클라이언트 시작 2회 + P5 3회 뒤 P5 4·5번째가 플랫폼에서 조용히 거절(status 6) — 기록이 클라이언트 단위라 못 셈 → v2 |
+| 플랫폼 기록 BT 토글 실측 | — | `BluetoothLeScanner` 직접 5회 시작 → `svc bluetooth disable/enable` → 6번째 status 0 허용(`ble_scan_always_enabled` 0·1 모두). 대조(토글 없음) status 6 거절 → 플랫폼은 BT off/on 에 기록을 비운다 |
+| plan J v2 뒤 전체 | `1046a98` | 13 pass / 2 fail / 1 skip — P5 처음 5회가 앞 테스트 시작(공유 기록)으로 한도 초과(테스트 결함), readGap connect status 133(간헐, 한도 무관) |
+| P5 시작 전 대기 추가 뒤 | HEAD | 해당 순서 5/5, 전체 15 pass / 1 skip / 0 fail. P5 `firstFiveResults=8,9,8,7,7`, 6번째 `SCAN_START_THROTTLED`, 플랫폼 `scanning too frequently` 0건 |
+
+플랜 I 의 빈 서비스 목록 종결은 재현 조건이 비결정이라 이번 실행들에서 관측되지 않았다(회귀 없음만 확인).

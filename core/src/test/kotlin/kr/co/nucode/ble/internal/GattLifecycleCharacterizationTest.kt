@@ -26,6 +26,7 @@ import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
@@ -272,7 +273,7 @@ class GattLifecycleCharacterizationTest {
                 DEVICE_ID,
                 CURRENT_SOURCE,
                 BluetoothGatt.GATT_SUCCESS,
-                services = emptyList(),
+                services = listOf(gapServiceSnapshot()),
                 connectionGeneration = generation,
             ),
         )
@@ -307,10 +308,15 @@ class GattLifecycleCharacterizationTest {
         assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
         assertEquals(185, session.mtu)
         assertEquals(182, session.chunkSize)
+        val discovered = observed.filterIsInstance<OfficialBleClientEvent.Services>().single()
+        assertEquals(
+            listOf("00001800-0000-1000-8000-00805f9b34fb"),
+            discovered.services.map { it.ref.uuid.value.toString() },
+        )
         assertEquals(
             listOf(
                 OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.DiscoveringServices),
-                OfficialBleClientEvent.Services(DEVICE_ID, emptyList()),
+                OfficialBleClientEvent.Services(DEVICE_ID, discovered.services),
                 OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Configuring),
                 OfficialBleClientEvent.Connection(DEVICE_ID, ConnectionState.Ready),
             ),
@@ -361,7 +367,7 @@ class GattLifecycleCharacterizationTest {
                 DEVICE_ID,
                 CURRENT_SOURCE,
                 BluetoothGatt.GATT_SUCCESS,
-                services = emptyList(),
+                services = listOf(gapServiceSnapshot()),
             ),
         )
         bridge.requestMtu(DEVICE_ID, 185)
@@ -685,7 +691,7 @@ class GattLifecycleCharacterizationTest {
                 DEVICE_ID,
                 CURRENT_SOURCE,
                 status = 133,
-                services = emptyList(),
+                services = listOf(gapServiceSnapshot()),
                 connectionGeneration = generation,
             ),
         )
@@ -934,7 +940,7 @@ class GattLifecycleCharacterizationTest {
                 DEVICE_ID,
                 CURRENT_SOURCE,
                 BluetoothGatt.GATT_SUCCESS,
-                services = emptyList(),
+                services = listOf(gapServiceSnapshot()),
                 connectionGeneration = generation,
             ),
         )

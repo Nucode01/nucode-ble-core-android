@@ -356,6 +356,24 @@ internal object FailureMapper {
     }
 
     /**
+     * Maps a discovery that reported GATT_SUCCESS with zero services. An LE GATT server always
+     * exposes GAP (0x1800), so this is not a valid result (observed after a missing platform cache
+     * and L2CAP write failures). Unlike [gattStatusFailed], the success status 0 is carried as-is.
+     */
+    fun emptyServiceDiscovery(context: FailureContext = FailureContext()): BleFailure = failure(
+        category = "connection",
+        code = "SERVICE_DISCOVERY_FAILED",
+        phase = FailurePhase.DiscoverServices,
+        retryability = Retryability.Unknown,
+        context = context,
+        platformDetail = androidDetail(
+            domain = "android.bluetooth.gatt.status",
+            statusCode = GATT_SUCCESS,
+            operation = AndroidApiOperation.OnServicesDiscovered,
+        ),
+    )
+
+    /**
      * Maps a local start rejection. Synthetic legacy values such as -1 are intentionally absent:
      * they were SDK sentinels, not Android status codes.
      */

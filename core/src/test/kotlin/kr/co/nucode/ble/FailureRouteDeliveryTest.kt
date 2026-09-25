@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
@@ -76,7 +77,7 @@ class FailureRouteDeliveryTest {
         )
 
         fun services(deviceId: PeripheralId, generation: Long, status: Int) = emit(
-            GattDriverEvent.ServicesDiscovered(deviceId, SOURCE, status, emptyList(), generation),
+            GattDriverEvent.ServicesDiscovered(deviceId, SOURCE, status, listOf(gapServiceSnapshot()), generation),
         )
 
         fun mtu(deviceId: PeripheralId, generation: Long) = emit(

@@ -266,7 +266,7 @@ internal object FailureCatalog {
         FailureSpec(
             "SERVICE_DISCOVERY_FAILED",
             listOf(
-                Route("link lifecycle (discovery status)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleServicesDiscovered"),
+                Route("link lifecycle (discovery status)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleServicesDiscovered(status 실패 + GATT_SUCCESS 인데 서비스 0개 — emptyServiceDiscovery)"),
             ),
         ),
         FailureSpec(

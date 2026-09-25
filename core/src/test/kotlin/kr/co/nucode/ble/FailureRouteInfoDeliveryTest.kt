@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
@@ -87,7 +88,7 @@ class FailureRouteInfoDeliveryTest {
             deviceId: PeripheralId,
             generation: Long,
             status: Int,
-            services: List<GattServiceSnapshot> = emptyList(),
+            services: List<GattServiceSnapshot> = listOf(gapServiceSnapshot()),
         ) = emit(GattDriverEvent.ServicesDiscovered(deviceId, SOURCE, status, services, generation))
 
         fun mtu(deviceId: PeripheralId, generation: Long, status: Int = BluetoothGatt.GATT_SUCCESS) = emit(

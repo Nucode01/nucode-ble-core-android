@@ -62,8 +62,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     var onDisconnect: CallbackVariant = CallbackVariant.Arrive()
 
     // 근거(가정): 서비스 탐색 성공은 status 0 한 번, 서비스 목록은 스크립트 값.
+    // 근거(규격·관측): 기본 목록은 GAP(0x1800, Device Name 0x2A00 read) 하나 — LE GATT 서버 필수 서비스.
     var onDiscover: CallbackVariant = CallbackVariant.Arrive()
-    var services: List<GattServiceSnapshot> = emptyList()
+    var services: List<GattServiceSnapshot> = listOf(gapServiceSnapshot())
 
     // 근거(가정): 요청한 MTU 를 그대로 허용해 status 0 으로 한 번 응답(mtuResult 로 바꿀 수 있음).
     var onMtu: CallbackVariant = CallbackVariant.Arrive()
@@ -398,4 +399,20 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         const val SCAN_FAILED_INTERNAL_ERROR = 3
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
+}
+
+/** GAP 서비스(0x1800) + Device Name(0x2A00, read) 스냅샷 — 실기기에서 항상 보이는 최소 토폴로지. */
+internal fun gapServiceSnapshot(): GattServiceSnapshot {
+    val gap = UUID.fromString("00001800-0000-1000-8000-00805f9b34fb")
+    return GattServiceSnapshot(
+        serviceUuid = gap,
+        characteristics = listOf(
+            GattCharacteristicSnapshot(
+                serviceUuid = gap,
+                charUuid = UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb"),
+                instanceIndex = 0,
+                propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
+            ),
+        ),
+    )
 }

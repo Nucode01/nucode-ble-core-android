@@ -449,42 +449,38 @@ internal class GattConnectionLifecycle(
         val session = registry.get(deviceId) ?: return
 
         val callbackGeneration = attributedGeneration(session, event) ?: return
-        if (status == BluetoothGatt.GATT_SUCCESS) {
-            val accepted = session.connectionCoordinator.transition(
-                LifecycleStageAuthority,
-                callbackGeneration = callbackGeneration,
-                expectedStage = ConnectionStage.DiscoveringServices,
-                nextStage = ConnectionStage.Configuring,
-                scope = scope,
-                timeoutMillis = readinessTimeouts.configurationMillis,
-                onTimeout = { onLifecycleDeadline(deviceId, it) },
-            )
-            if (!accepted) return
-        } else {
+        // 규격상 GAP 은 필수 — GATT_SUCCESS 인데 서비스 0개도 status 실패와 같은 경로로 종결한다(Configuring 전이 전).
+        val discoveryFailure = when {
+            status != BluetoothGatt.GATT_SUCCESS -> GattFailureFactory.serviceDiscoveryStatusFailed(session, status)
+            event.services.isEmpty() -> GattFailureFactory.emptyServiceDiscovery(session)
+            else -> null
+        }
+        if (discoveryFailure != null) {
             if (
                 !session.connectionCoordinator.accepts(
                     callbackGeneration,
                     ConnectionStage.DiscoveringServices,
                 )
             ) return
-            val failure = GattFailureFactory.serviceDiscoveryStatusFailed(session, status)
-            emitDiagnostic(Severity.Error, failure)
+            emitDiagnostic(Severity.Error, discoveryFailure)
             beginCleanup(
                 session = session,
                 reason = TerminalCleanupReason.ServiceDiscoveryStatusFailure,
-                cause = failure,
+                cause = discoveryFailure,
                 suppressReconnect = true,
             )
             return
         }
-
-        if (status != BluetoothGatt.GATT_SUCCESS) {
-            emitDiagnostic(
-                Severity.Error,
-                GattFailureFactory.serviceDiscoveryStatusFailed(session, status),
-            )
-            return
-        }
+        val accepted = session.connectionCoordinator.transition(
+            LifecycleStageAuthority,
+            callbackGeneration = callbackGeneration,
+            expectedStage = ConnectionStage.DiscoveringServices,
+            nextStage = ConnectionStage.Configuring,
+            scope = scope,
+            timeoutMillis = readinessTimeouts.configurationMillis,
+            onTimeout = { onLifecycleDeadline(deviceId, it) },
+        )
+        if (!accepted) return
 
         val discoveredMap = mutableMapOf<CharacteristicRef, BluetoothGattCharacteristic>()
         val seen = mutableSetOf<CharacteristicRef>()

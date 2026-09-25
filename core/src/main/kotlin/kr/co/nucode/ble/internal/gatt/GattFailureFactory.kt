@@ -272,6 +272,9 @@ internal object GattFailureFactory {
         context = connectionContext(session),
     )
 
+    fun emptyServiceDiscovery(session: Session): BleFailure =
+        FailureMapper.emptyServiceDiscovery(context = connectionContext(session))
+
     fun mtuStatusFailed(session: Session, status: Int): BleFailure = FailureMapper.gattStatusFailed(
         statusCode = status,
         phase = FailurePhase.Configure,

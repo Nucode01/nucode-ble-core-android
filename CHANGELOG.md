@@ -49,6 +49,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Fixed
 
+- 서비스 탐색이 `GATT_SUCCESS` 인데 서비스 0개면 `Diagnostic(Error)` 와 함께 `Disconnected(Failed(SERVICE_DISCOVERY_FAILED))` 로 끝난다(`platformDetail.statusCode` 0, 첫 연결·플랫폼 재연결 모두). 규격상 GAP 은 필수라 빈 목록은 플랫폼 캐시·L2CAP 실패다. 이전에는 빈 토폴로지로 `Ready` 가 됐다.
 - `autoReconnect = true` 연결에서 캐시에 없는 주소를 찾는 짧은 스캔이 기기를 못 찾으면(또는 스캔을 쓸 수 없으면) `Diagnostic(Warning, PERIPHERAL_NOT_FOUND)`(스캔 실패는 그 실패)를 남기고 OS 대기(`Connecting`, 기한 없음)로 들어간다. 이전에는 앱 재시작 뒤 첫 연결이나 어댑터 복귀 재연결이 약 3초 뒤 `Disconnected(Failed(PERIPHERAL_NOT_FOUND))` 로 끝났다. `autoReconnect = false` 는 그대로 `PERIPHERAL_NOT_FOUND` 로 던진다.
 - 어댑터 복귀 재연결의 시작 실패를 조용히 삼키던 것을 고쳤다 — `Disconnected(Failed(원인))` 과 함께 `Diagnostic(Warning, 원인)` 이 나온다.
 - 기기 탐색 스캔을 기다리는 중 세션이 끝나면(어댑터 꺼짐·`close()`·`disconnect()`) `connect()` 가 정상 반환하던 것을 고쳤다. 이제 그 종결 실패(`ADAPTER_UNAVAILABLE`·`CLIENT_CLOSED` 등, 사용자 `disconnect()` 면 `OPERATION_INVALIDATED`)로 던진다. 그 중 `disconnect()` 는 탐색 스캔을 즉시 끝내 바로 `Disconnected(Requested)` 가 된다(이전에는 스캔 시간 초과까지 `Disconnecting` 에 남았다).

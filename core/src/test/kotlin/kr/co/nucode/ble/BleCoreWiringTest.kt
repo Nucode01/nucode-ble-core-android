@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
@@ -1593,7 +1594,7 @@ class BleCoreWiringTest {
                     deviceId = deviceId,
                     source = GattCallbackSource { true },
                     status = status,
-                    services = emptyList(),
+                    services = listOf(gapServiceSnapshot()),
                     connectionGeneration = generation,
                 ),
             )

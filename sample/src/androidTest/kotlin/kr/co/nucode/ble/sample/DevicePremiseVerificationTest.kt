@@ -323,6 +323,12 @@ class DevicePremiseVerificationTest {
         // 문서화된 예외(BleException) 밖의 예외는 startScanRecording 이 그대로 던진다. 끝나면 Idle 이어야 한다.
         assertEquals("first five startScan must not throw", emptyList<String>(), thrownInFirstFive)
         assertEquals("sixth startScan must throw SCAN_START_THROTTLED", listOf("SCAN_START_THROTTLED"), sixthThrown)
+        assertTrue(
+            "each of the first five starts must produce > 0 results: $firstFiveResults — all zero or a zero first " +
+                "start means the peripheral is not advertising or out of range; a zero tail after non-zero starts " +
+                "suggests an OEM start limit < 5; an isolated zero in the middle means intermittent reception",
+            firstFiveResults.all { it > 0 },
+        )
         assertTrue("scanState must be Idle after stopScan", client.scanState.value is ScanState.Idle)
     }
 

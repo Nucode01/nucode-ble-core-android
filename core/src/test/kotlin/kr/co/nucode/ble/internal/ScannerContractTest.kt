@@ -19,6 +19,7 @@ import kr.co.nucode.ble.internal.event.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.scan.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertArrayEquals
@@ -337,5 +338,28 @@ class ScannerContractTest {
         clock = 1_000
         assertEquals("SCAN_START_THROTTLED", scanner.startScan(filtered)?.code?.value)
         assertEquals(5, throttlePort.starts.size)
+    }
+
+    @Test
+    fun `한도 초과 때 도는 재발견 스캔이 덮는 재발견은 살아남고 새 재발견만 Unavailable 이다`() = runTest {
+        val scanner = throttledScanner()
+        scanner.spendStarts(4)
+        val first = rediscoverAsync(scanner)
+        assertEquals(5, throttlePort.starts.size)
+        val stopsBefore = throttlePort.stops
+        // 다음 디스패처 턴에 다른 주소 재발견 — 합친 spec 은 재시작이 필요하지만 한도 초과
+        val second = async { scanner.rediscover(PeripheralId("AA:BB:CC:DD:EE:02"), 1_000) }.also { runCurrent() }
+        val result = second.await()
+        assertEquals("SCAN_START_THROTTLED", ((result as RediscoveryOutcome.Unavailable).failure).code.value)
+        assertFalse(first.isCompleted)
+        assertEquals(5, throttlePort.starts.size)
+        assertEquals(stopsBefore, throttlePort.stops)
+        assertTrue(throttlePort.running)
+        // 살아남은 재발견은 도는 스캔의 관측을 계속 받는다 — 거부가 도는 스캔의 generation 을 건드리지 않는다.
+        throttlePort.starts.last().onResult(
+            ScanObservation(target, -50, AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null)),
+        )
+        runCurrent()
+        assertEquals(RediscoveryOutcome.Found, first.await())
     }
 }

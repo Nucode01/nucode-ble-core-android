@@ -76,7 +76,7 @@ Recovering/Disconnected 의 `platformDetail` statusCode 가 8(`GATT_CONN_TIMEOUT
 | P2 | `p2BluetoothToggleWithAutoReconnectRelinksOnce` | Disconnected(Failed ADAPTER_UNAVAILABLE), bt-on 뒤 Ready | PERIPHERAL_NOT_FOUND 여부, elapsedMs, 상태열 | autoReconnect 방향 · 결정 A |
 | P3 | `p3ColdCacheAutoReconnectOutcomeIsRecorded` | 실패 종료면 Failed 사유 | outcome=ready/waiting, 재발견 진단 | autoReconnect 방향 · 결정 A |
 | P4 | `p4ScanFilterUnionKeepsUserResultsFiltered` | scanResults 에 사용자 필터 밖 결과 없음 | 주소 결과로 연결 진행 여부 | scan union 정책 A |
-| P5 | `p5ScanStartThrottlingIsRecorded` | 처음 5회 시작 예외 없음, 6번째 시작이 BleException(SCAN_START_THROTTLED), 끝나면 Idle, 끝에서 한도 창(31 s) 대기 | 처음 5회 각 결과 수(`firstFiveResults` — 0 이면 OEM 한도 < 5 의심), 6번째 시작 결과 수, Idle lastFailure, 진단 | scan start budget 메모 |
+| P5 | `p5ScanStartThrottlingIsRecorded` | 처음 5회 시작 예외 없음, 처음 5회 각 결과 수 > 0(`firstFiveResults` — 전부 0·첫 칸 0 이면 주변기기 광고 없음·범위 밖, 0 아닌 값 뒤 0 꼬리면 OEM 한도 < 5 의심, 중간에 낀 0 은 간헐 수신), 6번째 시작이 BleException(SCAN_START_THROTTLED), 끝나면 Idle, 끝에서 한도 창(31 s) 대기 | 처음 5회 각 결과 수(`firstFiveResults`), 6번째 시작 결과 수, Idle lastFailure, 진단 | scan start budget 메모 |
 | P6 | `p6DisconnectStatusValuesAreRecorded` | (a) Requested, (b) failure 존재 | (b) statusCode/symbolicName (기대 19 / GATT_CONN_TERMINATE_PEER_USER), (c) 수동 | link status 매핑 |
 | P7 | `p7BluetoothOffDuringScanStopsScanWithAdapterFailure` | Idle(SCAN_STOPPED_BY_ADAPTER) | SCAN_RUNTIME_FAILED(onScanFailed) 도착 여부 | adapter sweep 의 scan 처리 |
 

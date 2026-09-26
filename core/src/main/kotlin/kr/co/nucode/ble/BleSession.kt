@@ -13,7 +13,11 @@ public interface BleSession {
      */
     public val connectionState: StateFlow<ConnectionState>
 
-    /** Authoritative service snapshot of the current connection; conflated like [connectionState]. */
+    /**
+     * Services from the most recent successful discovery; conflated like [connectionState].
+     * Not cleared on disconnect: it keeps the last discovered list until the next discovery replaces it,
+     * so check that [connectionState] is `Ready` before using it to address operations.
+     */
     public val services: StateFlow<List<GattService>>
 
     /**

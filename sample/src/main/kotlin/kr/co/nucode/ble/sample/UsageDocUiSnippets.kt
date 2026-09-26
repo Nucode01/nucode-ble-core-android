@@ -259,7 +259,11 @@ fun NusScreen(viewModel: NusViewModel = viewModel(factory = NusViewModel.Factory
     val snackbar = remember { SnackbarHostState() }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { /* 결과는 adapterState 가 반영한다 — 여기서 따로 판정하지 않는다 */ }
+    ) {
+        // adapterState 는 권한 변경을 스스로 알지 못한다 — 명령(startScan)이 다시 판정하게 한다.
+        // 거절됐으면 scan 이 PERMISSION_DENIED 로 실패하고 errors 로 보고된다.
+        viewModel.scan()
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.errors.collect { snackbar.showSnackbar(it) }

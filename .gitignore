@@ -61,3 +61,6 @@ GEMINI.md
 .github/copilot-instructions.md
 .github/instructions/
 .github/prompts/
+
+# LLM 용 로컬 API 요약 (공유하지 않음)
+guide/llms.md

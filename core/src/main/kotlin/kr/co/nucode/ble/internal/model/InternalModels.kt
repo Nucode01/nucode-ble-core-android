@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal
+package kr.co.nucode.ble.internal.model
 
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleFailure

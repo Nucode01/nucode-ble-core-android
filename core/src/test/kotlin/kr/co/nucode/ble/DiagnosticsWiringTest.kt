@@ -11,7 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -147,7 +147,6 @@ class DiagnosticsWiringTest {
         // effect (`awaitClosed()` completing within 200ms while the logger is still blocked) —
         // it calls `awaitClosed()` on a real `runBlocking` before releasing the logger latch.
         config = BleConfig(logger = logger, diagnosticOptions = diagnosticOptions),
-        adapter = { null },
     )
 
     private fun failure() = BleFailure(

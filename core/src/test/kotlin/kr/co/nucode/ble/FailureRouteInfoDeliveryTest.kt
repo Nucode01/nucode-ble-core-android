@@ -2,7 +2,6 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -18,17 +17,17 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.charRef
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
@@ -37,6 +36,11 @@ import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.harness.FakePlatformCharacteristic
+import kr.co.nucode.ble.harness.FakePlatformDescriptor
 
 /**
  * plan `platform-harness/v1` task 4 — AsyncInfo route(자원 상태를 끝내지 않는 정보성 실패)의 전달 채널을
@@ -55,20 +59,20 @@ class FailureRouteInfoDeliveryTest {
         var descriptorFailure: Exception? = null
         var descriptorStarts: Boolean = true
 
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
             disconnectFailure?.let { throw it }
         }
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
             closeFailure?.let { throw it }
         }
 
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = mtuStarts
+        override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean = mtuStarts
 
         override fun writeDescriptor(
             deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
+            gatt: GattHandle?,
+            descriptor: PlatformDescriptor,
             value: ByteArray,
         ): Boolean {
             descriptorFailure?.let { throw it }
@@ -77,8 +81,8 @@ class FailureRouteInfoDeliveryTest {
 
         override fun readCharacteristic(
             deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
+            gatt: GattHandle?,
+            characteristic: PlatformCharacteristic,
         ): Boolean = true
 
         fun connection(deviceId: PeripheralId, generation: Long, status: Int, newState: Int) = emit(
@@ -146,7 +150,6 @@ class FailureRouteInfoDeliveryTest {
                 rediscoveryTimeoutMillis = STAGE_TIMEOUT,
                 logger = logger,
             ),
-            adapter = { null },
             gattDriver = driver,
             gattOperationTargetResolver = RESOLVER,
             rediscovery = rediscovery,
@@ -551,10 +554,10 @@ class FailureRouteInfoDeliveryTest {
         val RESOLVER = GattOperationTargetResolver { _, ref ->
             if (ref == MISSING_REF) return@GattOperationTargetResolver null
             GattOperationTarget(
-                characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
+                characteristic = FakePlatformCharacteristic(ref.uuid.value),
                 identity = GattCharacteristicIdentity.from(ref),
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, 0),
+                cccdDescriptor = FakePlatformDescriptor(CCCD_UUID),
             )
         }
 

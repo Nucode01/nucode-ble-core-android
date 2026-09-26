@@ -11,7 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -35,7 +35,6 @@ class ScanContractTest {
     ): BleRuntime =
         BleRuntime(
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-            adapter = { null },
             adapterState = { probe.state },
             scanPort = port.takeUnless { realPlatform },
         )

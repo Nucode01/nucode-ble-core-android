@@ -189,7 +189,6 @@ internal fun TestScope.harness(
     val fake = FakeAndroidPlatform(CoroutineScope(dispatcher + fakeJob))
     val core = BleRuntime(
         config = config.copy(dispatcher = dispatcher),
-        adapter = { null },
         gattDriver = fake,
         gattOperationTargetResolver = fake.resolver,
         adapterState = fake.adapterProbe,

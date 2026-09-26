@@ -1,43 +1,42 @@
 package kr.co.nucode.ble.internal.gatt
 
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
-import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.internal.ConnectOptions
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
-import kr.co.nucode.ble.internal.WriteType
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSetupWiring
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
-import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.ConnectOptions
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.TerminalCause
 
 /**
- * JVM unit tests cannot construct a usable [BluetoothGatt] service graph. This package-internal
+ * JVM unit tests cannot construct a usable platform GATT service graph. This package-internal
  * target keeps the Android command object and its stable callback identity together so an injected
  * fake [GattDriver] can exercise the same platform-start branch as production.
  */
 internal data class GattOperationTarget(
-    val characteristic: BluetoothGattCharacteristic,
+    val characteristic: PlatformCharacteristic,
     val identity: GattCharacteristicIdentity,
     val propertyMask: Int,
-    val cccdDescriptor: BluetoothGattDescriptor? = null,
+    val cccdDescriptor: PlatformDescriptor? = null,
 )
 
-/** Test-only resolution seam. Production leaves this null and retains exact BluetoothGatt lookup. */
+/** Test-only resolution seam. Production leaves this null and retains exact driver-side target lookup. */
 internal fun interface GattOperationTargetResolver {
     fun resolve(session: Session, charRef: CharacteristicRef): GattOperationTarget?
 }
@@ -93,21 +92,6 @@ internal class GattBridge(
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
     private val linkSetupWiring: LinkSetupWiring? = null,
 ) {
-    internal constructor(
-        registry: SessionRegistry,
-        emit: (BleEvent) -> Unit,
-        scope: CoroutineScope,
-        context: Context?,
-        adapter: () -> BluetoothAdapter?,
-        ackTimeoutMillis: Long,
-    ) : this(
-        registry = registry,
-        emit = emit,
-        scope = scope,
-        driver = AndroidGattDriver(context, adapter, scope),
-        ackTimeoutMillis = ackTimeoutMillis,
-    )
-
     /**
      * 두 절반은 서로를 hook 인터페이스로만 안다. 순환은 여기서 끊는다: [lifecycle]에 넘기는
      * forwarding 객체는 [operations]를 호출 시점에만 읽고, 두 ctor 모두 hook을 호출하지

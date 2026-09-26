@@ -1,6 +1,6 @@
 package kr.co.nucode.ble
 
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,7 +23,7 @@ class LegacyBleCoreCompatibilityTest {
 
     @Test
     fun `raw advertisement is absent from all event and public sources`() {
-        val eventSource = listOf("internal/event/BleEvent.kt", "ClientEvents.kt")
+        val eventSource = listOf("internal/model/BleEvent.kt", "ClientEvents.kt")
             .joinToString("\n") { java.io.File("src/main/kotlin/kr/co/nucode/ble/$it").readText() }
         val publicSource = listOf("PublicModels.kt", "BleClient.kt", "BleSession.kt")
             .joinToString("\n") { java.io.File("src/main/kotlin/kr/co/nucode/ble/$it").readText() }

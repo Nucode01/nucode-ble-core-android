@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal.event
+package kr.co.nucode.ble.internal.model
 
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef

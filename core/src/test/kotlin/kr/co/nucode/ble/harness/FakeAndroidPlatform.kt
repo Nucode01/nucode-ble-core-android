@@ -1,11 +1,12 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.scan.PlatformScanSpec
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -20,14 +21,16 @@ import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.internal.gatt.TargetResolution
 
 /**
  * Android 처럼 행동하는 단일 fake 플랫폼(plan platform-harness v1 목표 1).
@@ -188,13 +191,13 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     // ── resolver ────────────────────────────────────────────────────────────
 
-    private val characteristicRefs = mutableMapOf<BluetoothGattCharacteristic, CharacteristicRef>()
-    private val descriptorRefs = mutableMapOf<BluetoothGattDescriptor, CharacteristicRef>()
+    private val characteristicRefs = mutableMapOf<PlatformCharacteristic, CharacteristicRef>()
+    private val descriptorRefs = mutableMapOf<PlatformDescriptor, CharacteristicRef>()
 
     /** JVM 스텁 객체는 uuid 를 못 돌려주므로 만든 객체 → ref 를 기억해 콜백 identity 를 채운다. */
     val resolver = GattOperationTargetResolver { _, ref ->
-        val characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0)
-        val descriptor = BluetoothGattDescriptor(CCCD_UUID, 0)
+        val characteristic = FakePlatformCharacteristic(ref.uuid.value)
+        val descriptor = FakePlatformDescriptor(CCCD_UUID)
         characteristicRefs[characteristic] = ref
         descriptorRefs[descriptor] = ref
         GattOperationTarget(
@@ -216,7 +219,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     }
 
     // 근거(코드 주석 GattDriver): 테스트 driver 는 시작 성공 후 null 핸들을 돌려줄 수 있다.
-    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
+    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? {
         calls += "connect"
         connectThrows?.let { throw it }
         // 근거(production): connectGatt 는 호출마다 새 BluetoothGatt 를 만든다 — 이전(닫히지 않은) handle 의 콜백은 출처가 달라진다.
@@ -226,22 +229,22 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     }
 
     /** generation 은 받아도 버린다 — Android 는 콜백에 generation 을 싣지 않는다. */
-    override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): BluetoothGatt? =
+    override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): GattHandle? =
         connect(deviceId, autoConnect)
 
-    override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+    override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
         calls += "disconnect"
         val source = sourceAt(epoch)
         schedule(onDisconnect) { status -> connectionEvent(deviceId, source, status, BluetoothProfile.STATE_DISCONNECTED) }
     }
 
     // 근거(관측): close() 뒤에는 콜백이 오지 않는다 — epoch 를 올려 이미 예약된 콜백의 source 가 맞지 않게 한다.
-    override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+    override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
         calls += "close"
         epoch++
     }
 
-    override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
+    override fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean {
         calls += "discover"
         if (!discoverStarts) return false
         val source = sourceAt(epoch)
@@ -251,7 +254,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         return true
     }
 
-    override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+    override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean {
         calls += "mtu"
         if (!mtuStarts) return false
         val source = sourceAt(epoch)
@@ -264,15 +267,15 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(가정): setCharacteristicNotification 은 로컬 호출이라 콜백 없이 성공.
     override fun setCharacteristicNotification(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         enabled: Boolean,
     ): Boolean = true
 
     override fun writeDescriptor(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        descriptor: BluetoothGattDescriptor,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
         value: ByteArray,
     ): Boolean {
         calls += "descriptor"
@@ -293,8 +296,8 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     override fun readCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
     ): Boolean {
         calls += "read"
         if (!readStarts) return false
@@ -307,8 +310,8 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     override fun writeCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         value: ByteArray,
         writeType: Int,
     ): Boolean {
@@ -319,6 +322,14 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         schedule(onWrite) { status -> GattDriverEvent.CharacteristicWrite(deviceId, source, status, identity) }
         return true
     }
+
+    /** 테스트 driver 는 handle 을 돌려주지 않는다(connect 는 null). handle 이 없으면 production 과 같이 NotConnected. */
+    override fun resolveTarget(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        charRef: CharacteristicRef,
+        characteristic: PlatformCharacteristic,
+    ): TargetResolution = if (gatt == null) TargetResolution.NotConnected else TargetResolution.NotFound
 
     // ── 재연결 시작 ─────────────────────────────────────────────────────────
 

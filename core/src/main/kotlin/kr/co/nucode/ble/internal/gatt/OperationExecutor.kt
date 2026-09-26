@@ -1,0 +1,466 @@
+package kr.co.nucode.ble.internal.gatt
+
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeout
+import kr.co.nucode.ble.AndroidApiOperation
+import kr.co.nucode.ble.BleException
+import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.OperationKind
+import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.Severity
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticPolicy
+import kr.co.nucode.ble.internal.diagnostics.PayloadDirection
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.GattOperation
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.session.ScheduledGattOperation
+import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+
+/**
+ * [GattOperationEngine] 의 실행 칸 — 작업 준비(target·write 타입 해석)·플랫폼 시작·ack 대기·poison·무효화를 소유한다.
+ * 상태는 갖지 않는다(작업 큐는 세션의 scheduler 가 소유).
+ */
+internal class OperationExecutor(
+    private val emit: (BleEvent) -> Unit,
+    private val driver: GattDriver,
+    private val ackTimeoutMillis: Long,
+    private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)?,
+    private val operationWriteTypeResolver: ((Session, CharacteristicRef, WriteType) -> Int)?,
+    private val operationTargetResolver: GattOperationTargetResolver?,
+    private val diagnosticIngress: DiagnosticIngress,
+    private val lifecycle: GattLifecycleHooks,
+) {
+
+    fun abortRemainingWriteChunks(
+        session: Session,
+        failed: ScheduledGattOperation<*>,
+        failure: BleFailure,
+    ) {
+        val operation = failed.operation as? QueuedWriteChunk ?: return
+        operation.commandMembers
+            .drop(operation.commandIndex + 1)
+            .forEach { queued ->
+                if (session.gattOperationScheduler.removeQueued(queued)) {
+                    queued.completion.completeExceptionally(BleException(GattFailureFactory.failureFor(session, queued, failure)))
+                }
+            }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+
+    // ── 변환 유틸 ────────────────────────────────────────────────────────────
+
+    /** [WriteType.Auto] 를 characteristic 의 실제 properties 로 해석해 플랫폼 write 타입 상수로 바꾼다. */
+    fun writeTypeInt(propertyMask: Int, writeType: WriteType): Int =
+        when (writeType) {
+            WriteType.WithResponse -> GattWriteTypes.DEFAULT
+            WriteType.WithoutResponse -> GattWriteTypes.NO_RESPONSE
+            WriteType.Auto ->
+                if (propertyMask and GattProperties.WRITE != 0) {
+                    GattWriteTypes.DEFAULT
+                } else {
+                    GattWriteTypes.NO_RESPONSE
+                }
+        }
+
+
+    suspend fun <T> awaitAfterStart(
+        session: Session,
+        scheduled: ScheduledGattOperation<T>,
+        timeoutMillis: Long,
+    ): T {
+        val startTracked = scheduled.operation as? StartTrackedGattOperation
+            ?: return withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
+        return try {
+            select {
+                startTracked.started.onAwait {
+                    withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
+                }
+                // Task 4 poison/lifecycle drain can complete or cancel a queued item before it
+                // ever starts. Observe that terminal signal as well, otherwise waiting only on
+                // `started` would strand the caller forever.
+                scheduled.completion.onAwait { it }
+            }
+        } catch (e: TimeoutCancellationException) {
+            if (session.gattOperationScheduler.removeQueued(scheduled)) {
+                scheduled.completion.cancel(e)
+                abortRemainingWriteChunks(session, scheduled, GattFailureFactory.operationInvalidated(session, scheduled))
+            } else if (session.gattOperationScheduler.pending === scheduled) {
+                poisonStartedOperation(session, scheduled, e)
+            }
+            throw BleException(GattFailureFactory.timeoutFailure(session, scheduled))
+        } catch (e: CancellationException) {
+            if (session.gattOperationScheduler.removeQueued(scheduled)) {
+                scheduled.completion.cancel(e)
+                abortRemainingWriteChunks(session, scheduled, GattFailureFactory.operationInvalidated(session, scheduled))
+            } else if (session.gattOperationScheduler.pending === scheduled) {
+                // Platform start 뒤에는 callback operation ID를 다시 받을 방법이 없다.
+                // timeout/caller cancellation이 pending의 수신자를 없애면 같은 generation을
+                // 재사용하지 않고 모든 waiter와 handle을 한 번에 종결한다.
+                poisonStartedOperation(session, scheduled, e)
+            }
+            throw e
+        }
+    }
+
+    fun poisonStartedOperation(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>,
+        failure: CancellationException,
+    ) {
+        val scheduler = session.gattOperationScheduler
+        if (scheduler.isPoisoned || scheduler.pending !== scheduled) return
+
+        val drained = scheduler.poisonCurrentGeneration()
+        drained.pending?.completion?.completeExceptionally(failure)
+        drained.queued.forEach { queued ->
+            queued.completion.completeExceptionally(BleException(GattFailureFactory.operationInvalidated(session, queued)))
+        }
+
+        val invalidationCause = if (failure is TimeoutCancellationException) {
+            GattFailureFactory.timeoutFailure(session, scheduled)
+        } else {
+            GattFailureFactory.operationInvalidated(session, scheduled)
+        }
+        // poison 꼬리(plan §접근·§잠재 에러) — completeCleanup이 driver.disconnect/close보다
+        // 먼저다(callback 동기 재진입 대비). 순서는 lifecycle.terminateForOperationInvalidation이 보존한다.
+        // handle 을 항상 닫으므로 복원 CCCD 도 재연결 대상이 아니다 — 모든 operation 이 suppressReconnect 다.
+        lifecycle.terminateForOperationInvalidation(session, invalidationCause, suppressReconnect = true)
+    }
+
+    /** Lifecycle 종료가 pending/queued waiter를 callback 없이 유한 종결하는 단일 경로. */
+    fun invalidateScheduledOperations(session: Session, failure: BleFailure) {
+        val scheduler = session.gattOperationScheduler
+        val drained = if (scheduler.isPoisoned) scheduler.drain() else scheduler.poisonCurrentGeneration()
+        drained.pending?.let { pending ->
+            pending.completion.completeExceptionally(BleException(GattFailureFactory.failureFor(session, pending, failure)))
+        }
+        drained.queued.forEach { queued ->
+            queued.completion.completeExceptionally(BleException(GattFailureFactory.failureFor(session, queued, failure)))
+        }
+    }
+
+    suspend fun <T> awaitScheduled(
+        session: Session,
+        scheduled: ScheduledGattOperation<T>,
+    ): T = try {
+        scheduled.completion.await()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        val scheduler = session.gattOperationScheduler
+        if (scheduler.removeQueued(scheduled)) {
+            scheduled.completion.cancel(e)
+        }
+        throw e
+    }
+
+    /** pending이 없을 때 FIFO head 하나를 플랫폼에 시작한다. 시작 실패는 즉시 종결한다. */
+    fun startNextOperation(session: Session) {
+        val scheduler = session.gattOperationScheduler
+        while (true) {
+            val scheduled = scheduler.startNext() ?: return
+            val failure = try {
+                if (operationStarter != null) {
+                    prepareTestOperation(session, scheduled.operation)
+                    operationStarter.invoke(session, scheduled)
+                } else {
+                    startPlatformOperation(session, scheduled)
+                }
+            } catch (e: BleException) {
+                e.failure
+            } catch (_: SecurityException) {
+                GattFailureFactory.permissionDenied(
+                    session,
+                    FailurePhase.Operation,
+                    GattFailureFactory.androidOperation(scheduled.operation.kind, callback = false),
+                    kind = GattFailureFactory.operationKind(scheduled.operation.kind),
+                )
+            } catch (_: Exception) {
+                GattFailureFactory.operationStartFailure(session, scheduled.operation)
+            }
+            val attributedFailure = failure?.let { GattFailureFactory.failureFor(session, scheduled, it) }
+            (scheduled.operation as? StartTrackedGattOperation)?.started?.complete(Unit)
+            if (attributedFailure == null) return
+
+            val operation = scheduled.operation
+            scheduler.takePendingIfMatches(
+                generation = operation.generation,
+                kind = operation.kind,
+                attributeIdentity = operation.attributeIdentity,
+            )
+            scheduled.completion.completeExceptionally(BleException(attributedFailure))
+            abortRemainingWriteChunks(session, scheduled, attributedFailure)
+            if (attributedFailure.code.value == "PERMISSION_DENIED") {
+                // 권한 상실은 세션 자원 실패다 — State(beginCleanup) 와 함께 Event 로도 알린다.
+                emitDiagnostic(Severity.Error, attributedFailure)
+                lifecycle.beginCleanup(
+                    session = session,
+                    reason = TerminalCleanupReason.PermissionDenied,
+                    cause = attributedFailure,
+                    suppressReconnect = true,
+                )
+                return
+            }
+        }
+    }
+
+    private fun prepareTestOperation(session: Session, operation: GattOperation<*>) {
+        when (operation) {
+            is QueuedRead -> operation.prepare(GattCharacteristicIdentity.from(operation.charRef))
+            is QueuedWriteChunk -> {
+                val resolved = testWriteType(session, operation.charRef, operation.requestedWriteType)
+                operation.prepare(GattCharacteristicIdentity.from(operation.charRef), resolved)
+            }
+            is QueuedCccdWrite -> operation.prepare(
+                GattDescriptorIdentity(
+                    GattCharacteristicIdentity.from(operation.charRef),
+                    CLIENT_CHARACTERISTIC_CONFIG_UUID,
+                ),
+            )
+            else -> Unit
+        }
+    }
+
+    private fun testWriteType(session: Session, charRef: CharacteristicRef, writeType: WriteType): Int =
+        operationWriteTypeResolver?.invoke(session, charRef, writeType) ?: when (writeType) {
+            WriteType.WithoutResponse -> GattWriteTypes.NO_RESPONSE
+            WriteType.WithResponse,
+            WriteType.Auto,
+            -> GattWriteTypes.DEFAULT
+        }
+
+    private fun startPlatformOperation(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>,
+    ): BleFailure? {
+        val operation = scheduled.operation
+        if (operation is QueuedRead) {
+            val target = resolveOperationTarget(session, operation.charRef)
+                ?: return GattFailureFactory.characteristicNotFound(session, OperationKind.Read)
+            if (target.propertyMask and GattProperties.READ == 0) {
+                return GattFailureFactory.operationStartFailure(session, operation)
+            }
+            val gatt = session.gatt
+            if (gatt == null && operationTargetResolver == null) return GattFailureFactory.notConnected(session)
+            operation.prepare(target.identity)
+            return if (driver.readCharacteristic(
+                    deviceId = session.deviceId,
+                    gatt = gatt,
+                    characteristic = target.characteristic,
+                )
+            ) null else GattFailureFactory.operationStartFailure(session, operation)
+        }
+        if (operation is QueuedWriteChunk) {
+            val target = resolveOperationTarget(session, operation.charRef)
+                ?: return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(operation.kind))
+            val gatt = session.gatt
+            if (gatt == null && operationTargetResolver == null) return GattFailureFactory.notConnected(session)
+            val resolvedType = writeTypeInt(target.propertyMask, operation.requestedWriteType)
+            operation.prepare(target.identity, resolvedType)
+            return if (driver.writeCharacteristic(
+                    deviceId = session.deviceId,
+                    gatt = gatt,
+                    characteristic = target.characteristic,
+                value = operation.chunkCopy(),
+                writeType = resolvedType,
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, operation.charRef, operation.chunkCopy(), scheduled)
+            }
+            ) null else GattFailureFactory.operationStartFailure(session, operation)
+        }
+        if (operation is QueuedCccdWrite) {
+            val target = resolveOperationTarget(session, operation.charRef)
+                ?: return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(operation.kind))
+            val gatt = session.gatt
+            if (gatt == null && operationTargetResolver == null) return GattFailureFactory.notConnected(session)
+            operation.prepare(GattDescriptorIdentity(target.identity, CLIENT_CHARACTERISTIC_CONFIG_UUID))
+            return startCccdOperation(
+                session = session,
+                gatt = gatt,
+                characteristic = target.characteristic,
+                charRef = operation.charRef,
+                enabled = operation.enabled,
+                descriptor = target.cccdDescriptor,
+                propertyMask = target.propertyMask,
+            )
+        }
+        val identity = operation.attributeIdentity as? GattCharacteristicIdentity
+            ?: (operation.attributeIdentity as? GattDescriptorIdentity)?.characteristic
+            ?: return GattFailureFactory.operationStartFailure(session, operation)
+        val charRef = identity.toCharacteristicRef()
+        val characteristic = session.resolve(charRef)
+            ?: return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(operation.kind))
+        val gatt = session.gatt ?: return GattFailureFactory.notConnected(session)
+        val resolved = try {
+            resolvePlatformTarget(session, characteristic, charRef)
+        } catch (e: BleException) {
+            return e.failure
+        }
+        val currentIdentity = GattCharacteristicIdentity.from(charRef, charRef.service.instanceIndex)
+        if (currentIdentity != identity) return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(operation.kind))
+
+        return when (operation) {
+            is GattOperation.WriteWithResponse -> if (driver.writeCharacteristic(
+                deviceId = session.deviceId,
+                gatt = gatt,
+                characteristic = characteristic,
+                value = operation.chunkCopy(),
+                writeType = GattWriteTypes.DEFAULT,
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, charRef, operation.chunkCopy(), scheduled)
+            }) null else GattFailureFactory.operationStartFailure(session, operation)
+            is GattOperation.WriteWithoutResponse -> if (driver.writeCharacteristic(
+                deviceId = session.deviceId,
+                gatt = gatt,
+                characteristic = characteristic,
+                value = operation.chunkCopy(),
+                writeType = GattWriteTypes.NO_RESPONSE,
+            ).also { started ->
+                if (started) emitPayloadObservation(session, PayloadDirection.Tx, charRef, operation.chunkCopy(), scheduled)
+            }) null else GattFailureFactory.operationStartFailure(session, operation)
+            is GattOperation.Subscribe -> startCccdOperation(
+                session = session,
+                gatt = gatt,
+                characteristic = characteristic,
+                charRef = charRef,
+                enabled = true,
+                descriptor = resolved.cccdDescriptor,
+                propertyMask = resolved.propertyMask,
+            )
+            is GattOperation.Unsubscribe -> startCccdOperation(
+                session = session,
+                gatt = gatt,
+                characteristic = characteristic,
+                charRef = charRef,
+                enabled = false,
+                descriptor = resolved.cccdDescriptor,
+                propertyMask = resolved.propertyMask,
+            )
+            else -> GattFailureFactory.operationStartFailure(session, operation)
+        }
+    }
+
+    private fun startCccdOperation(
+        session: Session,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
+        charRef: CharacteristicRef,
+        enabled: Boolean,
+        descriptor: PlatformDescriptor?,
+        propertyMask: Int,
+    ): BleFailure? {
+        val routingStarted = driver.setCharacteristicNotification(
+            session.deviceId,
+            gatt,
+            characteristic,
+            enabled,
+        )
+        if (enabled && !routingStarted) {
+            return GattFailureFactory.startRejected(
+                session,
+                FailurePhase.Operation,
+                AndroidApiOperation.WriteDescriptor,
+                kind = if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe,
+            )
+        }
+
+        val resolvedDescriptor = descriptor
+            ?: return GattFailureFactory.characteristicNotFound(session, if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe)
+        val value = when {
+            !enabled -> byteArrayOf(0x00, 0x00)
+            propertyMask and GattProperties.NOTIFY != 0 -> byteArrayOf(0x01, 0x00)
+            else -> byteArrayOf(0x02, 0x00)
+        }
+        return if (driver.writeDescriptor(session.deviceId, gatt, resolvedDescriptor, value)) {
+            null
+        } else {
+            GattFailureFactory.startRejected(
+                session,
+                FailurePhase.Operation,
+                AndroidApiOperation.WriteDescriptor,
+                kind = if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe,
+            )
+        }
+    }
+
+    fun resolveOperationTarget(session: Session, charRef: CharacteristicRef): GattOperationTarget? {
+        operationTargetResolver?.let { resolver ->
+            return resolver.resolve(session, charRef)?.takeIf { it.identity.toCharacteristicRef() == charRef }
+        }
+        val characteristic = session.resolve(charRef) ?: return null
+        val resolved = resolvePlatformTarget(session, characteristic, charRef)
+        return GattOperationTarget(
+            characteristic = characteristic,
+            identity = GattCharacteristicIdentity.from(charRef, charRef.service.instanceIndex),
+            propertyMask = resolved.propertyMask,
+            cccdDescriptor = resolved.cccdDescriptor,
+        )
+    }
+
+    fun exactIdentity(
+        session: Session,
+        characteristic: PlatformCharacteristic,
+        charRef: CharacteristicRef,
+    ): GattCharacteristicIdentity {
+        resolvePlatformTarget(session, characteristic, charRef)
+        return GattCharacteristicIdentity.from(charRef, charRef.service.instanceIndex)
+    }
+
+    /** 현재 handle 의 서비스 그래프에서 [characteristic] 이 [charRef] 자리의 바로 그 객체인지 driver 에 묻는다. */
+    private fun resolvePlatformTarget(
+        session: Session,
+        characteristic: PlatformCharacteristic,
+        charRef: CharacteristicRef,
+    ): TargetResolution.Resolved {
+        val gatt = session.gatt ?: throw BleException(GattFailureFactory.notConnected(session))
+        return when (val resolution = driver.resolveTarget(session.deviceId, gatt, charRef, characteristic)) {
+            is TargetResolution.Resolved -> resolution
+            TargetResolution.NotConnected -> throw BleException(GattFailureFactory.notConnected(session))
+            TargetResolution.NotFound -> throw BleException(GattFailureFactory.characteristicNotFound(session))
+        }
+    }
+
+    fun emitDiagnostic(severity: Severity, failure: BleFailure) {
+        emit(BleEvent.Diagnostic(severity = severity, failure = failure))
+    }
+
+    /** Logger-only (not projected to events); payload is copied only if the logger admits a record, and then only by policy. */
+    fun emitPayloadObservation(
+        session: Session,
+        direction: PayloadDirection,
+        characteristic: CharacteristicRef,
+        payload: ByteArray,
+        scheduled: ScheduledGattOperation<*>? = null,
+    ) {
+        val observation = GattFailureFactory.payloadObserved(session, scheduled)
+        diagnosticIngress.observe(Severity.Info, observation) { options ->
+            DiagnosticPolicy().payloadValues(options, direction, characteristic, payload)
+        }
+    }
+
+
+    companion object {
+        /** CCCD(00002902-...) 표준 UUID. BLE 스펙 고정값 — 기기마다 다르지 않다. */
+        val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
+            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    }
+}
+
+/** 콜백 identity 를 공개 [CharacteristicRef] 로 되돌린다. */
+internal fun GattCharacteristicIdentity.toCharacteristicRef(): CharacteristicRef = CharacteristicRef(
+    service = ServiceRef(BleUuid(serviceUuid), serviceInstanceIndex),
+    uuid = BleUuid(characteristicUuid),
+    instanceIndex = characteristicInstanceIndex,
+)

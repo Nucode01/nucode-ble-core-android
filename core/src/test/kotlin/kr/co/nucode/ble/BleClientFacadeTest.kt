@@ -13,18 +13,21 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
 import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.harness.FakePlatformCharacteristic
 
 class BleClientFacadeTest {
     @Test
@@ -38,13 +41,13 @@ class BleClientFacadeTest {
         val driver = RecordingWriteDriver(identity)
         val resolver = GattOperationTargetResolver { _, _ ->
             GattOperationTarget(
-                characteristic = BluetoothGattCharacteristic(characteristic.uuid.value, 0, 0),
+                characteristic = FakePlatformCharacteristic(characteristic.uuid.value),
                 identity = identity,
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_WRITE or
                     BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
             )
         }
-        val core = BleRuntime(BleConfig(), adapter = { null }, gattDriver = driver, gattOperationTargetResolver = resolver, adapterState = { AdapterState.Ready })
+        val core = BleRuntime(BleConfig(), gattDriver = driver, gattOperationTargetResolver = resolver, adapterState = { AdapterState.Ready })
         val view = DefaultBleClient(core).session(peripheralId)
         core.registry.get(PeripheralId(peripheralId.value))!!.apply {
             setStateForTest(ConnectionState.Ready)
@@ -72,7 +75,7 @@ class BleClientFacadeTest {
     }
     @Test
     fun `same peripheral views observe the Session-owned state`() {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:01")
 
@@ -86,7 +89,7 @@ class BleClientFacadeTest {
 
     @Test
     fun `close terminalizes existing view and gates new view`() {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val existing = client.session(PeripheralId("AA:BB:CC:DD:EE:02"))
 
@@ -120,7 +123,7 @@ class BleClientFacadeTest {
 
     @Test
     fun `closed client retains frozen snapshot and permits repeated cleanup`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:05")
         val view = client.session(id)
@@ -142,7 +145,7 @@ class BleClientFacadeTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun `official edges retain ingress state when collector runs after later transitions`() = kotlinx.coroutines.test.runTest {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:07")
         client.session(id)
@@ -170,7 +173,7 @@ class BleClientFacadeTest {
 
     @Test(timeout = 5_000)
     fun `state collector can close inline on runtime without self deadlock`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:06")
         val view = client.session(id)
@@ -198,7 +201,7 @@ class BleClientFacadeTest {
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
         try {
             repeat(20) { iteration ->
-                val core = BleRuntime(config = BleConfig(), adapter = { null })
+                val core = BleRuntime(config = BleConfig())
                 val client = DefaultBleClient(core)
                 val start = java.util.concurrent.CountDownLatch(1)
                 val view = executor.submit<BleSession?> {
@@ -240,8 +243,8 @@ class BleClientFacadeTest {
 
         override fun writeCharacteristic(
             deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
+            gatt: GattHandle?,
+            characteristic: PlatformCharacteristic,
             value: ByteArray,
             writeType: Int,
         ): Boolean {

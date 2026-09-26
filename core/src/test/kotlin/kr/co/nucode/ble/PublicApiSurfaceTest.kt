@@ -3,7 +3,7 @@ package kr.co.nucode.ble
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -182,7 +182,7 @@ class PublicApiSurfaceTest {
 
     @Test
     fun `logger-only observation is outside the public BleEvent hierarchy`() {
-        val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/internal/event/BleEvent.kt").readText()
+        val eventSource = java.io.File("src/main/kotlin/kr/co/nucode/ble/internal/model/BleEvent.kt").readText()
         val observationDeclaration = eventSource.substringAfter("internal class DiagnosticObservation")
             .substringBefore("\n}\n") // 선언 본문 끝(0열 닫는 괄호)까지
 

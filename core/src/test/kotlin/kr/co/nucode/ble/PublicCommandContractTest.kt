@@ -76,7 +76,6 @@ class PublicCommandContractTest {
     private fun TestScope.newClient(probe: () -> AdapterState): Pair<BleClient, BleRuntime> {
         val core = BleRuntime(
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-            adapter = { null },
             adapterState = probe,
         )
         return DefaultBleClient(core) to core

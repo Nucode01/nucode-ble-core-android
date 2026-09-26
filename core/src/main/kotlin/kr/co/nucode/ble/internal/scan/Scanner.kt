@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.scan
 
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -10,7 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AdvertisementData
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleScanFilter
@@ -450,13 +451,6 @@ private val MAC_ADDRESS = Regex("^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 private class RediscoveryWaiter(val deviceId: PeripheralId) {
     val outcome = CompletableDeferred<RediscoveryOutcome>()
 }
-
-/** Structured common fields from one Android callback. */
-internal class ScanObservation(
-    val peripheralId: PeripheralId,
-    val rssi: Int,
-    val advertisement: AdvertisementData,
-)
 
 private fun ByteArray?.matches(expected: ByteArray?, mask: ByteArray?): Boolean {
     if (this == null) return false

@@ -3,7 +3,7 @@ package kr.co.nucode.ble.harness
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.scan.PlatformScanSpec
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 
 /**
  * 단위 테스트용 [PlatformScanPort] — 시작 시도(성공·실패 모두)의 spec 과 Scanner 가 만든 **같은** 콜백

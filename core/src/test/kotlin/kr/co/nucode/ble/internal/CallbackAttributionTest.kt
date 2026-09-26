@@ -184,7 +184,8 @@ class CallbackAttributionTest {
 
     @Test
     fun `lifecycle 은 null generation 을 현재 generation 으로 추정하지 않는다`() {
-        val source = File("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt").readText()
+        val source = listOf("GattConnectionLifecycle.kt", "ConnectStarter.kt", "LinkCallbacks.kt", "LinkTeardown.kt")
+            .joinToString("\n") { File("src/main/kotlin/kr/co/nucode/ble/internal/gatt/$it").readText() }
         assertFalse(source.contains("connectionGeneration ?:"))
     }
 }

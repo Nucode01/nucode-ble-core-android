@@ -1,10 +1,13 @@
 package kr.co.nucode.ble.internal.gatt
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import java.util.UUID
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
 import kr.co.nucode.ble.internal.session.Session
 
 /**
@@ -18,7 +21,7 @@ import kr.co.nucode.ble.internal.session.Session
 internal interface GattDriver {
     fun setEventSink(sink: (GattDriverEvent) -> Unit)
 
-    fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt?
+    fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle?
 
     /**
      * Coordinator-aware 연결 시작. 기존/production driver는 같은 Android 호출을 유지하고,
@@ -28,48 +31,59 @@ internal interface GattDriver {
         deviceId: PeripheralId,
         autoConnect: Boolean,
         connectionGeneration: Long,
-    ): BluetoothGatt? = connect(deviceId, autoConnect)
+    ): GattHandle? = connect(deviceId, autoConnect)
 
-    fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?)
+    fun disconnect(deviceId: PeripheralId, gatt: GattHandle?)
 
-    fun close(deviceId: PeripheralId, gatt: BluetoothGatt?)
+    fun close(deviceId: PeripheralId, gatt: GattHandle?)
 
-    fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean
+    fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean
 
-    fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean
+    fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean
 
     fun setCharacteristicNotification(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         enabled: Boolean,
     ): Boolean
 
     fun writeDescriptor(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        descriptor: BluetoothGattDescriptor,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
         value: ByteArray,
     ): Boolean
 
     fun readCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
     ): Boolean = false
 
     fun writeCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         value: ByteArray,
         writeType: Int,
     ): Boolean
+
+    /**
+     * [characteristic] 이 [gatt] 의 현재 서비스 그래프에서 [charRef] 자리(서비스·characteristic UUID와
+     * instance index)에 있는 바로 그 객체인지 판정하고, 맞으면 property mask 와 CCCD descriptor 를 돌려준다.
+     */
+    fun resolveTarget(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        charRef: CharacteristicRef,
+        characteristic: PlatformCharacteristic,
+    ): TargetResolution
 }
 
-/** Callback origin guard. Production matches `BluetoothGatt` identity; fakes choose current/stale. */
+/** Callback origin guard. Production matches platform handle identity; fakes choose current/stale. */
 internal fun interface GattCallbackSource {
-    fun matches(currentGatt: BluetoothGatt?): Boolean
+    fun matches(currentGatt: GattHandle?): Boolean
 }
 
 /** Raw service snapshot. Mapping to public models remains in [GattBridge]. */
@@ -85,7 +99,7 @@ internal data class GattCharacteristicSnapshot(
     val charUuid: UUID,
     val instanceIndex: Int,
     val propertyMask: Int,
-    val platformCharacteristic: BluetoothGattCharacteristic? = null,
+    val platformCharacteristic: PlatformCharacteristic? = null,
     val serviceInstanceIndex: Int = 0,
 )
 

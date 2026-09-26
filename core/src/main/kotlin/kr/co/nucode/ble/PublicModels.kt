@@ -282,7 +282,7 @@ public data class SessionSnapshot(
     val subscriptions: Set<CharacteristicRef>,
 )
 
-/** Official common event stream; legacy [kr.co.nucode.ble.internal.event.BleEvent] remains a separate compatibility projection. */
+/** Official common event stream; legacy [kr.co.nucode.ble.internal.model.BleEvent] remains a separate compatibility projection. */
 public sealed interface BleClientEvent
 
 /**

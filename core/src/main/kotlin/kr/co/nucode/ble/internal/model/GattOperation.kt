@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal.gatt
+package kr.co.nucode.ble.internal.model
 
 import java.util.UUID
 import kr.co.nucode.ble.CharacteristicRef
@@ -56,8 +56,11 @@ internal data class GattDescriptorIdentity(
     val descriptorUuid: UUID,
 ) : GattAttributeIdentity
 
-/** Session FIFO에 들어가는 typed operation. [generation]은 enqueue 당시 연결 세대다. */
-internal sealed interface GattOperation<out T> {
+/**
+ * Session FIFO에 들어가는 typed operation. [generation]은 enqueue 당시 연결 세대다.
+ * gatt 패키지의 엔진 private 큐 operation 클래스가 구현하므로 sealed가 아닌 일반 interface다(Kotlin sealed는 같은 패키지를 요구한다).
+ */
+internal interface GattOperation<out T> {
     val generation: Long
     val kind: GattOperationKind
     val attributeIdentity: GattAttributeIdentity?

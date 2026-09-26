@@ -18,7 +18,7 @@ import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
-import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import org.junit.Assert.assertEquals

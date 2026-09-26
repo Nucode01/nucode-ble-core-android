@@ -20,7 +20,7 @@ import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanResult
 import kr.co.nucode.ble.ScanState
 import kr.co.nucode.ble.internal.scan.PlatformScanSpec
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

@@ -1,7 +1,5 @@
 package kr.co.nucode.ble
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -12,13 +10,14 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
 
 /**
  * plan `runtime-no-runblocking` task 2(B) — `close()` 가 어떤 디스패처 위에서도 즉시
@@ -33,12 +32,10 @@ class CloseNoDeadlockTest {
 
     private fun TestScope.newCore(): BleRuntime = BleRuntime(
         config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-        adapter = { null },
     )
 
     private fun TestScope.newCoreWithFailingClose(driver: GattDriver): BleRuntime = BleRuntime(
         config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-        adapter = { null },
         gattDriver = driver,
     )
 
@@ -198,7 +195,7 @@ class CloseNoDeadlockTest {
 
         fun closeCallsFor(deviceId: PeripheralId): Int = closeCalls[deviceId]?.get() ?: 0
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
             closeCalls.getOrPut(deviceId) { AtomicInteger(0) }.incrementAndGet()
             if (deviceId == failingId) throw failure
         }
@@ -206,6 +203,6 @@ class CloseNoDeadlockTest {
 
     /** [cleanup failure is recorded and snapshot stays typed] 전용 — close() 에서만 던지는 fake driver. */
     private class ThrowingCloseDriver(private val failure: Throwable) : NoopGattDriver() {
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?): Nothing = throw failure
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?): Nothing = throw failure
     }
 }

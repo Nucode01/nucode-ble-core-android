@@ -1,10 +1,5 @@
 package kr.co.nucode.ble.internal.adapter
 
-import android.bluetooth.BluetoothAdapter
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +11,7 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.internal.model.AdapterSource
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
 
@@ -61,14 +57,13 @@ internal fun evaluatePermissionState(
  * (온기·스캔·세션 종결, 세션 재연결 재개)은 소유자인 런타임이 좁은 콜백([onAdapterLost]/[onAdapterReturned])
  * 으로 준다. 코어 스레드에서만 불린다(리시버는 [scope] 로 홉한다).
  *
- * @param context null 이면 리시버를 등록하지 않는다(테스트 생성자 경로).
+ * @param adapterSource 어댑터 조회·on/off 통지 포트 — 리시버 소유는 platform 구현 몫.
  */
 internal class AdapterMonitor(
     private val scope: CoroutineScope,
-    private val adapter: () -> BluetoothAdapter?,
+    private val adapterSource: AdapterSource,
     private val central: AndroidCentral?,
     private val adapterStateProbe: (() -> AdapterState)?,
-    private val context: Context?,
     private val onAdapterLost: (AdapterState) -> Unit,
     private val onAdapterReturned: () -> Unit,
 ) {
@@ -91,7 +86,7 @@ internal class AdapterMonitor(
      */
     private fun computeAdapterState(): AdapterState {
         adapterStateProbe?.let { return it() }
-        val adapterInstance = adapter() ?: return AdapterState.Unsupported
+        val adapterInstance = adapterSource.current() ?: return AdapterState.Unsupported
         val unauthorized = if (central != null) {
             central.permissionState()
         } else {
@@ -99,31 +94,21 @@ internal class AdapterMonitor(
             evaluatePermissionState(sdkInt = Build.VERSION.SDK_INT, declared = emptySet(), isGranted = { false })
         }
         unauthorized?.let { return it }
-        return if (adapterInstance.isEnabled) AdapterState.Ready else AdapterState.PoweredOff
+        return if (adapterInstance.isEnabled()) AdapterState.Ready else AdapterState.PoweredOff
     }
 
     /**
-     * 어댑터 on/off 브로드캐스트(review #3 해동) — 잡는 즉시 [_adapterState] 를 다시
-     * 계산해 반영한다. `scope.launch` 로 홉하는 이유는 다른 워커 콜백과 동일하다
-     * (GattBridge/Scanner KDoc) — `onReceive` 는 브로드캐스트를 발송한 시스템 스레드에서
-     * 불리고, `_adapterState` 를 coreScope 단일 스레드 밖에서 직접 건드리면 그 확정이
-     * 깨진다.
-     *
-     * 시스템이 직접 보내는 브로드캐스트(앱이 아니라 플랫폼 발신)라 API 33+ 의
-     * `RECEIVER_EXPORTED`/`RECEIVER_NOT_EXPORTED` 플래그 요구가 면제된다 — 그 플래그는
-     * "다른 앱이 내 리시버로 브로드캐스트를 보낼 수 있는가"를 통제하는 것이라 발신자가
-     * 시스템 자신인 표준 브로드캐스트에는 적용되지 않는다(plan §미해결·전제 — 실기기
-     * 미검증). 그래서 `Context.registerReceiver(receiver, filter)` 2-인자로 충분하다.
+     * 어댑터 on/off 통지(review #3 해동) — 잡는 즉시 [_adapterState] 를 다시 계산해 반영한다.
+     * `scope.launch` 로 홉하는 이유는 다른 워커 콜백과 동일하다(GattBridge/Scanner KDoc) —
+     * 통지는 브로드캐스트를 발송한 시스템 스레드에서 오고, `_adapterState` 를 coreScope 단일
+     * 스레드 밖에서 직접 건드리면 그 확정이 깨진다.
      */
-    private val adapterStateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
-            scope.launch { refreshAdapterState() }
-        }
+    private fun onAdapterStateChanged() {
+        scope.launch { refreshAdapterState() }
     }
 
     /**
-     * [adapterStateReceiver] 본문 추출(plan G task 1) — 리시버는 등록이 안 되는 테스트
+     * [onAdapterStateChanged] 본문 추출(plan G task 1) — 리시버는 등록이 안 되는 테스트
      * 생성자 경로에서 검증할 수 없어(브로드캐스트 자체가 없다), 이 함수를 직접 호출해
      * [adapterStateProbe] 플립 → [updateAdapterState] 전이(스윕 1회 규칙 포함)를 검증한다.
      * 프로덕션에서는 항상 [scope] 위(코어 단일 스레드)에서만 불린다 — 이 함수 자체는
@@ -138,12 +123,12 @@ internal class AdapterMonitor(
 
     /** 리시버 등록 — 런타임이 워커 조립 뒤 init 에서 부른다(생성 시점 타이밍 유지). */
     fun start() {
-        context?.registerReceiver(adapterStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        adapterSource.startListening(::onAdapterStateChanged)
     }
 
     /** 리시버 해제 — 런타임 close 정리의 첫 단계. */
     fun close() {
-        context?.unregisterReceiver(adapterStateReceiver)
+        adapterSource.stopListening()
     }
 
     /**
@@ -173,7 +158,7 @@ internal class AdapterMonitor(
      * 즉시 알 수 있는 실패는 throw 한다(plan §명령 실패의 두 갈래) — 권한 없음 · 어댑터 off.
      * 끊김·재시도 같은 비동기 실패는 여기서 다루지 않고 events 로만 나간다.
      *
-     * 매번 [computeAdapterState] 로 재계산한다(review #3 "냉동 해제") — [adapterStateReceiver]
+     * 매번 [computeAdapterState] 로 재계산한다(review #3 "냉동 해제") — [adapterSource] 통지
      * 는 `ACTION_STATE_CHANGED` 브로드캐스트만 잡는다. 사용자가 설정 앱에서 위치/BLUETOOTH
      * 권한을 새로 허용하는 것처럼 그 리시버가 못 잡는 변화는, 늦어도 다음 명령 진입에서
      * 이 재계산으로 반영된다.

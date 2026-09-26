@@ -13,7 +13,7 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.TestStageAuthority
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
@@ -36,7 +36,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `notification survives unrelated event flood while collector is busy`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:31")
         val ch = ref()
@@ -66,7 +66,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `slow collector of another session does not cause loss for a fast collector`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val slowId = PeripheralId("AA:BB:CC:DD:EE:41")
         val fastId = PeripheralId("AA:BB:CC:DD:EE:42")
@@ -89,7 +89,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `collector started undispatched receives an immediate emit`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:51")
         val ch = ref()
@@ -103,7 +103,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `cancelling collection unregisters the collector`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:61")
         val ch = ref()
@@ -119,7 +119,7 @@ class NotificationRoutingTest {
     @Test(timeout = 5_000)
     fun `blocked collector loses only its own overflow and counts drops`() = runBlocking {
         val capacity = 4
-        val core = BleRuntime(config = BleConfig(eventBufferCapacity = capacity), adapter = { null })
+        val core = BleRuntime(config = BleConfig(eventBufferCapacity = capacity))
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:71")
         val ch = ref()
@@ -151,7 +151,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `mutating a received array does not affect another collector`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:81")
         val ch = ref()
@@ -172,7 +172,7 @@ class NotificationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `notification emitted after close is not delivered`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null })
+        val core = BleRuntime(config = BleConfig())
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:91")
         val ch = ref()
@@ -191,7 +191,7 @@ class NotificationRoutingTest {
     @Test(timeout = 5_000)
     fun `driver characteristic callback reaches session notifications through the engine`() = runBlocking {
         val driver = SinkCapturingDriver()
-        val core = BleRuntime(config = BleConfig(), adapter = { null }, gattDriver = driver)
+        val core = BleRuntime(config = BleConfig(), gattDriver = driver)
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:3A")
         val serviceUuid = UUID.randomUUID()

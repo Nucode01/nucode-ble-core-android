@@ -11,10 +11,10 @@ import kotlinx.coroutines.launch
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.internal.gatt.toIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 
 internal fun characteristicChangedEvent(
     deviceId: PeripheralId,
@@ -181,7 +181,7 @@ internal class AndroidGattCallbackRouter(
     private fun deviceIdOf(gatt: BluetoothGatt): PeripheralId = PeripheralId(gatt.device.address)
 
     private fun sourceOf(gatt: BluetoothGatt): GattCallbackSource =
-        GattCallbackSource { currentGatt -> currentGatt === gatt }
+        GattCallbackSource { currentGatt -> currentGatt.bluetoothGatt === gatt }
 
     private fun snapshotServices(services: List<BluetoothGattService>): List<GattServiceSnapshot> {
         val ordinals = mutableMapOf<java.util.UUID, Int>()
@@ -229,7 +229,7 @@ internal class AndroidGattCallbackRouter(
             charUuid = characteristic.uuid,
             instanceIndex = instanceIndex,
             propertyMask = characteristic.properties,
-            platformCharacteristic = characteristic,
+            platformCharacteristic = AndroidCharacteristic(characteristic),
             serviceInstanceIndex = serviceInstanceIndex,
         )
     }

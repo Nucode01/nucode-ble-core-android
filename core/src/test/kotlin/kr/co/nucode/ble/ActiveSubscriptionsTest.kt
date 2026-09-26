@@ -2,7 +2,6 @@ package kr.co.nucode.ble
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,18 +21,23 @@ import kr.co.nucode.ble.internal.DefaultBleSession
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.harness.FakePlatformCharacteristic
+import kr.co.nucode.ble.harness.FakePlatformDescriptor
 
 /**
  * plan failure-delivery-fixes v1 task 3 — `BleSession.activeSubscriptions` 가 현재 연결에서
@@ -279,7 +283,7 @@ class ActiveSubscriptionsTest {
     @Test
     fun `restore without platform handle NOT_CONNECTED keeps ref out of active with event`() = runTest {
         val f = fixture(resolver = false)
-        f.session.updateDiscovered(mapOf(f.ref to BluetoothGattCharacteristic(f.ref.uuid.value, 0, 0)))
+        f.session.updateDiscovered(mapOf(f.ref to FakePlatformCharacteristic(f.ref.uuid.value)))
         f.session.subscriptionState.addDesired(f.ref)
         f.reachConfiguring(this)
 
@@ -331,16 +335,15 @@ class ActiveSubscriptionsTest {
             driver.resolveFailure?.let { throw it }
             if (!driver.resolvable) return@GattOperationTargetResolver null
             GattOperationTarget(
-                characteristic = BluetoothGattCharacteristic(ref.uuid.value, 0, 0),
+                characteristic = FakePlatformCharacteristic(ref.uuid.value),
                 identity = GattCharacteristicIdentity.from(ref),
                 propertyMask = BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, 0),
+                cccdDescriptor = FakePlatformDescriptor(CCCD_UUID),
             )
         }
         val coreDispatcher = StandardTestDispatcher(testScheduler)
         val core = BleRuntime(
             config = BleConfig(dispatcher = coreDispatcher),
-            adapter = { null },
             gattDriver = driver,
             gattOperationTargetResolver = if (resolver) targetResolver else null,
             adapterState = { AdapterState.Ready },
@@ -451,21 +454,21 @@ class ActiveSubscriptionsTest {
         var descriptorFailure: Exception? = null
         var descriptorWrites: Int = 0
 
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+        override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) = Unit
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) = Unit
 
         override fun setCharacteristicNotification(
             deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic,
+            gatt: GattHandle?,
+            characteristic: PlatformCharacteristic,
             enabled: Boolean,
         ): Boolean = true
 
         override fun writeDescriptor(
             deviceId: PeripheralId,
-            gatt: BluetoothGatt?,
-            descriptor: BluetoothGattDescriptor,
+            gatt: GattHandle?,
+            descriptor: PlatformDescriptor,
             value: ByteArray,
         ): Boolean {
             descriptorWrites++

@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.model.WriteResult
 import kotlinx.coroutines.flow.Flow
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleSession

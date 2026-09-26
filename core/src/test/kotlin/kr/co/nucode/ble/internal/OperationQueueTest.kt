@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.model.WriteResult
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -22,6 +24,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.harness.FakePlatformCharacteristic
 
 /**
  * 순수 계산(청킹·chunkSize) + write ack 배선(생성자 [OperationQueue.writeCommand] 람다)을
@@ -538,7 +542,7 @@ class OperationQueueTest {
          * 부르지 않고 참조 동일성(`===`, [Session.discovered] 맵의 값)으로만 쓴다.
          * 생성자 자체(필드 대입만 하는 코드)는 스텁 jar 에서도 예외 없이 통과한다.
          */
-        private fun fakeCharacteristic(charRef: CharacteristicRef): BluetoothGattCharacteristic =
-            BluetoothGattCharacteristic(charRef.uuid.value, 0, 0)
+        private fun fakeCharacteristic(charRef: CharacteristicRef): PlatformCharacteristic =
+            FakePlatformCharacteristic(charRef.uuid.value)
     }
 }

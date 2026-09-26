@@ -1,7 +1,5 @@
 package kr.co.nucode.ble
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
 
 /**
  * plan `runtime-no-runblocking/v1` task 1(A) — `BleRuntime.sessionForView`(→
@@ -28,7 +27,6 @@ class SessionViewNoDeadlockTest {
 
     private fun TestScope.newCore(): BleRuntime = BleRuntime(
         config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-        adapter = { null },
     )
 
     private fun testDeviceId() = PeripheralId("AA:BB:CC:DD:EE:FF")
@@ -85,7 +83,6 @@ class SessionViewNoDeadlockTest {
             val driver = CountingCloseDriver()
             val core = BleRuntime(
                 config = BleConfig(),
-                adapter = { null },
                 gattDriver = driver,
             )
             val session = core.registry.getOrCreate(id).apply { setStateForTest(ConnectionState.Ready) }
@@ -150,7 +147,6 @@ class SessionViewNoDeadlockTest {
             val driver = CountingCloseDriver()
             val core = BleRuntime(
                 config = BleConfig(),
-                adapter = { null },
                 gattDriver = driver,
             )
 
@@ -185,7 +181,7 @@ class SessionViewNoDeadlockTest {
     private class CountingCloseDriver : NoopGattDriver() {
         val closeCalls = AtomicInteger(0)
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
             closeCalls.incrementAndGet()
         }
     }

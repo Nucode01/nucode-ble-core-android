@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.event
 
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.DiagnosticObservation
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -14,7 +16,7 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.session.Session
 
 /**

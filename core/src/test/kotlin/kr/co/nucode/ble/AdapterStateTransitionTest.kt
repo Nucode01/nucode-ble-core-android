@@ -35,7 +35,6 @@ class AdapterStateTransitionTest {
     /** [BleRuntime] 테스트 생성자를 이 [TestScope] 의 스케줄러 위에서 조립한다(BleCoreWiringTest 전례). */
     private fun TestScope.newCore(probe: () -> AdapterState): BleRuntime = BleRuntime(
         config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-        adapter = { null },
         adapterState = probe,
     )
 

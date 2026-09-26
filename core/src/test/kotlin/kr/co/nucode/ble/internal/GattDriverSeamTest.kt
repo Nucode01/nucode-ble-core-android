@@ -1,5 +1,12 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.model.GattOperation
+import kr.co.nucode.ble.internal.model.GattOperationKind
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.model.WriteResult
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -26,19 +33,14 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
-import kr.co.nucode.ble.internal.gatt.GattOperation
-import kr.co.nucode.ble.internal.gatt.GattOperationKind
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.internal.gatt.GattWriteCommandFailure
 import kr.co.nucode.ble.internal.gatt.OperationQueue
-import kr.co.nucode.ble.internal.gatt.ScheduledGattOperation
 import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
 import kr.co.nucode.ble.internal.platform.android.characteristicChangedEvent
 import kr.co.nucode.ble.internal.platform.android.characteristicReadEvent
@@ -46,6 +48,7 @@ import kr.co.nucode.ble.internal.platform.android.characteristicWriteEvent
 import kr.co.nucode.ble.internal.platform.android.descriptorWriteEvent
 import kr.co.nucode.ble.internal.platform.android.identityIndexOrNull
 import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import org.junit.Assert.assertEquals
@@ -55,6 +58,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GattDriverSeamTest {
@@ -715,7 +719,7 @@ class GattDriverSeamTest {
                 session,
                 charRef,
                 listOf(byteArrayOf(1)),
-                kr.co.nucode.ble.internal.WriteType.WithResponse,
+                kr.co.nucode.ble.internal.model.WriteType.WithResponse,
                 5_000,
             )
         }
@@ -1352,26 +1356,26 @@ class GattDriverSeamTest {
         val commands = mutableListOf<String>()
         var onDisconnect: ((PeripheralId) -> Unit)? = null
 
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? {
             commands += "connect:$autoConnect"
             return null
         }
 
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
             commands += "disconnect"
             onDisconnect?.invoke(deviceId)
         }
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
+        override fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean {
             commands += "discover"
             return true
         }
 
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+        override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
             return true
         }

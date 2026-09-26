@@ -1,7 +1,5 @@
 package kr.co.nucode.ble.internal.gatt
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothProfile
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 
@@ -46,8 +44,8 @@ internal object CallbackAttribution {
 
         if (!ended) return Attribution.Current(coordinator.generation)
         val linkUp = event is GattDriverEvent.ConnectionStateChanged &&
-            event.newState == BluetoothProfile.STATE_CONNECTED &&
-            event.status == BluetoothGatt.GATT_SUCCESS
+            event.newState == LinkState.CONNECTED &&
+            event.status == GattStatus.SUCCESS
         return if (linkUp && session.awaitingPlatformRelink) {
             Attribution.Bootstrap
         } else {

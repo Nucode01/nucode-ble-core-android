@@ -1,7 +1,5 @@
 package kr.co.nucode.ble.internal.session
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,8 +12,8 @@ import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.gatt.GattFailureFactory
-import kr.co.nucode.ble.internal.gatt.GattOperationScheduler
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 
 /**
  * 기기 하나의 상태 전부. 설계 §3 규칙 2 — 기기별 상태는 객체 하나에 모은다.
@@ -59,7 +57,7 @@ internal class Session(val deviceId: PeripheralId) {
             generationStarted = connectionCoordinator.generation > 0L,
             // lifecycle 이 종결 완료 전에 원인 없는 해제를 status 를 담은 실패로 고정하므로 여기엔
             // 도달하지 않는다. 방어적 기본값만 둔다(status 미상 = 0).
-            unattributedFailure = { GattFailureFactory.unattributedLinkDisconnect(this, status = 0) },
+            unattributedFailure = { SessionFailures.unattributedLinkDisconnect(this, status = 0) },
         )
 
     /** Coordinator stage 의 읽기 전용 view. 내부 판단의 유일한 연결 단계다. */
@@ -100,7 +98,7 @@ internal class Session(val deviceId: PeripheralId) {
             // 플랫폼 재연결 대기 — 공개 상태는 Recovering 으로 파생한다(plan autoconnect-reconnect v2).
             ConnectionState.Recovering(
                 lastFailure = (disconnectReason as? DisconnectReason.Failed)?.failure
-                    ?: GattFailureFactory.unattributedLinkDisconnect(this, status = 0),
+                    ?: SessionFailures.unattributedLinkDisconnect(this, status = 0),
             )
         } else {
             stage.toPublicConnectionState(disconnectReason)
@@ -118,7 +116,7 @@ internal class Session(val deviceId: PeripheralId) {
      * 플랫폼 연결 핸들. 코어 안에만 산다 — 연결의 소유자가 코어라는 설계 §2 의 근거가
      * 바로 이 필드다. 공개 [kr.co.nucode.ble.BleClient] 시그니처에는 절대 나오지 않는다.
      */
-    var gatt: BluetoothGatt? = null
+    var gatt: GattHandle? = null
 
     /**
      * driver.connect 가 성공해 platform handle 이 열렸고 아직 close 하지 않았다. [gatt] 로 대신하지 않는
@@ -217,8 +215,8 @@ internal class Session(val deviceId: PeripheralId) {
     var chunkSize: Int? = null
 
     /**
-     * 서비스 재탐색 결과로 얻은 CharacteristicRef -> BluetoothGattCharacteristic 대응표.
-     * 재탐색마다 `BluetoothGattCharacteristic` 인스턴스가 갈리므로, 공개 API 의 값 타입인
+     * 서비스 재탐색 결과로 얻은 CharacteristicRef -> PlatformCharacteristic 대응표.
+     * 재탐색마다 `PlatformCharacteristic` 인스턴스가 갈리므로, 공개 API 의 값 타입인
      * [CharacteristicRef] 를 그때그때 이 표에서 다시 찾는다(설계 §0 "char 재매칭 — 1회 해결").
      *
      * 이 맵은 PeripheralId 가 아니라 CharacteristicRef 를 키로 하는, 기기 하나의 내부 상태다.
@@ -231,7 +229,7 @@ internal class Session(val deviceId: PeripheralId) {
      */
     private data class DiscoveredTopology(
         val services: List<GattService>,
-        val targets: Map<CharacteristicRef, BluetoothGattCharacteristic>,
+        val targets: Map<CharacteristicRef, PlatformCharacteristic>,
     )
 
     /**
@@ -250,19 +248,19 @@ internal class Session(val deviceId: PeripheralId) {
      */
     fun replaceDiscoveredTopology(
         services: List<GattService>,
-        targets: Map<CharacteristicRef, BluetoothGattCharacteristic>,
+        targets: Map<CharacteristicRef, PlatformCharacteristic>,
     ) {
         discoveredTopology = DiscoveredTopology(services.toList(), targets.toMap())
         _services.value = services
     }
 
     /** Legacy test/setup seam; production discovery always replaces topology and targets together. */
-    fun updateDiscovered(characteristics: Map<CharacteristicRef, BluetoothGattCharacteristic>) {
+    fun updateDiscovered(characteristics: Map<CharacteristicRef, PlatformCharacteristic>) {
         replaceDiscoveredTopology(discoveredTopology.services, characteristics)
     }
 
     /** CharacteristicRef 를 현재 탐색 결과에서 되찾는다. 못 찾으면 null. */
-    fun resolve(charRef: CharacteristicRef): BluetoothGattCharacteristic? = discoveredTopology.targets[charRef]
+    fun resolve(charRef: CharacteristicRef): PlatformCharacteristic? = discoveredTopology.targets[charRef]
 
     /** Public GATT operation admission is owned solely by the coordinator readiness stage. */
     fun canStartPublicGattOperation(): Boolean =

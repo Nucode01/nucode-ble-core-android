@@ -1,6 +1,6 @@
 package kr.co.nucode.ble.internal.diagnostics
 
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.DiagnosticFailure
 import kr.co.nucode.ble.DiagnosticOptions

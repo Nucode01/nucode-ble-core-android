@@ -9,11 +9,11 @@ import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
-import kr.co.nucode.ble.internal.gatt.GattOperation
-import kr.co.nucode.ble.internal.gatt.GattOperationKind
-import kr.co.nucode.ble.internal.gatt.ScheduledGattOperation
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattOperation
+import kr.co.nucode.ble.internal.model.GattOperationKind
+import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals

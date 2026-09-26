@@ -15,11 +15,11 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.harness.RecordingScanPort
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementFacts
 import kr.co.nucode.ble.internal.platform.android.AndroidAdvertisementMapper
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertArrayEquals
@@ -134,7 +134,7 @@ class ScannerContractTest {
 
     @Test
     fun `client level scan failure does not manufacture a session correlation`() {
-        val events = mutableListOf<kr.co.nucode.ble.internal.event.BleEvent>()
+        val events = mutableListOf<kr.co.nucode.ble.internal.model.BleEvent>()
         val port = RecordingScanPort {
             kr.co.nucode.ble.BleFailure(
                 category = FailureCategory("scan"),
@@ -147,7 +147,7 @@ class ScannerContractTest {
 
         runCatching { scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions()) } // 거부는 throw 로도 전달된다
 
-        val failure = (events.single() as kr.co.nucode.ble.internal.event.BleEvent.Diagnostic).failure
+        val failure = (events.single() as kr.co.nucode.ble.internal.model.BleEvent.Diagnostic).failure
         assertNull(failure.context.sessionId)
         assertNull(failure.context.connectionGeneration)
     }

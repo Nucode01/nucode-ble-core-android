@@ -10,8 +10,12 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.model.GattOperation
+import kr.co.nucode.ble.internal.model.GattOperationKind
 import kr.co.nucode.ble.internal.session.ConnectionCoordinator
+import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
+import kr.co.nucode.ble.internal.session.SessionFailures
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
@@ -260,10 +264,7 @@ internal object GattFailureFactory {
 
     /** 원인 없이 끝난 플랫폼 해제(결정 1) — status 0 을 허용한다. */
     fun unattributedLinkDisconnect(session: Session, status: Int): BleFailure =
-        FailureMapper.unattributedLinkDisconnect(
-            statusCode = status,
-            context = connectionContext(session),
-        )
+        SessionFailures.unattributedLinkDisconnect(session, status)
 
     fun serviceDiscoveryStatusFailed(session: Session, status: Int): BleFailure = FailureMapper.gattStatusFailed(
         statusCode = status,

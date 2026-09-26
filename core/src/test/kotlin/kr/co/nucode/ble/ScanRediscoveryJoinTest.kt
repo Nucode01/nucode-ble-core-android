@@ -12,10 +12,10 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -247,7 +247,6 @@ class ScanRediscoveryJoinTest {
         var adapter: AdapterState = AdapterState.Ready
         val core = BleRuntime(
             config = BleConfig(dispatcher = StandardTestDispatcher(testScheduler)),
-            adapter = { null },
             adapterState = { adapter },
             scanPort = port,
         )

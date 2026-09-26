@@ -17,7 +17,7 @@ import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.scan.PlatformScanSpec
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 
 /**
  * Android implementation of scan lifetime — 앱의 유일한 `BluetoothLeScanner.startScan/stopScan` 호출처

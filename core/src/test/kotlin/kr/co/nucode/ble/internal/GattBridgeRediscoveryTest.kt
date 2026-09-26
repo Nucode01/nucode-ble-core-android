@@ -1,6 +1,6 @@
 package kr.co.nucode.ble.internal
 
-import android.bluetooth.BluetoothGatt
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -16,7 +16,7 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.Severity
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
@@ -28,6 +28,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
 
 /**
  * plan cold-cache-rediscovery v4 task 8 — [GattBridge.connect] 의 cold-cache 재발견
@@ -46,13 +47,13 @@ class GattBridgeRediscoveryTest {
         val connectCalls = mutableListOf<Pair<PeripheralId, Long>>()
         val disconnectCalls = mutableListOf<PeripheralId>()
 
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean, connectionGeneration: Long): GattHandle? {
             connectCalls += deviceId to connectionGeneration
             log?.add("connect:${deviceId.value}")
             return null
         }
 
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
             disconnectCalls += deviceId
         }
 

@@ -11,9 +11,9 @@ import kr.co.nucode.ble.DeliverySemantics
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteProgress
-import kr.co.nucode.ble.internal.WriteResult
-import kr.co.nucode.ble.internal.WriteType
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.WriteResult
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 
@@ -105,7 +105,7 @@ internal class OperationQueue(
             }
 
             for ((index, status) in statuses.withIndex()) {
-                if (status != GATT_SUCCESS) {
+                if (status != GattStatus.SUCCESS) {
                     return@run failedWrite(
                         GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
                         writeType, chunks, index,
@@ -173,9 +173,6 @@ private fun failedWrite(
 
     /** ATT opcode(1바이트) + handle(2바이트). 설계 §6: chunkSize = mtu - 3. */
     private const val ATT_HEADER_OVERHEAD = 3
-
-    /** GATT 성공 status 코드. `android.bluetooth.BluetoothGatt.GATT_SUCCESS` 와 같은 값(0)이다. */
-    private const val GATT_SUCCESS = 0
 
     /**
      * MTU 협상 전에 쓰는 기본 청크 크기. BLE 기본 ATT_MTU 23 에서 온 값

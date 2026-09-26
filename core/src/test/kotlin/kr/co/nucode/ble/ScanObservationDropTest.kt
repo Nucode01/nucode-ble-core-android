@@ -9,7 +9,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,7 +28,6 @@ class ScanObservationDropTest {
         val port = RecordingScanPort()
         val core = BleRuntime(
             config = BleConfig(eventBufferCapacity = 1),
-            adapter = { null },
             adapterState = { AdapterState.Ready },
             scanPort = port,
         )

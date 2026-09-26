@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleFailure
@@ -66,6 +67,8 @@ class GattConnectionLifecycleTest {
     fun `StageAuthority 는 정의·전이 파라미터·lifecycle 토큰에만 나온다`() {
         val coordinator = "src/main/kotlin/kr/co/nucode/ble/internal/session/ConnectionCoordinator.kt"
         val lifecycle = "src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"
+        val lifecycleParts = listOf("ConnectStarter.kt", "LinkCallbacks.kt", "LinkTeardown.kt")
+            .map { "src/main/kotlin/kr/co/nucode/ble/internal/gatt/$it" }
         val identifier = Regex("""\bStageAuthority\b""")
         val uses = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
@@ -83,6 +86,9 @@ class GattConnectionLifecycleTest {
                     !identifier.containsMatchIn(code.replace("authority: StageAuthority", ""))
                 lifecycle -> code == "import kr.co.nucode.ble.internal.session.StageAuthority" ||
                     code == "private object LifecycleStageAuthority : StageAuthority()"
+                // lifecycle 에서 나뉜 칸 — 토큰은 생성자 주입으로만 받는다.
+                in lifecycleParts -> code == "import kr.co.nucode.ble.internal.session.StageAuthority" ||
+                    code == "private val authority: StageAuthority,"
                 else -> false
             }
         }
@@ -92,7 +98,7 @@ class GattConnectionLifecycleTest {
 
     /**
      * 중복 connect 판정 코드("CONNECTION_OPTIONS_CONFLICT"/"CONNECT_DURING_DISCONNECT") 문자열 리터럴은 main 에서
-     * GattConnectionLifecycle.kt(admitConnect) 에만 있다 — FailureCatalog.kt 등록 항목은 예외.
+     * ConnectStarter.kt(admitConnect, lifecycle 의 연결 시작 칸) 에만 있다 — FailureCatalog.kt 등록 항목은 예외.
      */
     @Test
     fun `중복 connect 판정 코드는 GattConnectionLifecycle 에만 있다`() {
@@ -102,7 +108,7 @@ class GattConnectionLifecycleTest {
             .filter { literal.containsMatchIn(it.readText()) }
             .map { it.invariantSeparatorsPath }
             .toList()
-        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"), offenders)
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/ConnectStarter.kt"), offenders)
     }
 
     /** plan link-setup 불변식 ② — `ConnStateChanged` 는 GattConnectionLifecycle.publishState 한 곳에서만 만든다. */

@@ -196,7 +196,7 @@ class OwnershipTest {
 
         val TABLE = listOf(
             Row(
-                "연결 수명주기", setOf("GattConnectionLifecycle.kt"), setOf("StageAuthority 전이"),
+                "연결 수명주기", setOf("GattConnectionLifecycle.kt", "ConnectStarter.kt", "LinkCallbacks.kt", "LinkTeardown.kt"), setOf("StageAuthority 전이"),
                 Enforcement.LinkedGuard(
                     "GattConnectionLifecycleTest.kt",
                     listOf("StageAuthority 는 정의·전이 파라미터·lifecycle 토큰에만 나온다"),
@@ -225,7 +225,7 @@ class OwnershipTest {
                 Enforcement.LinkedGuard("GattConnectionLifecycleTest.kt", listOf("ConnStateChanged 는 lifecycle publishState 에서만 만든다")),
             ),
             Row(
-                "중복 connect 판정", setOf("GattConnectionLifecycle.kt"), setOf("connect"),
+                "중복 connect 판정", setOf("ConnectStarter.kt"), setOf("connect"),
                 Enforcement.LinkedGuard("GattConnectionLifecycleTest.kt", listOf("중복 connect 판정 코드는 GattConnectionLifecycle 에만 있다")),
             ),
             Row(
@@ -233,13 +233,14 @@ class OwnershipTest {
                 Enforcement.LinkedGuard("GattConnectionLifecycleTest.kt", listOf("onLeaveLink 대입은 LinkSetup, 호출은 Session 에만 있다")),
             ),
             Row(
-                "GATT 작업 큐", setOf("GattOperationEngine.kt", "GattOperationScheduler.kt"),
+                "GATT 작업 큐",
+                setOf("GattOperationEngine.kt", "OperationExecutor.kt", "OperationCallbacks.kt", "SubscriptionCommands.kt", "GattOperationScheduler.kt"),
                 setOf("enqueue", "startNext", "removeQueued", "takePendingIfMatches", "drain", "poisonCurrentGeneration", "beginNextGeneration"),
                 Enforcement.Direct("""\w*[sS]cheduler""", emptyMap()),
             ),
             Row(
                 // GattDriver.kt(선언)·AndroidGattDriver.kt(구현)는 `*driver.` 받는 쪽으로 호출하지 않아 제외가 필요 없다.
-                "GATT handle 수명", setOf("GattConnectionLifecycle.kt"), setOf("connect", "disconnect", "close"),
+                "GATT handle 수명", setOf("ConnectStarter.kt", "LinkTeardown.kt"), setOf("connect", "disconnect", "close"),
                 Enforcement.Direct("""\w*[dD]river""", emptyMap()),
             ),
             Row(

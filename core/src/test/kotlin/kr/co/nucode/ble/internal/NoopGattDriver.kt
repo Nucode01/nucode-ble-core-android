@@ -1,11 +1,13 @@
 package kr.co.nucode.ble.internal
 
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
+import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.internal.gatt.TargetResolution
 
 /**
  * 테스트 전용 무동작 [GattDriver] 기반 클래스.
@@ -26,41 +28,49 @@ internal open class NoopGattDriver : GattDriver {
         sink(event)
     }
 
-    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? = null
+    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? = null
 
     override fun connect(
         deviceId: PeripheralId,
         autoConnect: Boolean,
         connectionGeneration: Long,
-    ): BluetoothGatt? = connect(deviceId, autoConnect)
+    ): GattHandle? = connect(deviceId, autoConnect)
 
-    override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+    override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) = Unit
 
-    override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) = Unit
+    override fun close(deviceId: PeripheralId, gatt: GattHandle?) = Unit
 
-    override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean = true
+    override fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean = true
 
-    override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean = true
+    override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean = true
 
     override fun setCharacteristicNotification(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         enabled: Boolean,
     ): Boolean = true
 
     override fun writeDescriptor(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        descriptor: BluetoothGattDescriptor,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
         value: ByteArray,
     ): Boolean = true
 
     override fun writeCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         value: ByteArray,
         writeType: Int,
     ): Boolean = true
+
+    /** 테스트 driver 는 handle 을 돌려주지 않는다(connect 는 null). handle 이 없으면 production 과 같이 NotConnected. */
+    override fun resolveTarget(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        charRef: CharacteristicRef,
+        characteristic: PlatformCharacteristic,
+    ): TargetResolution = if (gatt == null) TargetResolution.NotConnected else TargetResolution.NotFound
 }

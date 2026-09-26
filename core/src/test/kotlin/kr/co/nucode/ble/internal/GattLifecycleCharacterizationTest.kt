@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -27,15 +28,15 @@ import kr.co.nucode.ble.DisconnectReason
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.harness.gapServiceSnapshot
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
-import kr.co.nucode.ble.internal.gatt.GattOperation
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
@@ -48,6 +49,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.harness.FakePlatformCharacteristic
 
 /**
  * GATT lifecycle characterization and Slice 2 readiness callback routing regression tests.
@@ -106,7 +109,7 @@ class GattLifecycleCharacterizationTest {
             readinessTimeouts = ConnectionReadinessTimeouts(15_000, 10_000, 10_000),
         )
 
-        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.ConnectOptions(timeoutMillis = null))
+        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.model.ConnectOptions(timeoutMillis = null))
 
         assertEquals(1L, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
@@ -449,7 +452,7 @@ class GattLifecycleCharacterizationTest {
         assertEquals(listOf("disconnect", "close"), driver.commands)
 
         // BleCore.connect가 public state gate를 통과한 뒤 실행하는 실제 bridge path를 재현한다.
-        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.ConnectOptions())
+        bridge.connect(DEVICE_ID, kr.co.nucode.ble.internal.model.ConnectOptions())
 
         assertEquals(firstGeneration + 1, session.connectionCoordinator.generation)
         assertEquals(ConnectionStage.Connecting, session.connectionCoordinator.stage)
@@ -547,7 +550,7 @@ class GattLifecycleCharacterizationTest {
                                 charUuid = charUuid,
                                 instanceIndex = 0,
                                 propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
-                                platformCharacteristic = BluetoothGattCharacteristic(charUuid, 0, 0),
+                                platformCharacteristic = FakePlatformCharacteristic(charUuid),
                             ),
                         ),
                     ),
@@ -793,7 +796,6 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(CoroutineScope(Dispatchers.Unconfined))
         val core = BleRuntime(
             config = BleConfig(dispatcher = Dispatchers.Unconfined),
-            adapter = { null },
             gattDriver = driver,
         )
         // 복원 job 취소는 SetupPhaseMatrixTest 가 실제 복원(onDescriptorWrite 유실)으로 본다.
@@ -963,7 +965,6 @@ class GattLifecycleCharacterizationTest {
         config = BleConfig(
             dispatcher = StandardTestDispatcher(testScheduler),
         ),
-        adapter = { null },
         gattDriver = driver,
     )
 
@@ -984,7 +985,7 @@ class GattLifecycleCharacterizationTest {
         var disconnectFailure: Exception? = null
         var mtuStartResult: Boolean = true
 
-        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
+        override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? {
             commands += "connect:$autoConnect"
             return null
         }
@@ -993,27 +994,27 @@ class GattLifecycleCharacterizationTest {
             deviceId: PeripheralId,
             autoConnect: Boolean,
             connectionGeneration: Long,
-        ): BluetoothGatt? {
+        ): GattHandle? {
             this.connectionGeneration = connectionGeneration
             return connect(deviceId, autoConnect)
         }
 
-        override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
             commands += "disconnect"
             disconnectFailure?.let { throw it }
         }
 
-        override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
+        override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
             commands += "close"
         }
 
-        override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean {
+        override fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean {
             commands += "discover"
             discoverFailure?.let { throw it }
             return true
         }
 
-        override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean {
+        override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean {
             commands += "mtu:$mtu"
             return mtuStartResult
         }

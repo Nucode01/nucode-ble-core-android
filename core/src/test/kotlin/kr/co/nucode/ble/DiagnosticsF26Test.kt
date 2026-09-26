@@ -8,8 +8,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.event.DiagnosticObservation
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.DiagnosticObservation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,7 +29,6 @@ class DiagnosticsF26Test {
                     delivered.countDown()
                 },
             ),
-            adapter = { null },
         )
         val events = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(events) }
@@ -53,7 +52,7 @@ class DiagnosticsF26Test {
 
     @Test
     fun `logger absent preserves compatibility diagnostic without evaluating unsafe values`() = runTest {
-        val core = BleRuntime(config = BleConfig(logger = null), adapter = { null })
+        val core = BleRuntime(config = BleConfig(logger = null))
         val events = mutableListOf<BleClientEvent>()
         backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()

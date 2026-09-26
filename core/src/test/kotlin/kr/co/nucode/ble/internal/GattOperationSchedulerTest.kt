@@ -2,11 +2,11 @@ package kr.co.nucode.ble.internal
 
 import java.util.UUID
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicIdentity
-import kr.co.nucode.ble.internal.gatt.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.gatt.GattOperation
-import kr.co.nucode.ble.internal.gatt.GattOperationKind
-import kr.co.nucode.ble.internal.gatt.GattOperationScheduler
+import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.model.GattOperation
+import kr.co.nucode.ble.internal.model.GattOperationKind
+import kr.co.nucode.ble.internal.session.GattOperationScheduler
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

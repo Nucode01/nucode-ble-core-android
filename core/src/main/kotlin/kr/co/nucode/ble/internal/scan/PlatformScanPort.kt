@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.scan
 
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode

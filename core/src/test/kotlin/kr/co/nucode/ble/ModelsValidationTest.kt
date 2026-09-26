@@ -1,6 +1,6 @@
 package kr.co.nucode.ble
 
-import kr.co.nucode.ble.internal.ConnectOptions
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import org.junit.Assert.assertThrows
 import org.junit.Test
 

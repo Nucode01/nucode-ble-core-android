@@ -3,16 +3,16 @@ package kr.co.nucode.ble.internal.platform.android
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.os.Build
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.FailureCategory
 import kr.co.nucode.ble.FailureCode
@@ -22,6 +22,10 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.TargetResolution
+import kr.co.nucode.ble.internal.model.GattHandle
+import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.model.PlatformDescriptor
 
 /** Production [GattDriver]. Android callback conversion is delegated to [AndroidGattCallbackRouter]. */
 @SuppressLint("MissingPermission")
@@ -36,7 +40,7 @@ internal class AndroidGattDriver(
         callbackRouter.setEventSink(sink)
     }
 
-    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): BluetoothGatt? {
+    override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? {
         val failureContext = FailureContext()
         val platformContext = context ?: throw BleException(
             FailureMapper.fromAdapterState(AdapterState.Unsupported).copy(context = failureContext),
@@ -65,7 +69,7 @@ internal class AndroidGattDriver(
                 ),
             )
         }
-        return try {
+        val gatt = try {
             device.connectGatt(platformContext, autoConnect, callbackRouter.callback)
         } catch (e: SecurityException) {
             throw BleException(
@@ -82,45 +86,47 @@ internal class AndroidGattDriver(
                 context = failureContext,
             ),
         )
+        return AndroidGattHandle(gatt)
     }
 
-    override fun disconnect(deviceId: PeripheralId, gatt: BluetoothGatt?) {
-        gatt?.disconnect()
+    override fun disconnect(deviceId: PeripheralId, gatt: GattHandle?) {
+        gatt.bluetoothGatt?.disconnect()
     }
 
-    override fun close(deviceId: PeripheralId, gatt: BluetoothGatt?) {
-        gatt?.close()
+    override fun close(deviceId: PeripheralId, gatt: GattHandle?) {
+        gatt.bluetoothGatt?.close()
     }
 
-    override fun discoverServices(deviceId: PeripheralId, gatt: BluetoothGatt?): Boolean =
+    override fun discoverServices(deviceId: PeripheralId, gatt: GattHandle?): Boolean =
         startOrPermissionDenied(
             phase = FailurePhase.DiscoverServices,
             operation = AndroidApiOperation.DiscoverServices,
-        ) { gatt?.discoverServices() ?: false }
+        ) { gatt.bluetoothGatt?.discoverServices() ?: false }
 
-    override fun requestMtu(deviceId: PeripheralId, gatt: BluetoothGatt?, mtu: Int): Boolean =
+    override fun requestMtu(deviceId: PeripheralId, gatt: GattHandle?, mtu: Int): Boolean =
         startOrPermissionDenied(
             phase = FailurePhase.Configure,
             operation = AndroidApiOperation.RequestMtu,
-        ) { gatt?.requestMtu(mtu) ?: false }
+        ) { gatt.bluetoothGatt?.requestMtu(mtu) ?: false }
 
     override fun setCharacteristicNotification(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         enabled: Boolean,
     ): Boolean = startOrPermissionDenied(
         phase = FailurePhase.Operation,
         operation = AndroidApiOperation.SetCharacteristicNotification,
-    ) { gatt?.setCharacteristicNotification(characteristic, enabled) ?: false }
+    ) { gatt.bluetoothGatt?.setCharacteristicNotification(characteristic.bluetoothCharacteristic, enabled) ?: false }
 
     override fun writeDescriptor(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        descriptor: BluetoothGattDescriptor,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
         value: ByteArray,
     ): Boolean {
-        val currentGatt = gatt ?: return false
+        val currentGatt = gatt.bluetoothGatt ?: return false
+        val descriptor = descriptor.bluetoothDescriptor
         return startOrPermissionDenied(
             phase = FailurePhase.Operation,
             operation = AndroidApiOperation.WriteDescriptor,
@@ -139,21 +145,22 @@ internal class AndroidGattDriver(
 
     override fun readCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
     ): Boolean = startOrPermissionDenied(
         phase = FailurePhase.Operation,
         operation = AndroidApiOperation.ReadCharacteristic,
-    ) { gatt?.readCharacteristic(characteristic) ?: false }
+    ) { gatt.bluetoothGatt?.readCharacteristic(characteristic.bluetoothCharacteristic) ?: false }
 
     override fun writeCharacteristic(
         deviceId: PeripheralId,
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
+        gatt: GattHandle?,
+        characteristic: PlatformCharacteristic,
         value: ByteArray,
         writeType: Int,
     ): Boolean {
-        val currentGatt = gatt ?: return false
+        val currentGatt = gatt.bluetoothGatt ?: return false
+        val characteristic = characteristic.bluetoothCharacteristic
         return startOrPermissionDenied(
             phase = FailurePhase.Operation,
             operation = AndroidApiOperation.WriteCharacteristic,
@@ -171,6 +178,27 @@ internal class AndroidGattDriver(
         }
     }
 
+    override fun resolveTarget(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        charRef: CharacteristicRef,
+        characteristic: PlatformCharacteristic,
+    ): TargetResolution {
+        val currentGatt = gatt.bluetoothGatt ?: return TargetResolution.NotConnected
+        val platformCharacteristic = characteristic.bluetoothCharacteristic
+        val matchingServices = currentGatt.services.filter { it.uuid == charRef.service.uuid.value }
+        val service = matchingServices.getOrNull(charRef.service.instanceIndex)
+            ?: return TargetResolution.NotFound
+        val matchingCharacteristics = service.characteristics.filter { it.uuid == charRef.uuid.value }
+        if (matchingCharacteristics.getOrNull(charRef.instanceIndex) !== platformCharacteristic) {
+            return TargetResolution.NotFound
+        }
+        return TargetResolution.Resolved(
+            propertyMask = platformCharacteristic.properties,
+            cccdDescriptor = platformCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)?.let(::AndroidDescriptor),
+        )
+    }
+
     private inline fun startOrPermissionDenied(
         phase: FailurePhase,
         operation: AndroidApiOperation,
@@ -181,4 +209,9 @@ internal class AndroidGattDriver(
         throw BleException(FailureMapper.permissionDenied(phase, operation))
     }
 
+    private companion object {
+        /** CCCD(00002902-...) 표준 UUID. BLE 스펙 고정값 — 기기마다 다르지 않다. */
+        val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
+            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    }
 }

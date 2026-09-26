@@ -9,8 +9,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
-import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -29,7 +29,6 @@ class OfficialEventsScanIsolationTest {
         val core = BleRuntime(
             // Unconfined — 캡처한 onResult 의 core 홉이 호출 자리에서 바로 돈다(순서 결정적).
             config = BleConfig(eventBufferCapacity = 1, dispatcher = Dispatchers.Unconfined),
-            adapter = { null },
             adapterState = { AdapterState.Ready },
             scanPort = port,
         )

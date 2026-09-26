@@ -1,6 +1,8 @@
 package kr.co.nucode.ble.internal
 
-import android.bluetooth.BluetoothAdapter
+import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.model.WriteResult
+import kr.co.nucode.ble.internal.model.ConnectOptions
 import android.content.Context
 import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
@@ -23,12 +25,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kr.co.nucode.ble.*
 import kr.co.nucode.ble.internal.adapter.AdapterMonitor
+import kr.co.nucode.ble.internal.platform.android.AndroidAdapterSource
 import kr.co.nucode.ble.internal.connection.LinkCacheWarmth
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSetupWiring
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
-import kr.co.nucode.ble.internal.event.BleEvent
-import kr.co.nucode.ble.internal.event.DiagnosticObservation
+import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.model.DiagnosticObservation
 import kr.co.nucode.ble.internal.event.ClientEventBus
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattDriver
@@ -41,7 +44,7 @@ import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.PlatformScanPort
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
@@ -52,7 +55,7 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 /**
  * 코어 진입점. 유일한 공개 진입점이다(설계 §3 규칙 4 — facade/Manager/Impl 겹 금지).
  *
- * private 주 생성자 + provider 주입(plan §접근 ①) 구조다 — 플랫폼 [Context]/[BluetoothAdapter]
+ * private 주 생성자 + provider 주입(plan §접근 ①) 구조다 — 플랫폼 [Context]/어댑터
  * 를 직접 들고 있는 대신 provider 람다([adapter])로 매 호출 시 다시 얻는다. 공개 생성자와
  * 내부 테스트 생성자가 이 주 생성자로 수렴한다(plan task 5 §작업①).
  *
@@ -68,7 +71,6 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 internal class BleRuntime private constructor(
     private val central: AndroidCentral?,
     config: BleConfig,
-    adapterProvider: (() -> BluetoothAdapter?)?,
     private val registerAdapterReceiver: Boolean,
     private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
     private val gattOperationTargetResolver: GattOperationTargetResolver?,
@@ -114,12 +116,11 @@ internal class BleRuntime private constructor(
      * plan §접근 ①). [scanner]·[gattDriver]·[adapterMonitor] 가 초기화 블록에서 이
      * 프로퍼티를 쓰므로 그것들보다 앞에 선언해야 한다(Kotlin 초기화 순서).
      */
-    private val adapter: () -> BluetoothAdapter? = adapterProvider ?: { central?.adapter() }
+    private val adapter = { central?.adapter() }
 
     constructor(context: Context, config: BleConfig = BleConfig()) : this(
         central = AndroidCentral(context.applicationContext),
         config = config,
-        adapterProvider = null,
         registerAdapterReceiver = true,
         gattDriverFactory = null,
         gattOperationTargetResolver = null,
@@ -139,13 +140,12 @@ internal class BleRuntime private constructor(
      * 경로 자체를 안 탄다 — 아래 참고.) production `AndroidGattDriver.connect()` 는 null
      * context 를 만나면 typed adapter failure로 즉시 막는다(GattBridge KDoc, plan task 5
      * §작업① 선택 (a)) — [gattDriver]와 [gattOperationTargetResolver]를 함께 주입하면
-     * Android `BluetoothGatt` 객체 없이도 공개 read/write/subscribe의 driver start 경계를
+     * Android GATT 객체 없이도 공개 read/write/subscribe의 driver start 경계를
      * 검증할 수 있다. 둘 다 생략한 기본 production 조립은 실제 Android target resolution을
      * 유지한다.
      */
     constructor(
         config: BleConfig,
-        adapter: () -> BluetoothAdapter?,
         gattDriver: GattDriver? = null,
         gattOperationTargetResolver: GattOperationTargetResolver? = null,
         rediscovery: PeripheralRediscovery? = null,
@@ -155,7 +155,6 @@ internal class BleRuntime private constructor(
     ) : this(
         central = null,
         config = config,
-        adapterProvider = adapter,
         registerAdapterReceiver = false,
         gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
         gattOperationTargetResolver = gattOperationTargetResolver,
@@ -317,10 +316,9 @@ internal class BleRuntime private constructor(
 
     private val adapterMonitor = AdapterMonitor(
         scope = coreScope,
-        adapter = adapter,
+        adapterSource = AndroidAdapterSource(adapter, central?.context?.takeIf { registerAdapterReceiver }),
         central = central,
         adapterStateProbe = adapterStateProbe,
-        context = central?.context?.takeIf { registerAdapterReceiver },
         onAdapterLost = ::onAdapterLost,
         onAdapterReturned = ::onAdapterReturned,
     )
@@ -828,7 +826,7 @@ internal class BleRuntime private constructor(
      * state before this gate flips runs to completion on that same thread
      * before cleanup gets its turn there too (not a FIFO-ordering claim about
      * commands not yet admitted). [officialSnapshot] / [awaitClosed] observe cleanup completion —
-     * at the moment [close] returns, `BluetoothGatt.close()` may not have run
+     * at the moment [close] returns, the platform GATT `close()` may not have run
      * yet; if the process exits immediately after [close] returns, the
      * platform reclaims any still-open handles on process death.
      *

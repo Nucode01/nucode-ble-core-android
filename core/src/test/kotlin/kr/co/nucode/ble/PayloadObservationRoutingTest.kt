@@ -13,7 +13,7 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.TestStageAuthority
-import kr.co.nucode.ble.internal.event.BleEvent
+import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
@@ -53,7 +53,7 @@ class PayloadObservationRoutingTest {
     @Test(timeout = 5_000)
     fun `engine payload observation does not reach public events without logger`() = runBlocking {
         val driver = NoopGattDriver()
-        val core = BleRuntime(config = BleConfig(), adapter = { null }, gattDriver = driver)
+        val core = BleRuntime(config = BleConfig(), gattDriver = driver)
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:4A")
         val session = client.session(id)
@@ -83,7 +83,7 @@ class PayloadObservationRoutingTest {
             if (record.failure.code == observed) latch.countDown()
         }
         val driver = NoopGattDriver()
-        val core = BleRuntime(config = BleConfig(logger = logger), adapter = { null }, gattDriver = driver)
+        val core = BleRuntime(config = BleConfig(logger = logger), gattDriver = driver)
         val client = DefaultBleClient(core)
         val id = PeripheralId("AA:BB:CC:DD:EE:4B")
         client.session(id)
@@ -106,7 +106,7 @@ class PayloadObservationRoutingTest {
 
     @Test(timeout = 5_000)
     fun `non observation diagnostic still reaches public events`() = runBlocking {
-        val core = BleRuntime(config = BleConfig(), adapter = { null }, gattDriver = NoopGattDriver())
+        val core = BleRuntime(config = BleConfig(), gattDriver = NoopGattDriver())
         val client = DefaultBleClient(core)
         val events = mutableListOf<BleClientEvent>()
         val eventsJob = collectEvents(client, events)

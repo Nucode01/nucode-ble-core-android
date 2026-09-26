@@ -15,7 +15,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanState
-import kr.co.nucode.ble.internal.scan.ScanObservation
+import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Test
 
 /**

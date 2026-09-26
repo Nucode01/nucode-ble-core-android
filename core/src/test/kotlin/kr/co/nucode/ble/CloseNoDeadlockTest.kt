@@ -75,7 +75,7 @@ class CloseNoDeadlockTest {
     /**
      * FIFO 순서를 단언하지 않는다(plan review 정정) — [BleRuntime.officialSnapshot] 은 dispatch
      * 된 블록 안에서 다시 `closed` 를 검사해 이미 gate 가 서 있으면 `closeCompleted.await()` 로
-     * 넘어간다(BleRuntime.kt officialSnapshot 참고). 그래서 이 스냅샷 호출이 close() 보다 먼저
+     * 넘어간다(RuntimeCloser.kt officialSnapshot 참고). 그래서 이 스냅샷 호출이 close() 보다 먼저
      * 코어 디스패처에 admit 됐든(`async` 블록이 한 번 더 dispatch 를 거친 뒤에야 실제 바디가
      * 큐에 들어간다) 나중에 됐든, gate 가 선 **뒤**에 실제로 실행되는 스냅샷은 항상 frozen
      * 결과를 본다는 것만 이 테스트가 고정한다 — "gate 전 admit 순서가 곧 실행 순서"라는

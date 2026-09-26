@@ -254,7 +254,7 @@ class OwnershipTest {
                 Enforcement.Direct(
                     """\w*[sS]ubscriptionState""",
                     mapOf(
-                        "BleRuntime.kt" to setOf("clearDesired", "confirmSubscribed", "removeDesired"),
+                        "RuntimeCommands.kt" to setOf("clearDesired", "confirmSubscribed", "removeDesired"),
                         "LinkSetup.kt" to setOf("markActive", "removeDesired"),
                         "Session.kt" to setOf("beginGeneration", "clearActive"),
                     ),

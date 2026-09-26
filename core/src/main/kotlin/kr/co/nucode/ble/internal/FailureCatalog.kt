@@ -40,7 +40,7 @@ internal object FailureCatalog {
             "ADAPTER_UNAVAILABLE",
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
-                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
                 Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), LinkTeardown.kt:onAdapterLost, LinkTeardown.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
@@ -48,7 +48,7 @@ internal object FailureCatalog {
             "BLE_UNSUPPORTED",
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
-                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, BleRuntime.kt:connect"),
+                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, RuntimeCommands.kt:connect"),
             ),
         ),
         FailureSpec(
@@ -62,13 +62,13 @@ internal object FailureCatalog {
         FailureSpec(
             "CLEANUP_FAILURE",
             listOf(
-                Route("close cleanup", TriggerKind.AsyncInfo, setOf(Channel.Event), "BleRuntime.kt:reportCleanupFailure"),
+                Route("close cleanup", TriggerKind.AsyncInfo, setOf(Channel.Event), "RuntimeCloser.kt:reportCleanupFailure"),
             ),
         ),
         FailureSpec(
             "CLIENT_CLOSED",
             listOf(
-                Route("any command after close", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:onCore, BleRuntime.kt:checkOpen"),
+                Route("any command after close", TriggerKind.SyncCommand, setOf(Channel.Throw), "RuntimeCommands.kt:onCore, RuntimeCommands.kt:checkOpen"),
             ),
         ),
         FailureSpec(
@@ -86,13 +86,13 @@ internal object FailureCatalog {
         FailureSpec(
             "CONNECTION_OPTIONS_CONFLICT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + RuntimeCommands.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
             "CONNECT_DURING_DISCONNECT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + RuntimeCommands.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
@@ -152,7 +152,7 @@ internal object FailureCatalog {
         FailureSpec(
             "INTERNAL_TRANSPORT_ERROR",
             listOf(
-                Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:failureFromInternalException, LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만)"),
+                Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "RuntimeCommands.kt:failureFromInternalException, LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만)"),
             ),
         ),
         FailureSpec(
@@ -167,7 +167,7 @@ internal object FailureCatalog {
         FailureSpec(
             "LINK_START_FAILED",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
                 Route("adapter return relink start", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ConnectStarter.kt:resumeAfterAdapter(connect 즉시 실패 → Disconnected(Failed) + Warning Diagnostic, 던질 호출자 없음)"),
             ),
         ),
@@ -187,7 +187,7 @@ internal object FailureCatalog {
         FailureSpec(
             "NOT_READY",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:notReady"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "RuntimeCommands.kt:notReady"),
             ),
         ),
         FailureSpec(
@@ -211,7 +211,7 @@ internal object FailureCatalog {
         FailureSpec(
             "PERIPHERAL_NOT_FOUND",
             listOf(
-                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "ConnectStarter.kt:connect(autoConnect 아님), BleRuntime.kt:connect"),
+                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "ConnectStarter.kt:connect(autoConnect 아님), RuntimeCommands.kt:connect"),
                 Route("connect rediscovery not found (autoReconnect fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ConnectStarter.kt:connect(autoConnect — Warning Diagnostic 뒤 connectGatt(autoConnect = true) OS 대기)"),
             ),
         ),
@@ -220,7 +220,7 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, LinkTeardown.kt:beginCleanup"),
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
@@ -291,8 +291,8 @@ internal object FailureCatalog {
         FailureSpec(
             "UNKNOWN_DEVICE",
             listOf(
-                Route("session command with unregistered id", TriggerKind.SyncCommand, setOf(Channel.Throw), "BleRuntime.kt:unknownDevice"),
-                Route("connect command (invalid address)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, BleRuntime.kt:connect"),
+                Route("session command with unregistered id", TriggerKind.SyncCommand, setOf(Channel.Throw), "RuntimeCommands.kt:unknownDevice"),
+                Route("connect command (invalid address)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, RuntimeCommands.kt:connect"),
             ),
         ),
     )

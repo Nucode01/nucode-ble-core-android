@@ -36,9 +36,10 @@ internal object AndroidAdvertisementMapper {
             }
         }
         val serviceUuids = record?.serviceUuids.orEmpty().mapTo(linkedSetOf()) { BleUuid(it.uuid) }
+        // 광고의 service data 전부 — service UUID 목록에 없는 UUID(예: 0x16 AD 로만 싣는 비콘)도 포함한다.
         val serviceData = buildMap {
-            record?.serviceUuids.orEmpty().forEach { uuid: ParcelUuid ->
-                record?.getServiceData(uuid)?.let { put(BleUuid(uuid.uuid), it.copyOf()) }
+            record?.serviceData.orEmpty().forEach { (uuid: ParcelUuid, bytes: ByteArray?) ->
+                bytes?.let { put(BleUuid(uuid.uuid), it.copyOf()) }
             }
         }
         val txPower = record?.txPowerLevel?.takeUnless { it == Int.MIN_VALUE }

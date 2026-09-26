@@ -80,3 +80,10 @@ publishing {
         mavenLocal()
     }
 }
+
+// GuideSnippetsSyncTest 가 읽는 가이드 문서·예시 파일이 바뀌면 단위 테스트를 up-to-date 로 건너뛰지 않게 한다.
+tasks.withType<Test>().configureEach {
+    inputs.dir(rootProject.file("guide")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(rootProject.fileTree("sample/src/main/kotlin/kr/co/nucode/ble/sample") { include("Guide*.kt") })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

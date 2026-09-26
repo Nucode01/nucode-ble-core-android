@@ -44,7 +44,7 @@ import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScannerContractTest {
-    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner { null })
+    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner(central = null))
 
     @Test
     fun `candidate filters are OR and advertised name is AND`() {

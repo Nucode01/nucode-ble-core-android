@@ -1,41 +1,27 @@
 package kr.co.nucode.ble.internal.gatt
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.BleUuid
-import kr.co.nucode.ble.CharacteristicProperty
-import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.ConnectionState
-import kr.co.nucode.ble.DisconnectReason
-import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
-import kr.co.nucode.ble.GattCharacteristic
-import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSteps
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.ConnectOptions
-import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ConnectionStage
-import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.StageAuthority
 import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
-import kr.co.nucode.ble.internal.session.toDisconnectReason
 
 /** 이 파일만 연결 단계 전이 토큰을 만든다 — lifecycle 칸(ConnectStarter·LinkCallbacks·LinkTeardown)에는 생성자로만 넘긴다. */
 private object LifecycleStageAuthority : StageAuthority()

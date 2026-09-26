@@ -489,7 +489,7 @@ class FailureRouteInfoDeliveryTest {
     @Test
     fun `rediscovery without scanner emits SCANNER_UNAVAILABLE Diagnostic and falls back to connect`() = runTest {
         // 운영 재발견 = Scanner 소비자 → 플랫폼 문 AndroidScanner(스캐너 없음).
-        val f = connectWithRediscovery(Scanner({}, backgroundScope, port = AndroidScanner { null }))
+        val f = connectWithRediscovery(Scanner({}, backgroundScope, port = AndroidScanner(central = null)))
 
         assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCANNER_UNAVAILABLE").isNotEmpty())
         assertEquals(ConnectionState.Connecting, f.state)

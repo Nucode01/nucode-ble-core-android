@@ -23,7 +23,10 @@ import kr.co.nucode.ble.internal.model.ScanObservation
  * Android implementation of scan lifetime — 앱의 유일한 `BluetoothLeScanner.startScan/stopScan` 호출처
  * (plan scan-owner 불변식 ①). Policy/predicate state stays in internal.scan.Scanner.
  */
-internal class AndroidScanner(private val scanner: () -> BluetoothLeScanner?) : PlatformScanPort {
+internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
+    /** [central] 에서 매 호출 시 스캐너를 다시 얻는다(BT off → on 뒤 낡은 참조 금지). */
+    private val scanner: () -> BluetoothLeScanner? = { central?.adapter()?.bluetoothLeScanner }
+
     private var callback: ScanCallback? = null
 
     @SuppressLint("MissingPermission")

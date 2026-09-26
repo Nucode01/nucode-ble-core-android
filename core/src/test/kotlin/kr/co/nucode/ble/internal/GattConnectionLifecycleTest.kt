@@ -101,7 +101,7 @@ class GattConnectionLifecycleTest {
      * ConnectStarter.kt(admitConnect, lifecycle 의 연결 시작 칸) 에만 있다 — FailureCatalog.kt 등록 항목은 예외.
      */
     @Test
-    fun `중복 connect 판정 코드는 GattConnectionLifecycle 에만 있다`() {
+    fun `중복 connect 판정 코드는 ConnectStarter 에만 있다`() {
         val literal = Regex("\"(CONNECTION_OPTIONS_CONFLICT|CONNECT_DURING_DISCONNECT)\"")
         val offenders = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" && it.name != "FailureCatalog.kt" }

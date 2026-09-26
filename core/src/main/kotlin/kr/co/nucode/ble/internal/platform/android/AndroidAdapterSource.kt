@@ -11,19 +11,23 @@ import kr.co.nucode.ble.internal.model.AdapterSource
 /**
  * [AdapterSource] 의 Android 구현 — [BluetoothAdapter] 조회와 `ACTION_STATE_CHANGED` 리시버를 소유한다.
  *
- * @param adapter 매 호출 시 어댑터를 다시 얻는 provider(낡은 참조 금지).
- * @param context null 이면 리시버를 등록하지 않는다(테스트 생성자 경로).
+ * 어댑터는 매 호출 시 [central] 에서 다시 얻는다(낡은 참조 금지). [registerReceiver] 가 true 이고
+ * [central] 이 있을 때만 그 context 로 리시버를 등록한다(테스트 생성자 경로는 등록 안 함).
  */
 internal class AndroidAdapterSource(
-    private val adapter: () -> BluetoothAdapter?,
-    private val context: Context?,
+    central: AndroidCentral?,
+    registerReceiver: Boolean,
 ) : AdapterSource {
+    private val adapter: () -> BluetoothAdapter? = { central?.adapter() }
+    private val context: Context? = central?.context?.takeIf { registerReceiver }
 
+    // startListening 에서 쓰고 브로드캐스트 메인 스레드에서 읽는다.
+    @Volatile
     private var onStateChanged: (() -> Unit)? = null
 
     /**
-     * 어댑터 on/off 브로드캐스트(review #3 해동). `onReceive` 는 브로드캐스트를 발송한 시스템
-     * 스레드에서 불린다 — 코어 스레드 홉은 통지받는 쪽(AdapterMonitor)이 한다.
+     * 어댑터 on/off 브로드캐스트(review #3 해동). `onReceive` 는 메인 스레드에서 불린다(2-인자
+     * `registerReceiver` 는 handler 를 지정하지 않는다) — 코어 스레드 홉은 통지받는 쪽(AdapterMonitor)이 한다.
      *
      * 시스템이 직접 보내는 브로드캐스트(앱이 아니라 플랫폼 발신)라 API 33+ 의
      * `RECEIVER_EXPORTED`/`RECEIVER_NOT_EXPORTED` 플래그 요구가 면제된다 — 그 플래그는

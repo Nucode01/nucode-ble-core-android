@@ -56,7 +56,7 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
  * 코어 진입점. 유일한 공개 진입점이다(설계 §3 규칙 4 — facade/Manager/Impl 겹 금지).
  *
  * private 주 생성자 + provider 주입(plan §접근 ①) 구조다 — 플랫폼 [Context]/어댑터
- * 를 직접 들고 있는 대신 provider 람다([adapter])로 매 호출 시 다시 얻는다. 공개 생성자와
+ * 를 직접 들고 있는 대신 [central] 만 플랫폼 구현에 넘기고, 플랫폼 구현이 매 호출 시 다시 얻는다. 공개 생성자와
  * 내부 테스트 생성자가 이 주 생성자로 수렴한다(plan task 5 §작업①).
  *
  * [central] 은 프로덕션 생성자가 applicationContext 로 만든다 — Activity 를 잡으면 코어가
@@ -109,14 +109,6 @@ internal class BleRuntime private constructor(
     @Volatile
     internal var closeFailure: Throwable? = null
         private set
-
-    /**
-     * 어댑터 획득 provider — 프로덕션 경로는 [central]에 매 호출 시 다시 위임해 BT off → on
-     * 전환 사이에 갱신되지 않는 낡은 참조를 쓰지 않는다(GattBridge/Scanner 의 같은 계약,
-     * plan §접근 ①). [scanner]·[gattDriver]·[adapterMonitor] 가 초기화 블록에서 이
-     * 프로퍼티를 쓰므로 그것들보다 앞에 선언해야 한다(Kotlin 초기화 순서).
-     */
-    private val adapter = { central?.adapter() }
 
     constructor(context: Context, config: BleConfig = BleConfig()) : this(
         central = AndroidCentral(context.applicationContext),
@@ -262,11 +254,11 @@ internal class BleRuntime private constructor(
         emit = ::emit,
         scope = coreScope,
         emitObservation = ::emitScanObservation,
-        port = scanPortOverride ?: AndroidScanner { adapter()?.bluetoothLeScanner },
+        port = scanPortOverride ?: AndroidScanner(central),
         startLedger = scanStartLedger ?: ScanStartLedger { System.nanoTime() / 1_000_000 },
     )
     private val gattDriver = gattDriverFactory?.invoke(coreScope)
-        ?: AndroidGattDriver(central?.context, adapter, coreScope)
+        ?: AndroidGattDriver(central, coreScope)
     /**
      * 재발견은 [scanner] 의 소비자다(plan scan-owner D2) — 플랫폼 스캔 문은 하나. 테스트 생성자는 주입값만
      * (없으면 재발견 없음), `scannerRediscovery = true` 면 실제 [scanner] 를 쓴다.
@@ -316,7 +308,7 @@ internal class BleRuntime private constructor(
 
     private val adapterMonitor = AdapterMonitor(
         scope = coreScope,
-        adapterSource = AndroidAdapterSource(adapter, central?.context?.takeIf { registerAdapterReceiver }),
+        adapterSource = AndroidAdapterSource(central, registerAdapterReceiver),
         central = central,
         adapterStateProbe = adapterStateProbe,
         onAdapterLost = ::onAdapterLost,

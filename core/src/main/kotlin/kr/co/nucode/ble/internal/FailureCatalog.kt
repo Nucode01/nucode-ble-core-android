@@ -40,8 +40,8 @@ internal object FailureCatalog {
             "ADAPTER_UNAVAILABLE",
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
-                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), GattConnectionLifecycle.kt:onAdapterLost, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), LinkTeardown.kt:onAdapterLost, LinkTeardown.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -54,8 +54,8 @@ internal object FailureCatalog {
         FailureSpec(
             "CHARACTERISTIC_NOT_FOUND",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:subscribe, GattOperationEngine.kt:startNextOperation, OperationQueue.kt:write"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe, GattOperationEngine.kt:emitUnsubscribeFailure"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "SubscriptionCommands.kt:subscribe, OperationExecutor.kt:startNextOperation, OperationQueue.kt:write"),
+                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, ClientEventBus.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
@@ -74,63 +74,63 @@ internal object FailureCatalog {
         FailureSpec(
             "CONFIGURATION_FAILED",
             listOf(
-                Route("link lifecycle (MTU status, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:handleMtuChanged"),
+                Route("link lifecycle (MTU status, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:handleMtuChanged"),
             ),
         ),
         FailureSpec(
             "CONFIGURATION_TIMEOUT",
             listOf(
-                Route("link lifecycle (configuration deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline"),
+                Route("link lifecycle (configuration deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
             ),
         ),
         FailureSpec(
             "CONNECTION_OPTIONS_CONFLICT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "GattConnectionLifecycle.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
             "CONNECT_DURING_DISCONNECT",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "GattConnectionLifecycle.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "ConnectStarter.kt:admitConnect(판정) + BleRuntime.kt:emitConnectConflict(throw·Diagnostic)"),
             ),
         ),
         FailureSpec(
             "DISCONNECT_CLEANUP_TIMEOUT",
             listOf(
-                Route("link lifecycle (disconnect cleanup deadline)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline — completeLifecycleCleanup 로 Disconnected 도달 후 정보"),
+                Route("link lifecycle (disconnect cleanup deadline)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkTeardown.kt:onLifecycleDeadline — completeLifecycleCleanup 로 Disconnected 도달 후 정보"),
             ),
         ),
         FailureSpec(
             "DISCONNECT_START_FAILED",
             listOf(
-                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:disconnect, GattConnectionLifecycle.kt:beginCleanup, GattConnectionLifecycle.kt:endPlatformWait(OS 대기 취소 — 사용자 해제·close·어댑터 꺼짐)"),
-                Route("internal cleanup (timeout/discovery/link/permission)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:beginCleanup"),
+                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:disconnect, LinkTeardown.kt:beginCleanup, LinkTeardown.kt:endPlatformWait(OS 대기 취소 — 사용자 해제·close·어댑터 꺼짐)"),
+                Route("internal cleanup (timeout/discovery/link/permission)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkTeardown.kt:beginCleanup"),
             ),
         ),
         FailureSpec(
             "DUPLICATE_CHARACTERISTIC_REFERENCE",
             listOf(
-                Route("link lifecycle (service discovery result)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:handleServicesDiscovered"),
+                Route("link lifecycle (service discovery result)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:handleServicesDiscovered"),
             ),
         ),
         FailureSpec(
             "GATT_OPERATION_CALLBACK_MISMATCH",
             listOf(
-                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:emitCallbackMismatch"),
+                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "OperationCallbacks.kt:emitCallbackMismatch"),
             ),
         ),
         FailureSpec(
             "GATT_OPERATION_DUPLICATE_CALLBACK",
             listOf(
-                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:emitDuplicateCallback"),
+                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "OperationCallbacks.kt:emitDuplicateCallback"),
             ),
         ),
         FailureSpec(
             "GATT_OPERATION_START_FAILED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:startNextOperation"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe, GattOperationEngine.kt:emitUnsubscribeFailure"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startNextOperation"),
+                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
                 Route("link lifecycle (requestMtu start, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:requestMtu"),
             ),
@@ -138,14 +138,14 @@ internal object FailureCatalog {
         FailureSpec(
             "GATT_PAYLOAD_OBSERVED",
             listOf(
-                Route("notify/read/write payload", TriggerKind.Observation, setOf(Channel.LoggerOnly), "GattOperationEngine.kt:emitPayloadObservation"),
+                Route("notify/read/write payload", TriggerKind.Observation, setOf(Channel.LoggerOnly), "OperationExecutor.kt:emitPayloadObservation"),
             ),
         ),
         FailureSpec(
             "GATT_STATUS_FAILED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:completeUnitOperation, GattOperationEngine.kt:handleCharacteristicRead, OperationQueue.kt:write"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationCallbacks.kt:completeUnitOperation, OperationCallbacks.kt:handleCharacteristicRead, OperationQueue.kt:write"),
+                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
@@ -158,29 +158,29 @@ internal object FailureCatalog {
         FailureSpec(
             "LINK_FAILED",
             listOf(
-                Route("link lifecycle (link status callback)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
-                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange, GattConnectionLifecycle.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다)"),
-                Route("late non-terminal link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:handleConnectionStateChange"),
-                Route("ended-generation link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:attributedGeneration(CallbackAttribution Drop \"ended generation\" + 비성공 status 일 때만 Warning Diagnostic, 성공 status 는 조용히 버림)"),
+                Route("link lifecycle (link status callback)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange"),
+                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange, LinkTeardown.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다)"),
+                Route("late non-terminal link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange"),
+                Route("ended-generation link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:attributedGeneration(CallbackAttribution Drop \"ended generation\" + 비성공 status 일 때만 Warning Diagnostic, 성공 status 는 조용히 버림)"),
             ),
         ),
         FailureSpec(
             "LINK_START_FAILED",
             listOf(
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("adapter return relink start", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:resumeAfterAdapter(connect 즉시 실패 → Disconnected(Failed) + Warning Diagnostic, 던질 호출자 없음)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("adapter return relink start", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ConnectStarter.kt:resumeAfterAdapter(connect 즉시 실패 → Disconnected(Failed) + Warning Diagnostic, 던질 호출자 없음)"),
             ),
         ),
         FailureSpec(
             "LINK_TIMEOUT",
             listOf(
-                Route("link lifecycle (link deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline"),
+                Route("link lifecycle (link deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
             ),
         ),
         FailureSpec(
             "NOT_CONNECTED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:exactIdentity"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startNextOperation, OperationExecutor.kt:exactIdentity"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
@@ -193,26 +193,26 @@ internal object FailureCatalog {
         FailureSpec(
             "OPERATION_INVALIDATED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:invalidateScheduledOperations, OperationQueue.kt:write"),
-                Route("caller cancellation of started operation", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
-                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattOperationEngine.kt:unsubscribe"),
-                Route("connect command (user disconnect during rediscovery)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattConnectionLifecycle.kt:disconnect(Scanner.kt:endRediscovery) → GattConnectionLifecycle.kt:connect(재발견 뒤 종결 판정, Disconnected(Requested) 는 그대로)"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:invalidateScheduledOperations, OperationQueue.kt:write"),
+                Route("caller cancellation of started operation", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
+                Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe"),
+                Route("connect command (user disconnect during rediscovery)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattConnectionLifecycle.kt:disconnect(Scanner.kt:endRediscovery) → ConnectStarter.kt:connect(재발견 뒤 종결 판정, Disconnected(Requested) 는 그대로)"),
             ),
         ),
         FailureSpec(
             "OPERATION_TIMEOUT",
             listOf(
-                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattOperationEngine.kt:awaitAfterStart, GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
-                Route("read/write/subscribe command (still queued)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattOperationEngine.kt:awaitAfterStart"),
-                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:emitUnsubscribeFailure, GattOperationEngine.kt:poisonStartedOperation"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:poisonStartedOperation, GattConnectionLifecycle.kt:terminateForOperationInvalidation"),
+                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:awaitAfterStart, OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
+                Route("read/write/subscribe command (still queued)", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:awaitAfterStart"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, OperationExecutor.kt:poisonStartedOperation"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
             ),
         ),
         FailureSpec(
             "PERIPHERAL_NOT_FOUND",
             listOf(
-                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "GattConnectionLifecycle.kt:connect(autoConnect 아님), BleRuntime.kt:connect"),
-                Route("connect rediscovery not found (autoReconnect fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:connect(autoConnect — Warning Diagnostic 뒤 connectGatt(autoConnect = true) OS 대기)"),
+                Route("connect command (rediscovery not found)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "ConnectStarter.kt:connect(autoConnect 아님), BleRuntime.kt:connect"),
+                Route("connect rediscovery not found (autoReconnect fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ConnectStarter.kt:connect(autoConnect — Warning Diagnostic 뒤 connectGatt(autoConnect = true) OS 대기)"),
             ),
         ),
         FailureSpec(
@@ -220,20 +220,20 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
-                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, GattConnectionLifecycle.kt:connect, BleRuntime.kt:connect"),
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattConnectionLifecycle.kt:beginCleanup"),
-                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation, GattOperationEngine.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattOperationEngine.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
+                Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, BleRuntime.kt:connect"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, LinkTeardown.kt:beginCleanup"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, SubscriptionCommands.kt:emitUnsubscribeFailure"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, GattConnectionLifecycle.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), GattConnectionLifecycle.kt:onAdapterLost, GattConnectionLifecycle.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, ConnectStarter.kt:connect"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), LinkTeardown.kt:onAdapterLost, LinkTeardown.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
             "SCANNER_UNAVAILABLE",
             listOf(
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(BluetoothLeScanner null → SCANNER_UNAVAILABLE) → Unavailable, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(BluetoothLeScanner null → SCANNER_UNAVAILABLE) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
@@ -247,21 +247,21 @@ internal object FailureCatalog {
             listOf(
                 Route("scan runtime callback", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Scanner.kt:handleFailure(scanState=Idle(failure)) — ScanContractTest"),
                 Route("stale scan failure (ended/other scan)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(generation 불일치·정지 뒤 → 상태 불변, Warning) — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(재발견 중 onScanFailed → 모든 소비자 종료) → Unavailable, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(재발견 중 onScanFailed → 모든 소비자 종료) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
             "SCAN_START_FAILED",
             listOf(
                 Route("startScan command (platform start rejected)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← AndroidScanner.start(필터 IllegalArgumentException·startScan 의 비-Security Exception; SecurityException 은 PERMISSION_DENIED); Scanner.kt:rediscover 는 MAC 형식이 아닌 주소를 플랫폼 전에 거른다 — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover(MAC 형식 아님·예상 밖 비취소 예외) · AndroidScanner.kt:start(필터 IllegalArgumentException·그 밖의 비-Security Exception) → Unavailable, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover(MAC 형식 아님·예상 밖 비취소 예외) · AndroidScanner.kt:start(필터 IllegalArgumentException·그 밖의 비-Security Exception) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
             "SCAN_START_THROTTLED",
             listOf(
                 Route("startScan command (start budget exceeded)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← Scanner.kt:reconcile(30 s + 여유 1 s 안 성공 시작 5회 → 플랫폼 호출 없이 거부, 도는 스캔 유지) — ScannerContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:scheduleReconcile(한도 초과 → 도는 스캔이 덮지 못하는 재발견만) → Unavailable, GattConnectionLifecycle.kt:connect"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:scheduleReconcile(한도 초과 → 도는 스캔이 덮지 못하는 재발견만) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
@@ -273,7 +273,7 @@ internal object FailureCatalog {
         FailureSpec(
             "SERVICE_DISCOVERY_FAILED",
             listOf(
-                Route("link lifecycle (discovery status)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:handleServicesDiscovered(status 실패 + GATT_SUCCESS 인데 서비스 0개 — emptyServiceDiscovery)"),
+                Route("link lifecycle (discovery status)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleServicesDiscovered(status 실패 + GATT_SUCCESS 인데 서비스 0개 — emptyServiceDiscovery)"),
             ),
         ),
         FailureSpec(
@@ -285,7 +285,7 @@ internal object FailureCatalog {
         FailureSpec(
             "SERVICE_DISCOVERY_TIMEOUT",
             listOf(
-                Route("link lifecycle (discovery deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:onLifecycleDeadline"),
+                Route("link lifecycle (discovery deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
             ),
         ),
         FailureSpec(

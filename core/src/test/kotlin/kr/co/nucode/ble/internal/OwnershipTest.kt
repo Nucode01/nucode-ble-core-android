@@ -226,7 +226,7 @@ class OwnershipTest {
             ),
             Row(
                 "중복 connect 판정", setOf("ConnectStarter.kt"), setOf("connect"),
-                Enforcement.LinkedGuard("GattConnectionLifecycleTest.kt", listOf("중복 connect 판정 코드는 GattConnectionLifecycle 에만 있다")),
+                Enforcement.LinkedGuard("GattConnectionLifecycleTest.kt", listOf("중복 connect 판정 코드는 ConnectStarter 에만 있다")),
             ),
             Row(
                 "onLeaveLink", setOf("LinkSetup.kt", "Session.kt"), setOf("onLeaveLink 대입", "onLeaveLink 호출"),

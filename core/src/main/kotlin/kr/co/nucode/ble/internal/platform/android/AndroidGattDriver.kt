@@ -34,6 +34,10 @@ internal class AndroidGattDriver(
     private val adapter: () -> BluetoothAdapter?,
     private val scope: CoroutineScope,
 ) : GattDriver {
+    /** 운영 경로 — context 는 [central] 의 것, 어댑터는 매 호출 시 [central] 에서 다시 얻는다. */
+    constructor(central: AndroidCentral?, scope: CoroutineScope) :
+        this(central?.context, { central?.adapter() }, scope)
+
     private val callbackRouter = AndroidGattCallbackRouter(scope)
 
     override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
@@ -186,13 +190,15 @@ internal class AndroidGattDriver(
     ): TargetResolution {
         val currentGatt = gatt.bluetoothGatt ?: return TargetResolution.NotConnected
         val platformCharacteristic = characteristic.bluetoothCharacteristic
-        val matchingServices = currentGatt.services.filter { it.uuid == charRef.service.uuid.value }
-        val service = matchingServices.getOrNull(charRef.service.instanceIndex)
-            ?: return TargetResolution.NotFound
-        val matchingCharacteristics = service.characteristics.filter { it.uuid == charRef.uuid.value }
-        if (matchingCharacteristics.getOrNull(charRef.instanceIndex) !== platformCharacteristic) {
-            return TargetResolution.NotFound
-        }
+        val atPosition = isSameCharacteristicAtRef(
+            services = currentGatt.services,
+            serviceUuid = { it.uuid },
+            characteristics = { it.characteristics },
+            characteristicUuid = { it.uuid },
+            charRef = charRef,
+            expected = platformCharacteristic,
+        )
+        if (!atPosition) return TargetResolution.NotFound
         return TargetResolution.Resolved(
             propertyMask = platformCharacteristic.properties,
             cccdDescriptor = platformCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)?.let(::AndroidDescriptor),
@@ -214,4 +220,24 @@ internal class AndroidGattDriver(
         val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
+}
+
+/**
+ * [charRef] 가 가리키는 위치(같은 UUID 서비스 중 instanceIndex 번째 → 그 안의 같은 UUID characteristic 중
+ * instanceIndex 번째)에 [expected] 와 **같은 객체**(`===`)가 있는지 본다. equals 가 같아도 다른 객체면 false.
+ * Android 타입을 모르는 순수 함수 — JVM 테스트가 평범한 객체로 선택 규칙을 고정한다.
+ */
+internal fun <S, C> isSameCharacteristicAtRef(
+    services: List<S>,
+    serviceUuid: (S) -> UUID,
+    characteristics: (S) -> List<C>,
+    characteristicUuid: (C) -> UUID,
+    charRef: CharacteristicRef,
+    expected: C,
+): Boolean {
+    val service = services.filter { serviceUuid(it) == charRef.service.uuid.value }
+        .getOrNull(charRef.service.instanceIndex) ?: return false
+    val candidate = characteristics(service).filter { characteristicUuid(it) == charRef.uuid.value }
+        .getOrNull(charRef.instanceIndex)
+    return candidate === expected
 }

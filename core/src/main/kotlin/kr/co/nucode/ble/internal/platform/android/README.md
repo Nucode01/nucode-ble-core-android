@@ -10,17 +10,16 @@
 판정. `BluetoothGattCallback`·`ScanCallback` 을 상속하는 코드는 전부 여기다.
 
 **orchestration** — 연결 단계, 작업 순서, 취소·정리 정책. `internal/` 루트와 기능별 하위 패키지(`session/`·`connection/`·`gatt/`·`scan/`)에 남는다.
-`GattBridge`(+ `GattConnectionLifecycle`·`GattOperationEngine`), `BleRuntime`, `Session`, `OperationQueue`, `Scanner`.
+`GattBridge`(+ `GattConnectionLifecycle` → `ConnectStarter`·`LinkCallbacks`·`LinkTeardown`, `GattOperationEngine` → `OperationExecutor`·`OperationCallbacks`·`SubscriptionCommands`), `BleRuntime`, `Session`, `OperationQueue`, `Scanner`.
 
 ## 이 규칙이 뜻하지 않는 것
 
-- **orchestration의 Android 의존은 남아 있다.** `AdapterMonitor`(`internal/adapter/`)는 어댑터 on/off 브로드캐스트를 받는
-  `BroadcastReceiver`·`IntentFilter` 를(어댑터 조회·권한 판정 입력은 `AndroidCentral` 로 위임했다 — 단
-  Context 없는 테스트 생성자 경로의 `Build.VERSION.SDK_INT` 읽기는 `AdapterMonitor` 에 남는다),
-  `GattConnectionLifecycle`·`GattOperationEngine` 은 `BluetoothGatt*`·`BluetoothProfile` 을, `Session` 은 `BluetoothGatt` 핸들을 직접 쓴다. `GattDriver` 인터페이스 시그니처에도
-  `BluetoothGatt` 가 있다. 이 패키지 정리는 그 의존을 제거하지 않는다 — 현재 예외로 명시한다.
-- **다른 패키지의 Android 상수 참조를 금지하지 않는다.** `GattConnectionLifecycle` 의 `GATT_SUCCESS`·
-  `STATE_CONNECTED` 가 그 예다.
+- **orchestration 의 Android 의존은 `android.bluetooth` 밖의 것만 남아 있다.** `AdapterMonitor`(`internal/adapter/`)는
+  Context 없는 테스트 생성자 경로에서 `Build.VERSION.SDK_INT` 를 읽고, `BleRuntime` 은 `Context` 로 `AndroidCentral` 을 만든다.
+  어댑터 on/off 브로드캐스트 리시버는 `AndroidAdapterSource` 가 소유한다.
+- **`android.bluetooth` 의존은 플랫폼 어댑터 패키지에만 있다.** 이 패키지와 공개 `kr.co.nucode.ble.android` 밖에는 `android.bluetooth` import 가 없다(`PackageStructureFitnessTest` 가 강제). GATT 포트(`GattDriver`)는
+  불투명 핸들 `GattHandle`·`PlatformCharacteristic`·`PlatformDescriptor`(`internal/model/`)만 주고받고, 상태·쓰기 상수는
+  `gatt/GattPlatformTypes.kt`(`GattStatus`·`LinkState`·`GattWriteTypes`)에 둔다. 어댑터 조회는 `AdapterSource` 포트(`AndroidAdapterSource` 구현)로 받는다.
 - 공개 Android 진입점(`AndroidBleClientFactory`, `AndroidBondController`)은 `kr.co.nucode.ble.android`
   에 둔다. 이 패키지는 internal 전용이다.
 

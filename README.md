@@ -4,7 +4,7 @@
 
 > **문서 상태:** 이 README와 기존 설계 문서는 2026-08 시점의 현재 구현 스냅샷과
 > 역사적 결정 근거를 기록한다. 향후 동작과 API의 **목표 v1 설계 정본**은
-> [docs/v1/README.md](docs/v1/README.md)다. 목표 v1은 아직 구현 완료 상태를 뜻하지 않는다.
+> [docs/v1/README.md](../docs/v1/README.md)다. 목표 v1은 아직 구현 완료 상태를 뜻하지 않는다.
 
 > **F26 진단 hardening:** JVM 기반 deterministic acceptance와 `:core`/`:sample` build는
 > Slice 6 oracle로 검증된다. 실제 기기에서 장애 로그가 충분히 유용한지, PII/secret이
@@ -17,7 +17,7 @@
 > nRF52840 통합 테스트 firmware 조합에서 부분 통과했으며 결과는
 > [실기기 검증 기록](docs/v1/android-real-device-results.md)을 본다.
 
-Swift 구현은 `02_ios_projects/` 에 별도 프로젝트로 (아직 없음 — 이 구현 다음).
+Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소로 둔다 (아직 없음 — 이 구현 다음).
 
 ---
 
@@ -218,7 +218,7 @@ Pixel 5a/Android 14와 nRF52840 통합 테스트 firmware 조합에서는 위 �
 1  코어 스켈레톤               [완료] 배선 실동작 · 플랫폼 호출 TODO
 1b 플랫폼 호출 채우기          [완료] TODO 0 · review 결함 7건 해소
 2  터미널 Android 로 검증      FGS 불필요 — 규칙 6은 구독 취소로 검증한다
-3  Swift 구현                 02_ios_projects/ + 복원 통로 3줄 (설계 §5)
+3  Swift 구현                 ../ios/ (별도 저장소) + 복원 통로 3줄 (설계 §5)
 4  터미널 iOS + 로그 diff
 5  Flutter 채널층
 ```

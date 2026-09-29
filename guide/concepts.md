@@ -150,8 +150,7 @@ fun logEvents(client: BleClient, scope: CoroutineScope): Job = scope.launch {
 
 - `IllegalArgumentException`: 모델 생성 시 잘못된 값(예: `BleChunking.Fixed(0)`, 음수 `instanceIndex`). `BleChunking.Disabled` 로 한 청크보다 긴 데이터를 쓰거나 `BleChunking.Fixed(n)` 의 n 이 협상된 청크 크기보다 크면 `write` 는 `BleException(PAYLOAD_TOO_LARGE)` 를 던집니다(아무것도 보내지 않음).
 - `SecurityException`: 권한 없이 `AndroidBondController.bondState()` 를 부를 때. `createBond` 는 플랫폼 예외를 던지지 않고 `StartRejected`/`Failed` 로 돌려줍니다.
-- `CancellationException`: 호출한 코루틴의 Job 이 취소될 때. 앱이 건 `withTimeout` 이 만료된 경우는 `read` · `write` · `subscribe` 에서만 예외입니다 — 코어가 이를 잡아 `BleException(OPERATION_TIMEOUT)` 으로 던집니다.
-  `unsubscribe` 는 그 실패를 던지지 않고 `events` 의 `Diagnostic` 으로만 남기므로 호출자는 `withTimeout` 의 `TimeoutCancellationException` 을 받습니다. `connect`(주소 찾기 스캔 중) · `startScan` 등도 `TimeoutCancellationException` 을 그대로 받습니다.
+- `CancellationException`: 호출한 코루틴의 Job 이 취소될 때. 앱이 건 `withTimeout` 이 만료되면 모든 명령에서 `TimeoutCancellationException` 을 그대로 받습니다(`BleException` 으로 바꾸지 않습니다). `OPERATION_TIMEOUT` 은 큐의 작업 기한에서만 납니다.
 
 코드별 의미와 재시도 가능성은 [5.12](recipes/errors-diagnostics.md#512-실패-처리-패턴)의 표에 있습니다.
 
@@ -163,8 +162,7 @@ fun logEvents(client: BleClient, scope: CoroutineScope): Job = scope.launch {
 - 각 GATT 작업은 시작된 뒤 `operationTimeoutMillis`(기본 5초) 안에 응답이 와야 합니다. 넘기면 `OPERATION_TIMEOUT` 을 던지고 **그 연결을 끝냅니다.**
 - **호출자를 끊어도 접수된 GATT 작업은 끝까지 진행됩니다.** 작업이 세션 줄에 들어간 뒤 호출자가 취소되면 호출자만 떨어지고 세션은 끝나지 않습니다. 대기 중이던 작업도 차례가 오면 시작되고, 긴 write 의 나머지 조각도 모두 나갑니다. 취소한 `subscribe` 는 완료되어 `activeSubscriptions` 와 구독 의도에 남고 재연결마다 복원됩니다. 되돌리려면 `unsubscribe` 를 부릅니다.
   - Job 취소: 호출자는 `CancellationException`, 세션은 그대로입니다.
-  - 앱의 `withTimeout` 만료(`read` · `write` · `subscribe`): 호출자는 `BleException(OPERATION_TIMEOUT)`, 작업은 계속됩니다.
-  - 앱의 `withTimeout` 만료(`unsubscribe`): 호출자는 `TimeoutCancellationException` 을 받고 작업은 계속됩니다.
+  - 앱의 `withTimeout` 만료(모든 GATT 작업): 호출자는 `TimeoutCancellationException`, 작업은 계속됩니다.
   - 떠난 작업이 응답을 못 받으면 큐의 기한(`operationTimeoutMillis`)이 끝냅니다. 그때만 `OPERATION_TIMEOUT` 으로 연결이 끝납니다.
 - GATT 작업이 아닌 `connect` 는 주소 찾기 스캔 중에 끊으면 그 연결 시도를 정리하고 `CancellationException`(`withTimeout` 이면 `TimeoutCancellationException`)을 그대로 던집니다. `startScan` 도 변환하지 않습니다.
 - `stopScan()` 과 `disconnect()` 는 호출 코루틴이 이미 취소됐어도 정리를 끝까지 한 뒤 취소를 전파합니다. `finally` 에서 그냥 불러도 됩니다.

@@ -16,6 +16,10 @@ kotlin {
     explicitApi()
 }
 
+// 계약 시나리오 폴더(루트 저장소 contract/). 루트 저장소 안에서는 ../contract, CI 는 -PbleContractDir 로 준다.
+val bleContractDirProperty = providers.gradleProperty("bleContractDir")
+val bleContractDir: File = bleContractDirProperty.map { rootProject.file(it) }.getOrElse(rootProject.file("../contract"))
+
 android {
     namespace = "kr.co.nucode.ble"
     compileSdk = 36
@@ -44,7 +48,12 @@ android {
 
     sourceSets["main"].java.srcDirs("src/main/kotlin")
     // contract-runner: 계약 시나리오 러너. core 단위 테스트(sim)와 sample 계측 테스트(device)가 같은 소스를 쓴다.
-    sourceSets["test"].java.srcDirs("src/test/kotlin", rootProject.file("contract-runner/src/kotlin"))
+    // contract/consumers/kotlin: 소비 앱 흐름을 공개 API 로 다시 쓴 코드(전달 1단계). 공개 API 가 바뀌면 여기서 컴파일이 깨진다.
+    sourceSets["test"].java.srcDirs(
+        "src/test/kotlin",
+        rootProject.file("contract-runner/src/kotlin"),
+        File(bleContractDir, "consumers/kotlin"),
+    )
 
     publishing {
         singleVariant("release") {
@@ -81,10 +90,6 @@ publishing {
         mavenLocal()
     }
 }
-
-// 계약 시나리오 폴더(루트 저장소 contract/). 루트 저장소 안에서는 ../contract, CI 는 -PbleContractDir 로 준다.
-val bleContractDirProperty = providers.gradleProperty("bleContractDir")
-val bleContractDir: File = bleContractDirProperty.map { rootProject.file(it) }.getOrElse(rootProject.file("../contract"))
 
 // GuideSnippetsSyncTest 가 읽는 가이드 문서·예시 파일이 바뀌면 단위 테스트를 up-to-date 로 건너뛰지 않게 한다.
 tasks.withType<Test>().configureEach {

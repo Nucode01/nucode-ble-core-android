@@ -15,6 +15,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kr.co.nucode.ble.AdapterState
+import kr.co.nucode.ble.AdvertisementData
+import kr.co.nucode.ble.BleUuid
+import kotlinx.coroutines.Job
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.CharacteristicRef
@@ -102,6 +105,11 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     /** connect 호출마다 받은 autoConnect 값. */
     val connectAutoConnect: MutableList<Boolean> = mutableListOf()
 
+    /** driver 로 나간 characteristic write 기록(값 사본). [epoch] 는 그 write 를 낸 handle 의 세대. */
+    class WriteRecord(val ref: CharacteristicRef?, val value: ByteArray, val writeType: Int, val epoch: Long)
+
+    val writes: MutableList<WriteRecord> = mutableListOf()
+
     /** CCCD write 기록 — (ref, 켜기 여부). 값이 전부 0 이면 끄기다. */
     val cccdWrites: MutableList<Pair<CharacteristicRef?, Boolean>> = mutableListOf()
 
@@ -170,6 +178,40 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         scanStarts.last().fail(errorCode, variant)
     }
 
+    /**
+     * 광고하는 기기(sim 가짜 기기). 있으면 플랫폼 스캔이 도는 동안 [visible] 일 때 100ms(가상 시간)마다 결과 하나를 낸다.
+     * 플랫폼처럼 요청의 필터(서비스 UUID·이름)로 거른 것만 코어로 보낸다.
+     */
+    class Advertiser(
+        val id: PeripheralId,
+        val name: String,
+        val serviceUuids: Set<BleUuid>,
+        val visible: () -> Boolean,
+    )
+
+    var advertiser: Advertiser? = null
+    private var scanLoop: Job? = null
+    private var hiddenCount = 0
+
+    /** 광고를 [millis] 동안 멈춘다(범위 이탈). 겹치면 가장 늦게 끝나는 쪽까지 숨는다. */
+    fun hideAdvertising(millis: Long) {
+        hiddenCount++
+        scope.launch {
+            delay(millis)
+            hiddenCount--
+        }
+    }
+
+    val advertisingHidden: Boolean get() = hiddenCount > 0
+
+    private fun accepts(adv: Advertiser, spec: PlatformScanSpec): Boolean {
+        if (spec.addresses.any { it.value.equals(adv.id.value, ignoreCase = true) }) return true
+        val filter = spec.userFilter ?: return spec.addresses.isEmpty()
+        val services = filter.serviceUuids.isEmpty() || filter.serviceUuids.any { it in adv.serviceUuids }
+        val name = filter.namePrefix == null || adv.name.startsWith(filter.namePrefix!!)
+        return services && name
+    }
+
     /** 플랫폼 정지 횟수(AndroidScanner.stop 자리). */
     var scanStops: Int = 0
 
@@ -186,12 +228,31 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
             calls += "scanStart"
             return scanStartFailure ?: run {
                 scanStarts += ScanStart(spec, onFailure, onResult)
+                scanLoop?.cancel()
+                scanLoop = advertiser?.takeIf { accepts(it, spec) }?.let { adv ->
+                    scope.launch {
+                        while (true) {
+                            delay(ADVERTISING_INTERVAL_MILLIS)
+                            if (adapter.value == AdapterState.Ready && !advertisingHidden && adv.visible()) {
+                                onResult(
+                                    ScanObservation(
+                                        adv.id,
+                                        -50,
+                                        AdvertisementData(adv.name, adv.serviceUuids, emptyMap(), emptyMap(), null, true),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
                 null
             }
         }
 
         override fun stop() {
             scanStops++
+            scanLoop?.cancel()
+            scanLoop = null
         }
     }
 
@@ -211,6 +272,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
             identity = GattCharacteristicIdentity.from(ref),
             propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or
                 BluetoothGattCharacteristic.PROPERTY_WRITE or
+                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE or
                 BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             cccdDescriptor = descriptor,
         )
@@ -325,6 +387,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     ): Boolean {
         calls += "write"
         if (!writeStarts) return false
+        writes += WriteRecord(characteristicRefs[characteristic], value.copyOf(), writeType, epoch)
         val identity = characteristicRefs[characteristic]?.let(GattCharacteristicIdentity::from)
         val source = sourceAt(epoch)
         schedule(onWrite) { status -> GattDriverEvent.CharacteristicWrite(deviceId, source, status, identity) }
@@ -422,6 +485,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     companion object {
         // 근거(Android ScanCallback 상수): SCAN_FAILED_INTERNAL_ERROR = 3.
         const val SCAN_FAILED_INTERNAL_ERROR = 3
+        const val ADVERTISING_INTERVAL_MILLIS = 100L
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }

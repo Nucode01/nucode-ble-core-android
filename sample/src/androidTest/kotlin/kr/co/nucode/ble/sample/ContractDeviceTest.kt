@@ -68,6 +68,9 @@ class ContractDeviceTest(private val name: String) {
         )
         val target = try {
             awaitAdapterReady(client)
+            // startScan 이 있는 시나리오는 스캔 시작 한도(30초에 5회, 대상 기기를 찾는 스캔 포함)에 걸리지 않게 먼저 기다린다.
+            // SCAN_START_THROTTLED 는 계약 판정 대상이 아니다.
+            if (scenario.usesScan) delay(SCAN_START_WINDOW_WAIT_MILLIS)
             DeviceTarget(client, discover(client, profile))
         } catch (e: Throwable) {
             client.close()
@@ -76,7 +79,8 @@ class ContractDeviceTest(private val name: String) {
         val report = try {
             ScenarioEngine(target, profile).run(scenario)
         } finally {
-            withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { client.session(target.peripheralId).disconnect() }
+            // 시나리오가 close 를 불렀으면 클라이언트는 이미 닫혀 있다 — 정리는 그때도 실패하지 않아야 한다.
+            runCatching { withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { client.session(target.peripheralId).disconnect() } }
             client.close()
             // 기기가 링크 끊김을 알아채고 다시 광고할 시간.
             delay(SETTLE_BETWEEN_SCENARIOS_MILLIS)
@@ -95,6 +99,15 @@ class ContractDeviceTest(private val name: String) {
                 event.command.toByteArray(Charsets.US_ASCII),
                 BleWriteOptions(mode = BleWriteMode.WithResponse),
             )
+        }
+
+        /** 펌웨어 제어 characteristic 을 읽는다. 펌웨어가 `<바이트 수> <ok|bad>` 를 ASCII 로 돌려준다. */
+        override suspend fun rxCheck(session: BleSession, profile: PeripheralProfile): String =
+            session.read(profile.spec("probe.control").ref).toString(Charsets.US_ASCII).trim()
+
+        /** 실기기에서는 어댑터를 코드로 바꿀 수 없다. 로더가 `runsOn` 에 device 가 있는 시나리오의 adapter 단계를 거부한다. */
+        override suspend fun setAdapter(value: String) {
+            error("adapter 단계는 sim 전용이다")
         }
     }
 

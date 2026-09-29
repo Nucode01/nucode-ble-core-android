@@ -2,34 +2,42 @@ package kr.co.nucode.ble.contract
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.ScanState
 
-/** 시나리오 하나의 레인별 기록. 기록 원천은 여러 코루틴이라 잠금으로 모은다. */
-internal class ContractLog {
+/**
+ * 시나리오 하나의 레인별 기록. 기록 원천은 여러 코루틴이라 잠금으로 모은다.
+ * 확장 레인(README §기록)은 [enabled] 에 있을 때만 기록하고 출력한다.
+ */
+internal class ContractLog(private val enabled: Set<String> = emptySet()) {
     private val lock = Any()
     private val lanes = Lanes.ALL.associateWith { mutableListOf<String>() }
     private var closed = false
 
-    private val _lastState = MutableStateFlow<String?>(null)
-    private val _notifyCount = MutableStateFlow(0)
+    private val lastValues = Lanes.AWAIT_IS.associateWith { MutableStateFlow<String?>(null) }
+    private val counts = Lanes.AWAIT_COUNT.associateWith { MutableStateFlow(0) }
 
-    /** 마지막 state 기록(`await state` 가 본다). */
-    val lastState: StateFlow<String?> get() = _lastState
+    /** 레인을 기록하는가. 기본 네 레인은 늘 기록한다. */
+    fun records(lane: String): Boolean = lane !in Lanes.EXTENSION || lane in enabled
 
-    /** 지금까지의 notify 기록 수(`await notify` 가 본다). */
-    val notifyCount: StateFlow<Int> get() = _notifyCount
+    /** 마지막 기록(`await <레인> is` 가 본다). */
+    fun last(lane: String): StateFlow<String?> = lastValues.getValue(lane)
+
+    /** 지금까지의 기록 수(`await <레인> count` 가 본다). */
+    fun count(lane: String): StateFlow<Int> = counts.getValue(lane)
+
+    val lastState: StateFlow<String?> get() = last(Lanes.STATE)
 
     fun add(lane: String, entry: String) {
         synchronized(lock) {
-            if (closed) return
+            if (closed || !records(lane)) return
             val list = lanes.getValue(lane)
-            if (lane == Lanes.ACTIVE && list.lastOrNull() == entry) return
+            if (lane in Lanes.COALESCED && list.lastOrNull() == entry) return
             list += entry
-            when (lane) {
-                Lanes.STATE -> _lastState.value = entry
-                Lanes.NOTIFY -> _notifyCount.value = list.size
-            }
+            lastValues[lane]?.value = entry
+            counts[lane]?.value = list.size
         }
     }
 
@@ -39,6 +47,19 @@ internal class ContractLog {
     fun snapshot(): Map<String, List<String>> = synchronized(lock) { lanes.mapValues { it.value.toList() } }
 
     companion object {
+        fun render(state: AdapterState): String = when (state) {
+            AdapterState.Ready -> "Ready"
+            AdapterState.PoweredOff -> "PoweredOff"
+            AdapterState.Resetting -> "Resetting"
+            AdapterState.Unsupported -> "Unsupported"
+            is AdapterState.Unauthorized -> "Unauthorized(${state.canRequest})"
+        }
+
+        fun render(state: ScanState): String = when (state) {
+            is ScanState.Scanning -> "Scanning"
+            is ScanState.Idle -> state.lastFailure?.let { "Idle(Failed:${it.code.value})" } ?: "Idle"
+        }
+
         fun render(state: ConnectionState): String = when (state) {
             is ConnectionState.Disconnected -> "Disconnected(${render(state.reason)})"
             ConnectionState.Connecting -> "Connecting"
@@ -70,7 +91,8 @@ internal class ScenarioReport(
     /** README §실행 대상과 러너의 한 줄 형식. 5단계 비교가 모은다. */
     fun lines(): List<String> {
         val prefix = "CONTRACT|$platform|${scenario.id}|"
-        val body = Lanes.ALL.flatMap { lane -> lanes[lane].orEmpty().map { "$prefix$lane|$it" } }
+        val body = Lanes.ALL.filter { it !in Lanes.EXTENSION || it in scenario.expect }
+            .flatMap { lane -> lanes[lane].orEmpty().map { "$prefix$lane|$it" } }
         val verdict = if (failure == null) "${prefix}verdict|PASS" else "${prefix}verdict|FAIL|${failure.replace('\n', ' ')}"
         return body + verdict
     }

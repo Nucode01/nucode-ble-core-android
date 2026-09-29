@@ -41,7 +41,7 @@ class ContractScenarioTest(private val name: String) {
         assumeTrue("sim 대상 아님", "sim" in scenario.runsOn && "android" in scenario.platforms)
         val profile = repo.peripherals.getValue(scenario.peripheral)
 
-        val h = harness()
+        val h = harness(scannerRediscovery = true)
         val report = try {
             ScenarioEngine(SimTarget(h, profile), profile).run(scenario)
         } finally {
@@ -92,7 +92,13 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
             id = peripheralId,
             name = profile.advertisedName,
             serviceUuids = profile.services.values.filter { it.advertised }.map { BleUuid(it.uuid) }.toSet(),
-            visible = { client.session(peripheralId).connectionState.value is ConnectionState.Disconnected },
+            // 링크가 없을 때(연결 전·연결 시도 중·OS 재연결 대기 중) 광고한다. Connecting 중에도 광고해야 connect 의 확보 스캔이 찾는다.
+            visible = {
+                when (client.session(peripheralId).connectionState.value) {
+                    is ConnectionState.Disconnected, ConnectionState.Connecting, is ConnectionState.Recovering -> true
+                    else -> false
+                }
+            },
         )
     }
 

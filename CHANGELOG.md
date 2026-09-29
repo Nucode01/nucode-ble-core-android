@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-09-30)
 
-Slice 7 public API cleanup과 이후 내부 정리·결함 수정. Build·unit test와 단일 Android 기기(Pixel 5a,
-Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, tag, release 는 수행하지 않았다.
+Slice 7 public API cleanup과 이후 내부 정리·결함 수정, 두 플랫폼 공통 계약(nucode-ble-core contract/)에 맞춘 동작 정렬.
+Build·unit test, 계약 시나리오 33개(sim), 실기기 두 대(Pixel 5a Android 14, iPhone XR iOS 18.7 + nRF52840 펌웨어) 기록 비교 23개 일치를 확인했다.
+블루투스 켜고 끄기·재부팅 뒤 재연결 수동 시험(전달 계획 §6)은 하지 않고 태그했다. publish 는 하지 않았다.
 
 ### Breaking changes
 

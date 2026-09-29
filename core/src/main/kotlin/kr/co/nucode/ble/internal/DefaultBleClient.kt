@@ -7,6 +7,7 @@ import kr.co.nucode.ble.BleClientEvent
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.ClientSnapshot
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.normalized
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanResult
 
@@ -31,7 +32,7 @@ internal class DefaultBleClient internal constructor(
 
     override fun session(peripheralId: PeripheralId): DefaultBleSession {
         runtime.checkOpen()
-        return DefaultBleSession(runtime, peripheralId)
+        return DefaultBleSession(runtime, peripheralId.normalized())
     }
 
     override suspend fun connect(peripheralId: PeripheralId, options: BleConnectOptions): DefaultBleSession {

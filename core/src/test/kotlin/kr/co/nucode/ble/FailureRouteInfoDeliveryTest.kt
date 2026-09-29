@@ -34,6 +34,7 @@ import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kr.co.nucode.ble.internal.model.GattHandle
@@ -330,6 +331,10 @@ class FailureRouteInfoDeliveryTest {
             "logger 가 CLEANUP_FAILURE 를 받지 못했다: ${synchronized(logged) { logged.map { it.failure.code.value } }}",
             loggerLatch.await(2, TimeUnit.SECONDS),
         )
+        val record = synchronized(logged) { logged.first { it.failure.code.value == "CLEANUP_FAILURE" } }
+        val exception = (record.values["cleanup_exception"] as DiagnosticValue.Text).value
+        assertEquals("IllegalStateException", exception)
+        assertFalse("메시지가 진단에 실렸다: $exception", exception.contains("close failed"))
     }
 
     @Test

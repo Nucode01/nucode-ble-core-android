@@ -50,6 +50,7 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 import kr.co.nucode.ble.internal.session.TerminalCause
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -409,7 +410,7 @@ class BleCoreWiringTest {
     }
 
     @Test
-    fun `Slice1 public read started caller cancellation은 generation을 poison한다`() = runTest {
+    fun `Slice1 public read started caller cancellation은 호출자만 떼고 기한이 지나야 poison한다`() = runTest {
         val fixture = publicGattFixture()
         val read = async { fixture.core.read(fixture.deviceId, fixture.ref) }
         runCurrent()
@@ -419,6 +420,12 @@ class BleCoreWiringTest {
         runCurrent()
 
         assertTrue(read.isCancelled)
+        assertFalse(fixture.session.gattOperationScheduler.isPoisoned)
+        assertTrue(fixture.session.connectionState.value is ConnectionState.Ready)
+        assertEquals(listOf("read"), fixture.driver.commands)
+        advanceTimeBy(5_000)
+        runCurrent()
+
         assertFailureCode("OPERATION_INVALIDATED", queued.await())
         assertPoisonedAndLateCallbackIsolated(
             fixture = fixture,
@@ -463,7 +470,7 @@ class BleCoreWiringTest {
     }
 
     @Test
-    fun `Slice1 public write started caller cancellation은 generation을 poison한다`() = runTest {
+    fun `Slice1 public write started caller cancellation은 호출자만 떼고 기한이 지나야 poison한다`() = runTest {
         val fixture = publicGattFixture()
         val write = async {
             fixture.core.write(
@@ -481,6 +488,12 @@ class BleCoreWiringTest {
         runCurrent()
 
         assertTrue(write.isCancelled)
+        assertFalse(fixture.session.gattOperationScheduler.isPoisoned)
+        assertTrue(fixture.session.connectionState.value is ConnectionState.Ready)
+        assertEquals(listOf("write"), fixture.driver.commands)
+        advanceTimeBy(5_000)
+        runCurrent()
+
         assertPoisonedAndLateCallbackIsolated(
             fixture = fixture,
             queued = queued,
@@ -511,7 +524,7 @@ class BleCoreWiringTest {
     }
 
     @Test
-    fun `Slice1 public subscribe started caller cancellation은 generation을 poison한다`() = runTest {
+    fun `Slice1 public subscribe started caller cancellation은 ack 뒤에도 구독 의도와 활성으로 남는다`() = runTest {
         val fixture = publicGattFixture()
         val subscribe = async { fixture.core.subscribe(fixture.deviceId, fixture.ref) }
         runCurrent()
@@ -521,13 +534,16 @@ class BleCoreWiringTest {
         runCurrent()
 
         assertTrue(subscribe.isCancelled)
+        assertFalse(fixture.session.gattOperationScheduler.isPoisoned)
         assertTrue(fixture.session.subscriptionState.desiredSnapshot.isEmpty())
-        assertPoisonedAndLateCallbackIsolated(
-            fixture = fixture,
-            queued = queued,
-            expectedCommands = listOf("notify", "descriptor", "disconnect", "close"),
-            emitLateCallback = { fixture.driver.emitDescriptor(fixture.deviceId, fixture.ref) },
-        )
+
+        fixture.driver.emitDescriptor(fixture.deviceId, fixture.ref)
+        runCurrent()
+
+        assertTrue(fixture.session.subscriptionState.containsDesired(fixture.ref))
+        assertEquals(setOf(fixture.ref), fixture.session.subscriptionState.activeSnapshot)
+        assertTrue(fixture.session.connectionState.value is ConnectionState.Ready)
+        queued.cancel()
     }
 
     // ── D8 unsubscribe best-effort(plan blecore-design-decisions v1 task 3, review L-1) ──

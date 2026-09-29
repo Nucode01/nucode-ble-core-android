@@ -187,7 +187,8 @@ internal class RuntimeCloser(
             eventBus.diagnosticIngress.report(Severity.Error, failure) {
                 mapOf(
                     "cleanup_exception" to DiagnosticValue.Text(
-                        (error.message ?: error::class.java.simpleName).take(DiagnosticValue.MAX_TEXT_LENGTH),
+                        // 메시지에는 주소 등이 실릴 수 있어 클래스 이름만 싣는다.
+                        error::class.java.simpleName.take(DiagnosticValue.MAX_TEXT_LENGTH),
                     ),
                 )
             }

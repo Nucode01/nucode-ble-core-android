@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.platform.android
 
+import kr.co.nucode.ble.internal.session.SessionOwner
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
@@ -79,7 +80,7 @@ internal class AndroidGattCallbackRouter(
 
     /** Shared scope hop used by every callback and kept internal for deterministic tests. */
     internal fun forward(event: GattDriverEvent) {
-        scope.launch { eventSink(event) }
+        scope.launch(SessionOwner(event.deviceId)) { eventSink(event) }
     }
 
     internal val callback: BluetoothGattCallback = object : BluetoothGattCallback() {

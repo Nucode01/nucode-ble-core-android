@@ -9,7 +9,57 @@ public value class FailureCategory(public val value: String)
 
 /** Stable, platform-neutral failure code. This is a wire value, not a localized message. */
 @JvmInline
-public value class FailureCode(public val value: String)
+public value class FailureCode(public val value: String) {
+    /** Public constants for every code in contract/failure-codes.json; the value equals the name. */
+    public companion object {
+        public val ADAPTER_UNAVAILABLE: FailureCode = FailureCode("ADAPTER_UNAVAILABLE")
+        public val BLE_UNSUPPORTED: FailureCode = FailureCode("BLE_UNSUPPORTED")
+        public val PERMISSION_DENIED: FailureCode = FailureCode("PERMISSION_DENIED")
+        public val SCAN_ALREADY_RUNNING: FailureCode = FailureCode("SCAN_ALREADY_RUNNING")
+        public val SCAN_STOPPED_BY_ADAPTER: FailureCode = FailureCode("SCAN_STOPPED_BY_ADAPTER")
+        /** Android 전용. */
+        public val SCAN_START_FAILED: FailureCode = FailureCode("SCAN_START_FAILED")
+        /** Android 전용. */
+        public val SCAN_RUNTIME_FAILED: FailureCode = FailureCode("SCAN_RUNTIME_FAILED")
+        /** Android 전용. */
+        public val SCAN_START_THROTTLED: FailureCode = FailureCode("SCAN_START_THROTTLED")
+        /** Android 전용. */
+        public val SCANNER_UNAVAILABLE: FailureCode = FailureCode("SCANNER_UNAVAILABLE")
+        public val PERIPHERAL_NOT_FOUND: FailureCode = FailureCode("PERIPHERAL_NOT_FOUND")
+        public val UNKNOWN_DEVICE: FailureCode = FailureCode("UNKNOWN_DEVICE")
+        public val CONNECT_DURING_DISCONNECT: FailureCode = FailureCode("CONNECT_DURING_DISCONNECT")
+        public val CONNECTION_OPTIONS_CONFLICT: FailureCode = FailureCode("CONNECTION_OPTIONS_CONFLICT")
+        /** Android 전용. */
+        public val LINK_START_FAILED: FailureCode = FailureCode("LINK_START_FAILED")
+        public val LINK_FAILED: FailureCode = FailureCode("LINK_FAILED")
+        public val LINK_TIMEOUT: FailureCode = FailureCode("LINK_TIMEOUT")
+        public val SERVICE_DISCOVERY_START_FAILED: FailureCode = FailureCode("SERVICE_DISCOVERY_START_FAILED")
+        public val SERVICE_DISCOVERY_FAILED: FailureCode = FailureCode("SERVICE_DISCOVERY_FAILED")
+        public val SERVICE_DISCOVERY_TIMEOUT: FailureCode = FailureCode("SERVICE_DISCOVERY_TIMEOUT")
+        /** Android 전용. */
+        public val CONFIGURATION_FAILED: FailureCode = FailureCode("CONFIGURATION_FAILED")
+        public val CONFIGURATION_TIMEOUT: FailureCode = FailureCode("CONFIGURATION_TIMEOUT")
+        /** Android 전용. */
+        public val DISCONNECT_START_FAILED: FailureCode = FailureCode("DISCONNECT_START_FAILED")
+        public val DISCONNECT_CLEANUP_TIMEOUT: FailureCode = FailureCode("DISCONNECT_CLEANUP_TIMEOUT")
+        public val DUPLICATE_CHARACTERISTIC_REFERENCE: FailureCode = FailureCode("DUPLICATE_CHARACTERISTIC_REFERENCE")
+        public val NOT_READY: FailureCode = FailureCode("NOT_READY")
+        public val NOT_CONNECTED: FailureCode = FailureCode("NOT_CONNECTED")
+        public val CHARACTERISTIC_NOT_FOUND: FailureCode = FailureCode("CHARACTERISTIC_NOT_FOUND")
+        /** Android 전용. */
+        public val GATT_OPERATION_START_FAILED: FailureCode = FailureCode("GATT_OPERATION_START_FAILED")
+        public val GATT_STATUS_FAILED: FailureCode = FailureCode("GATT_STATUS_FAILED")
+        public val GATT_OPERATION_CALLBACK_MISMATCH: FailureCode = FailureCode("GATT_OPERATION_CALLBACK_MISMATCH")
+        public val GATT_OPERATION_DUPLICATE_CALLBACK: FailureCode = FailureCode("GATT_OPERATION_DUPLICATE_CALLBACK")
+        public val OPERATION_TIMEOUT: FailureCode = FailureCode("OPERATION_TIMEOUT")
+        public val OPERATION_INVALIDATED: FailureCode = FailureCode("OPERATION_INVALIDATED")
+        public val PAYLOAD_TOO_LARGE: FailureCode = FailureCode("PAYLOAD_TOO_LARGE")
+        public val CLIENT_CLOSED: FailureCode = FailureCode("CLIENT_CLOSED")
+        public val CLEANUP_FAILURE: FailureCode = FailureCode("CLEANUP_FAILURE")
+        public val INTERNAL_TRANSPORT_ERROR: FailureCode = FailureCode("INTERNAL_TRANSPORT_ERROR")
+        public val GATT_PAYLOAD_OBSERVED: FailureCode = FailureCode("GATT_PAYLOAD_OBSERVED")
+    }
+}
 
 /** The transport boundary at which a failure became known. */
 public enum class FailurePhase {
@@ -128,6 +178,57 @@ public data class WriteProgress(
     }
 }
 
+/**
+ * 실패 코드 → category 의 내부 단일 표. 코드 하나에 category 하나이며, 실패를 만드는 모든 곳이
+ * 호출마다 category 를 적지 않고 여기서 얻는다. FailureCategoryContractTest 가 이 표를
+ * contract/failure-codes.json 과 대조한다.
+ */
+internal object FailureCategories {
+    val byCode: Map<String, String> = mapOf(
+        "ADAPTER_UNAVAILABLE" to "environment",
+        "BLE_UNSUPPORTED" to "environment",
+        "PERMISSION_DENIED" to "environment",
+        "SCAN_ALREADY_RUNNING" to "scan",
+        "SCAN_STOPPED_BY_ADAPTER" to "environment",
+        "SCAN_START_FAILED" to "scan",
+        "SCAN_RUNTIME_FAILED" to "scan",
+        "SCAN_START_THROTTLED" to "scan",
+        "SCANNER_UNAVAILABLE" to "scan",
+        "PERIPHERAL_NOT_FOUND" to "connection",
+        "UNKNOWN_DEVICE" to "validation",
+        "CONNECT_DURING_DISCONNECT" to "connection",
+        "CONNECTION_OPTIONS_CONFLICT" to "connection",
+        "LINK_START_FAILED" to "connection",
+        "LINK_FAILED" to "connection",
+        "LINK_TIMEOUT" to "connection",
+        "SERVICE_DISCOVERY_START_FAILED" to "connection",
+        "SERVICE_DISCOVERY_FAILED" to "connection",
+        "SERVICE_DISCOVERY_TIMEOUT" to "connection",
+        "CONFIGURATION_FAILED" to "connection",
+        "CONFIGURATION_TIMEOUT" to "connection",
+        "DISCONNECT_START_FAILED" to "connection",
+        "DISCONNECT_CLEANUP_TIMEOUT" to "connection",
+        "DUPLICATE_CHARACTERISTIC_REFERENCE" to "connection",
+        "NOT_READY" to "operation",
+        "NOT_CONNECTED" to "connection",
+        "CHARACTERISTIC_NOT_FOUND" to "attribute",
+        "GATT_OPERATION_START_FAILED" to "operation",
+        "GATT_STATUS_FAILED" to "operation",
+        "GATT_OPERATION_CALLBACK_MISMATCH" to "operation",
+        "GATT_OPERATION_DUPLICATE_CALLBACK" to "operation",
+        "OPERATION_TIMEOUT" to "operation",
+        "OPERATION_INVALIDATED" to "operation",
+        "PAYLOAD_TOO_LARGE" to "operation",
+        "CLIENT_CLOSED" to "connection",
+        "CLEANUP_FAILURE" to "connection",
+        "INTERNAL_TRANSPORT_ERROR" to "connection",
+        "GATT_PAYLOAD_OBSERVED" to "diagnostic",
+    )
+
+    fun of(code: String): FailureCategory =
+        FailureCategory(byCode[code] ?: error("failure code $code has no category entry"))
+}
+
 /** Delivery evidence for a completed write chunk. */
 public enum class DeliverySemantics {
     RemoteAcknowledged,
@@ -209,21 +310,19 @@ internal object FailureMapper {
 
     fun fromAdapterState(state: AdapterState): BleFailure = when (state) {
         AdapterState.Unsupported -> failure(
-            category = "environment",
             code = "BLE_UNSUPPORTED",
             phase = FailurePhase.Adapter,
             retryability = Retryability.Never,
         )
         is AdapterState.Unauthorized -> failure(
-            category = "environment",
             code = "PERMISSION_DENIED",
             phase = FailurePhase.Adapter,
             retryability = if (state.canRequest) Retryability.AfterEnvironmentChange else Retryability.Never,
         )
         AdapterState.PoweredOff,
         AdapterState.Resetting,
+        AdapterState.Unknown,
         -> failure(
-            category = "environment",
             code = "ADAPTER_UNAVAILABLE",
             phase = FailurePhase.Adapter,
             retryability = Retryability.AfterEnvironmentChange,
@@ -237,7 +336,6 @@ internal object FailureMapper {
         canRequest: Boolean = true,
         context: FailureContext = FailureContext(),
     ): BleFailure = failure(
-        category = "environment",
         code = "PERMISSION_DENIED",
         phase = phase,
         retryability = if (canRequest) Retryability.AfterEnvironmentChange else Retryability.Never,
@@ -248,7 +346,6 @@ internal object FailureMapper {
     fun scanStartFailed(
         context: FailureContext = FailureContext(),
     ): BleFailure = failure(
-        category = "scan",
         code = "SCAN_START_FAILED",
         phase = FailurePhase.Scan,
         retryability = Retryability.Unknown,
@@ -263,7 +360,6 @@ internal object FailureMapper {
         errorCode: Int,
         context: FailureContext = FailureContext(),
     ): BleFailure = failure(
-        category = "scan",
         code = "SCAN_RUNTIME_FAILED",
         phase = FailurePhase.Scan,
         retryability = Retryability.Unknown,
@@ -294,7 +390,6 @@ internal object FailureMapper {
         }
         require(phase in GATT_CALLBACK_PHASES) { "phase $phase cannot receive a GATT callback status" }
         return failure(
-            category = if (phase == FailurePhase.Operation) "operation" else "connection",
             code = when (phase) {
                 FailurePhase.Link -> "LINK_FAILED"
                 FailurePhase.DiscoverServices -> "SERVICE_DISCOVERY_FAILED"
@@ -341,7 +436,6 @@ internal object FailureMapper {
             "synthetic status must not be exposed as Android platform detail"
         }
         return failure(
-            category = "connection",
             code = "LINK_FAILED",
             phase = FailurePhase.Link,
             retryability = linkRetryability(statusCode),
@@ -361,7 +455,6 @@ internal object FailureMapper {
      * and L2CAP write failures). Unlike [gattStatusFailed], the success status 0 is carried as-is.
      */
     fun emptyServiceDiscovery(context: FailureContext = FailureContext()): BleFailure = failure(
-        category = "connection",
         code = "SERVICE_DISCOVERY_FAILED",
         phase = FailurePhase.DiscoverServices,
         retryability = Retryability.Unknown,
@@ -388,11 +481,6 @@ internal object FailureMapper {
             "synthetic status must not be exposed as Android platform detail"
         }
         return failure(
-            category = if (phase == FailurePhase.Operation || phase == FailurePhase.Configure) {
-                "operation"
-            } else {
-                "connection"
-            },
             code = when (phase) {
                 FailurePhase.Connect -> "LINK_START_FAILED"
                 FailurePhase.DiscoverServices -> "SERVICE_DISCOVERY_START_FAILED"
@@ -413,14 +501,13 @@ internal object FailureMapper {
     }
 
     private fun failure(
-        category: String,
         code: String,
         phase: FailurePhase,
         retryability: Retryability,
         context: FailureContext = FailureContext(),
         platformDetail: PlatformDetail? = null,
     ): BleFailure = BleFailure(
-        category = FailureCategory(category),
+        category = FailureCategories.of(code),
         code = FailureCode(code),
         phase = phase,
         retryability = retryability,

@@ -109,6 +109,7 @@ fun adapterMessage(state: AdapterState): String? = when (state) {
     AdapterState.Ready -> null
     AdapterState.PoweredOff -> "블루투스를 켜 주세요"
     AdapterState.Resetting -> "블루투스가 다시 시작되는 중입니다"
+    AdapterState.Unknown -> "블루투스 상태를 확인하는 중입니다"
     AdapterState.Unsupported -> "이 기기는 BLE 를 지원하지 않습니다"
     is AdapterState.Unauthorized ->
         if (state.canRequest) "블루투스 권한을 허용해 주세요" else "매니페스트에 권한 선언이 빠졌습니다(앱 빌드 문제)"

@@ -365,6 +365,7 @@ class OperationQueueTest {
                     throw GattWriteCommandFailure(
                         index,
                         GattFailureFactory.writeInvalidated(session, OperationKind.WriteWithResponse),
+                        chunkWasStarted = true,
                     )
                 }
                 GATT_SUCCESS
@@ -429,7 +430,8 @@ class OperationQueueTest {
         result as WriteResult.Failed
         assertEquals(2, result.failure.writeProgress?.failedChunkIndex)
         assertEquals(4, result.failure.writeProgress?.totalChunks)
-        assertTrue(result.failure.writeProgress?.currentChunkDeliveryUnknown == true)
+        assertTrue(result.failure.writeProgress?.failedChunkWasStarted == true)
+        assertFalse(result.failure.writeProgress?.currentChunkDeliveryUnknown == true)
         assertEquals("GATT_STATUS_FAILED", result.failure.code.value)
     }
 

@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
@@ -247,5 +248,52 @@ class AdapterStateTransitionTest {
             "ADAPTER_UNAVAILABLE",
             (connectFailure as? BleException)?.failure?.code?.value,
         )
+    }
+
+    @Test
+    fun `Unknown 어댑터에서 connect는 2000ms 기다린 뒤 ADAPTER_UNAVAILABLE로 실패한다`() = runTest {
+        val core = newCore { AdapterState.Unknown }
+        var result: Throwable? = null
+        var done = false
+        val job = launch {
+            result = runCatching { core.connectOfficial(testDeviceId(), BleConnectOptions()) }.exceptionOrNull()
+            done = true
+        }
+        advanceTimeBy(1_900)
+        runCurrent()
+        assertEquals("2000ms 안에는 끝나지 않는다", false, done)
+        advanceTimeBy(200)
+        runCurrent()
+        job.join()
+        assertFailureCode("ADAPTER_UNAVAILABLE", result)
+    }
+
+    @Test
+    fun `Unknown 어댑터가 Ready로 바뀌면 connect는 어댑터 게이트를 통과한다`() = runTest {
+        val probe = ProbeHolder(AdapterState.Unknown)
+        val core = newCore { probe.state }
+        var result: Throwable? = null
+        val job = launch {
+            result = runCatching { core.connectOfficial(testDeviceId(), BleConnectOptions()) }.exceptionOrNull()
+        }
+        advanceTimeBy(500)
+        runCurrent()
+        probe.state = AdapterState.Ready
+        core.refreshAdapterState()
+        job.join()
+        assertNotEquals("ADAPTER_UNAVAILABLE", (result as? BleException)?.failure?.code?.value)
+    }
+
+    @Test
+    fun `Unknown 대기 중 호출자 취소는 대기를 끝낸다`() = runTest {
+        val core = newCore { AdapterState.Unknown }
+        val job = launch {
+            runCatching { core.connectOfficial(testDeviceId(), BleConnectOptions()) }
+        }
+        advanceTimeBy(500)
+        runCurrent()
+        job.cancel()
+        job.join()
+        assertEquals(true, job.isCancelled)
     }
 }

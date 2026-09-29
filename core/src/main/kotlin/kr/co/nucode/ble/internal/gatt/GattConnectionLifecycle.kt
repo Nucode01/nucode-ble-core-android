@@ -119,6 +119,8 @@ internal class GattConnectionLifecycle(
 
     fun close(session: Session) = teardown.close(session)
 
+    fun failInternal(session: Session, cause: BleFailure) = teardown.failInternal(session, cause)
+
     internal fun handleConnectionStateChange(event: GattDriverEvent.ConnectionStateChanged) = callbacks.handleConnectionStateChange(event)
 
     internal fun handleServicesDiscovered(event: GattDriverEvent.ServicesDiscovered) = callbacks.handleServicesDiscovered(event)

@@ -250,11 +250,12 @@ class OwnershipTest {
             ),
             Row(
                 "구독 의도·활성", setOf("SubscriptionState.kt"),
-                setOf("addDesired", "confirmSubscribed", "removeDesired", "clearDesired", "beginGeneration", "clearActive", "markActive"),
+                setOf("addDesired", "confirmSubscribed", "confirmSubscribedIfNotRemoved", "removeDesired", "clearDesired", "beginGeneration", "clearActive", "markActive"),
                 Enforcement.Direct(
                     """\w*[sS]ubscriptionState""",
                     mapOf(
-                        "RuntimeCommands.kt" to setOf("clearDesired", "confirmSubscribed", "removeDesired"),
+                        "RuntimeCommands.kt" to setOf("clearDesired", "removeDesired"),
+                        "SubscriptionCommands.kt" to setOf("confirmSubscribedIfNotRemoved"),
                         "LinkSetup.kt" to setOf("markActive", "removeDesired"),
                         "Session.kt" to setOf("beginGeneration", "clearActive"),
                     ),

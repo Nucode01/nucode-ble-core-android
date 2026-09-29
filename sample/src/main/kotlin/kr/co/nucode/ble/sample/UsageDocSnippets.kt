@@ -116,6 +116,7 @@ fun describeAdapter(state: AdapterState): String = when (state) {
     AdapterState.Ready -> "사용 가능"
     AdapterState.PoweredOff -> "블루투스를 켜 달라고 안내한다"
     AdapterState.Resetting -> "어댑터 재시작 중 — 기다린다"
+    AdapterState.Unknown -> "아직 판정 전 — 기다린다"
     AdapterState.Unsupported -> "이 기기는 BLE 를 지원하지 않는다"
     is AdapterState.Unauthorized ->
         if (state.canRequest) "런타임 권한을 요청한다" else "매니페스트 권한 선언이 빠졌다(앱 빌드 결함)"

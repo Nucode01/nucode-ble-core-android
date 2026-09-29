@@ -165,9 +165,12 @@ class ContractEngineTest {
     }
 
     @Test
-    fun `이 라이브러리가 만들 수 없는 어댑터 값은 러너 오류로 실패`() {
-        val report = run("""[{ "adapter": "Unknown" }]""", "{}")
-        assertTrue(report.failure!!, report.failure!!.startsWith("steps[0] 러너 오류"))
+    fun `형식의 어댑터 값은 모두 sim 에서 만들어지고 Unknown 도 기록된다`() {
+        val report = run(
+            """[{ "adapter": "Unknown" }, { "await": "adapter", "is": "Unknown", "timeoutMs": 1000 }, { "adapter": "Ready" }]""",
+            """{ "adapter": ["Ready", "Unknown", "Ready"] }""",
+        )
+        assertTrue(report.toString(), report.passed)
     }
 
     @Test

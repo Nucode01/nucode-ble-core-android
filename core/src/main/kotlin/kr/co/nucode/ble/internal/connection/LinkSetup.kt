@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.connection
 
+import kr.co.nucode.ble.internal.session.SessionOwner
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -104,7 +105,7 @@ internal class LinkSetup(
         // Connecting 에서는 끊지 않는다: 이전 generation 은 이미 Disconnected 를 지나며 끊겼고, 남았더라도
         // job 의 generation 확인이 멈춘다. job 을 만들기 전에 건다 — 같은 Session 에 다시 걸어도 같은 동작이다(멱등).
         session.onLeaveLink = { cancel(session) }
-        restoreJobs[session] = scope.launch {
+        restoreJobs[session] = scope.launch(SessionOwner(session.deviceId)) {
             for (ref in session.subscriptionState.desiredSnapshot) {
                 if (!session.isConfiguringGeneration(generation)) return@launch
                 // 스냅샷을 뜬 뒤 사용자가 해제했으면 건너뛴다 — 켜면 해제 CCCD 뒤에 켜기가 서서 기기가 계속 통지한다.

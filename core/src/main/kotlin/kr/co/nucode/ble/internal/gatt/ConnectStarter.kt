@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kotlinx.coroutines.plus
+import kr.co.nucode.ble.internal.session.SessionOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -144,7 +146,7 @@ internal class ConnectStarter(
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val connectionGeneration = session.connectionCoordinator.beginConnection(
             authority,
-            scope = scope,
+            scope = scope + SessionOwner(deviceId),
             linkTimeoutMillis = options.linkDeadlineMillis(readinessTimeouts.linkMillis),
             onTimeout = { teardown.onLifecycleDeadline(deviceId, it) },
         )
@@ -305,7 +307,7 @@ internal class ConnectStarter(
      */
     fun resumeAfterAdapter(deviceId: PeripheralId, adapterReady: () -> Boolean) {
         if (registry.get(deviceId)?.relinkAfterAdapter != true) return
-        scope.launch {
+        scope.launch(SessionOwner(deviceId)) {
             val session = registry.get(deviceId) ?: return@launch
             if (!session.relinkAfterAdapter || session.stage != ConnectionStage.Disconnected) return@launch
             // 홉 사이에 어댑터가 다시 꺼졌으면 걸지 않는다 — 다음 Ready 복귀가 다시 판정한다.

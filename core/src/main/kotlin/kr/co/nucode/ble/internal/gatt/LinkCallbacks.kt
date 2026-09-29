@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kotlinx.coroutines.plus
+import kr.co.nucode.ble.internal.session.SessionOwner
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
@@ -142,7 +144,7 @@ internal class LinkCallbacks(
                         callbackGeneration = callbackGeneration,
                         expectedStage = ConnectionStage.Connecting,
                         nextStage = ConnectionStage.DiscoveringServices,
-                        scope = scope,
+                        scope = scope + SessionOwner(deviceId),
                         timeoutMillis = timeouts.discoveryMillis,
                         onTimeout = { teardown.onLifecycleDeadline(deviceId, it) },
                     )
@@ -220,7 +222,7 @@ internal class LinkCallbacks(
             callbackGeneration = callbackGeneration,
             expectedStage = ConnectionStage.DiscoveringServices,
             nextStage = ConnectionStage.Configuring,
-            scope = scope,
+            scope = scope + SessionOwner(deviceId),
             timeoutMillis = readinessTimeouts.configurationMillis,
             onTimeout = { teardown.onLifecycleDeadline(deviceId, it) },
         )

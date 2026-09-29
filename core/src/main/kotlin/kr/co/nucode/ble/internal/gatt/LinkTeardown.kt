@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kotlinx.coroutines.plus
+import kr.co.nucode.ble.internal.session.SessionOwner
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleFailure
@@ -78,7 +80,7 @@ internal class LinkTeardown(
             authority,
             targetGeneration = generation,
             cause = TerminalCause(reason, cause),
-            scope = scope,
+            scope = scope + SessionOwner(session.deviceId),
             disconnectCleanupTimeoutMillis = timeouts.disconnectCleanupMillis,
             onTimeout = { onLifecycleDeadline(session.deviceId, it) },
         )
@@ -305,13 +307,14 @@ internal class LinkTeardown(
         session: Session,
         cause: BleFailure,
         suppressReconnect: Boolean,
+        severity: Severity = Severity.Warning,
     ) {
         val connectionGeneration = session.connectionCoordinator.generation
         if (suppressReconnect) session.suppressReconnect = true
         // Platform disconnect/close보다 먼저 connection generation을 terminalize한다.
         // disconnect가 callback을 동기 재진입시키더라도 OperationInvalidated 원인이
         // PlatformDisconnected로 먼저 확정되거나 coordinator가 Ready에 남지 않는다.
-        emitDiagnostic(Severity.Warning, cause)
+        emitDiagnostic(severity, cause)
         completeWithoutPublish(
             session,
             connectionGeneration,
@@ -327,5 +330,28 @@ internal class LinkTeardown(
         session.chunkSize = null
 
         publishState(session)
+    }
+
+    /**
+     * 세션 소유 코루틴에서 잡히지 않은 예외가 났다(BleRuntime 의 코어 스코프 처리기) — 그 세션만
+     * `Disconnected(Failed)` 로 끝내고 handle 을 한 번 닫는다. 재연결하지 않는다(suppressReconnect).
+     * 플랫폼 재연결 대기 중이면 대기를 [cause] 로 끝내고, 이미 끝났는데 handle 만 남았으면 handle 만 닫는다
+     * (원인은 first wins). 아무것도 남지 않은 세션은 Diagnostic 만 낸다.
+     */
+    fun failInternal(session: Session, cause: BleFailure) {
+        val coordinator = session.connectionCoordinator
+        val generation = coordinator.generation
+        val terminal = TerminalCause(TerminalCleanupReason.OperationInvalidated, cause)
+        if (coordinator.stage != ConnectionStage.Disconnected) {
+            terminateForOperationInvalidation(session, cause, suppressReconnect = true, severity = Severity.Error)
+            return
+        }
+        emitDiagnostic(Severity.Error, cause)
+        if (endPlatformWait(session, generation, terminal)) return
+        if (session.platformHandleOpen) {
+            session.suppressReconnect = true
+            closeHandle(session)
+            publishState(session)
+        }
     }
 }

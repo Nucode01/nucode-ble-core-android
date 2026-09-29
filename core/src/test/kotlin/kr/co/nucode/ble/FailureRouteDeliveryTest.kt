@@ -14,7 +14,6 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.harness.gapServiceSnapshot
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.model.ConnectOptions
@@ -417,29 +416,11 @@ class FailureRouteDeliveryTest {
     }
 
     /**
-     * 공개 명령은 platform start 뒤에만 ACK timeout 을 건다 — 대기열에 있는 동안 timeout 이 나는 경로는
-     * 호출자 쪽 `withTimeout` 이 대기 중인 명령을 끊을 때다.
+     * 접수된 명령의 호출자 취소는 호출자만 뗀다 — 세션은 Ready 로 남고 poison·Diagnostic 이 없다.
+     * 콜백이 안 오면 큐 기한이 `OPERATION_TIMEOUT` 으로 끝낸다(호출자 취소는 `OPERATION_INVALIDATED` 를 만들지 않는다).
      */
     @Test
-    fun `queued read cut by caller timeout throws OPERATION_TIMEOUT`() = runTest {
-        val f = fixture()
-        connectToReady(f)
-        val pending = async { runCatching { f.core.read(f.id, READ_REF) }.exceptionOrNull() }
-        runCurrent()
-
-        val queued = async {
-            runCatching { withTimeout(OPERATION_TIMEOUT / 2) { f.core.read(f.id, QUEUED_REF) } }.exceptionOrNull()
-        }
-        runCurrent()
-        advanceTimeBy(OPERATION_TIMEOUT / 2 + 1)
-        runCurrent()
-
-        assertEquals("OPERATION_TIMEOUT", code(queued.await()))
-        pending.cancel()
-    }
-
-    @Test
-    fun `started read caller cancellation publishes Disconnected Failed OPERATION_INVALIDATED and Diagnostic`() = runTest {
+    fun `started read caller cancellation keeps the session Ready and only the queue deadline fails it`() = runTest {
         val f = fixture()
         connectToReady(f)
 
@@ -448,8 +429,13 @@ class FailureRouteDeliveryTest {
         read.cancelAndJoin()
         runCurrent()
 
-        assertEquals("OPERATION_INVALIDATED", failedCode(f.session.connectionState.value))
-        assertTrue(f.diagnosticCodes().toString(), "OPERATION_INVALIDATED" in f.diagnosticCodes())
+        assertTrue(f.session.connectionState.value is ConnectionState.Ready)
+        assertTrue(f.diagnosticCodes().toString(), "OPERATION_INVALIDATED" !in f.diagnosticCodes())
+
+        advanceTimeBy(OPERATION_TIMEOUT + 1)
+        runCurrent()
+
+        assertEquals("OPERATION_TIMEOUT", failedCode(f.session.connectionState.value))
     }
 
     // ── adapter sweep ─────────────────────────────────────────────────────────

@@ -95,12 +95,18 @@ internal class OperationQueue(
             val statuses = try {
                 writeCommand(session, charRef, chunks, writeType, ackTimeoutMillis)
             } catch (e: GattWriteCommandFailure) {
-                return@run failedWrite(e.failure, writeType, chunks, e.chunkIndex)
+                return@run failedWrite(
+                    e.failure, writeType, chunks, e.chunkIndex,
+                    chunkWasStarted = e.chunkWasStarted,
+                    deliveryUnknown = e.chunkWasStarted && e.failure.code.value != GATT_STATUS_FAILED_CODE,
+                )
             } catch (e: CancellationException) {
                 currentCoroutineContext().ensureActive()
                 return@run failedWrite(
                     GattFailureFactory.writeInvalidated(session, writeKind(writeType)),
                     writeType, chunks, 0,
+                    chunkWasStarted = true,
+                    deliveryUnknown = true,
                 )
             }
 
@@ -109,6 +115,8 @@ internal class OperationQueue(
                     return@run failedWrite(
                         GattFailureFactory.writeStatusFailed(session, status, writeKind(writeType)),
                         writeType, chunks, index,
+                        chunkWasStarted = true,
+                        deliveryUnknown = false,
                     )
                 }
             }
@@ -124,6 +132,8 @@ internal class OperationQueue(
 internal class GattWriteCommandFailure(
     val chunkIndex: Int,
     val failure: BleFailure,
+    /** 실패한 조각이 플랫폼 write 호출까지 갔는가. 시작 전 거절·줄에서 무효화면 false. */
+    val chunkWasStarted: Boolean,
 ) : Exception(failure.message ?: failure.code.value)
 
 /**
@@ -138,11 +148,16 @@ private fun writeKind(writeType: WriteType): OperationKind =
         OperationKind.WriteWithResponse
     }
 
+/** 기기가 실패 status 로 확정 거절한 조각의 실패 코드. */
+private const val GATT_STATUS_FAILED_CODE = "GATT_STATUS_FAILED"
+
 private fun failedWrite(
     base: BleFailure,
     writeType: WriteType,
     chunks: List<ByteArray>,
     failedChunkIndex: Int,
+    chunkWasStarted: Boolean,
+    deliveryUnknown: Boolean,
 ): WriteResult.Failed {
     val chunksCompleted = failedChunkIndex.coerceIn(0, chunks.size)
     val bytesCompleted = chunks.take(chunksCompleted).sumOf(ByteArray::size)
@@ -159,13 +174,13 @@ private fun failedWrite(
                 chunksCompleted = chunksCompleted,
                 failedChunkIndex = failedChunkIndex,
                 failedChunkBytes = failedChunk?.size,
-                failedChunkWasStarted = true,
+                failedChunkWasStarted = chunkWasStarted,
                 delivery = if (writeType == WriteType.WithoutResponse) {
                     DeliverySemantics.SubmittedToPlatform
                 } else {
                     DeliverySemantics.RemoteAcknowledged
                 },
-                currentChunkDeliveryUnknown = true,
+                currentChunkDeliveryUnknown = deliveryUnknown,
             ),
         ),
     )

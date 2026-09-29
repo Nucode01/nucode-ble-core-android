@@ -88,7 +88,7 @@ suspend fun startScanPolitely(client: BleClient, request: ScanRequest) {
 | `GATT_OPERATION_START_FAILED` | Android 가 GATT 작업 시작을 거절 | Unknown | 던짐 / 이벤트(구독 해제 · MTU 요청 시작) / 상태 + 이벤트(구독 복원) |
 | `GATT_STATUS_FAILED` | 기기가 오류 status 로 응답. 인증 · 암호화 부족(status 5 · 8 · 15)이면 AfterEnvironmentChange | Unknown / AfterEnvironmentChange | 던짐 / 이벤트(구독 해제) / 상태 + 이벤트(구독 복원) |
 | `OPERATION_TIMEOUT` | GATT 작업 응답 시간 초과 — 연결도 끝남 | NewConnectionMayHelp | 던짐 + 상태 + 이벤트(시작된 read · write · subscribe) / 던짐(아직 줄에서 기다리던 작업) / 상태 + 이벤트(구독 해제 · 구독 복원) |
-| `OPERATION_INVALIDATED` | 연결이 끊기거나 `disconnect()` 로 작업이 무효화됨. 시작된 작업을 호출자가 취소해도 이 코드로 연결이 끝남 | NewConnectionMayHelp | 던짐(read · write · subscribe, 주소 찾기 중 `disconnect()` 된 `connect`) / 상태 + 이벤트(시작된 작업을 호출자가 취소) / 이벤트(구독 해제) |
+| `OPERATION_INVALIDATED` | 연결이 끊기거나 `disconnect()` 로 작업이 무효화됨. 호출자 취소만으로는 나지 않음 | NewConnectionMayHelp | 던짐(read · write · subscribe, 주소 찾기 중 `disconnect()` 된 `connect`) / 이벤트(구독 해제) |
 | `INTERNAL_TRANSPORT_ERROR` | 구독 복원 중 예상 밖 내부 오류 | Unknown | 상태 + 이벤트(구독 복원) |
 | `DISCONNECT_START_FAILED` | 해제 요청 자체가 실패(정리는 계속됨) | NewConnectionMayHelp | 이벤트 |
 | `DISCONNECT_CLEANUP_TIMEOUT` | 해제 콜백이 오지 않아 강제 정리 | NewConnectionMayHelp | 이벤트 |

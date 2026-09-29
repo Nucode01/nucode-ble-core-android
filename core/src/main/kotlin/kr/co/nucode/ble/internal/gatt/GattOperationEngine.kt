@@ -2,7 +2,7 @@ package kr.co.nucode.ble.internal.gatt
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ensureActive
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
@@ -22,6 +22,9 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 /** Task 3 operation whose ACK clock starts only after the platform start call returns. */
 internal interface StartTrackedGattOperation {
     val started: CompletableDeferred<Unit>
+
+    /** 플랫폼 시작부터 센 작업 기한. null 이면 엔진의 기본 기한. */
+    var timeoutMillis: Long?
 }
 
 /** Read resolves its platform characteristic only when it reaches the FIFO head. */
@@ -32,6 +35,7 @@ internal class QueuedRead(
     private var resolvedIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
+    override var timeoutMillis: Long? = null
     override val kind: GattOperationKind = GattOperationKind.Read
     override val attributeIdentity: GattCharacteristicIdentity
         get() = resolvedIdentity
@@ -54,6 +58,7 @@ internal class QueuedWriteChunk(
     private var resolvedIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
+    override var timeoutMillis: Long? = null
     override val kind: GattOperationKind
         get() = if (resolvedWriteType == GattWriteTypes.NO_RESPONSE) {
             GattOperationKind.WriteWithoutResponse
@@ -62,6 +67,9 @@ internal class QueuedWriteChunk(
         }
     override val attributeIdentity: GattCharacteristicIdentity
         get() = resolvedIdentity
+
+    /** 플랫폼 write 호출이 받아들여졌는가(시작 전 거절·줄 무효화와 구분). */
+    @Volatile var platformStarted: Boolean = false
 
     lateinit var commandMembers: List<ScheduledGattOperation<Unit>>
 
@@ -83,6 +91,7 @@ internal class QueuedCccdWrite(
     private var resolvedIdentity: GattDescriptorIdentity = descriptorIdentity
 
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
+    override var timeoutMillis: Long? = null
     override val kind: GattOperationKind =
         if (enabled) GattOperationKind.Subscribe else GattOperationKind.Unsubscribe
     override val attributeIdentity: GattDescriptorIdentity
@@ -105,6 +114,7 @@ internal class QueuedCccdWrite(
 internal class GattOperationEngine(
     private val registry: SessionRegistry,
     private val emit: (BleEvent) -> Unit,
+    scope: CoroutineScope,
     private val driver: GattDriver,
     private val ackTimeoutMillis: Long,
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)?,
@@ -116,7 +126,7 @@ internal class GattOperationEngine(
 
 
     private val executor = OperationExecutor(
-        emit, driver, ackTimeoutMillis, operationStarter, operationWriteTypeResolver,
+        emit, scope, driver, ackTimeoutMillis, operationStarter, operationWriteTypeResolver,
         operationTargetResolver, diagnosticIngress, lifecycle,
     )
     private val callbacks = OperationCallbacks(registry, emit, executor)
@@ -155,7 +165,8 @@ internal class GattOperationEngine(
     }
 
 
-    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = subscriptions.subscribe(deviceId, charRef)
+    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) =
+        subscriptions.subscribe(deviceId, charRef, recordIntent = true)
 
     suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = subscriptions.restoreSubscription(deviceId, charRef)
 
@@ -181,7 +192,7 @@ internal class GattOperationEngine(
                     requestedWriteType = writeType,
                     commandIndex = index,
                     chunk = chunk,
-                ),
+                ).also { it.timeoutMillis = timeoutMillis },
             )
         }
         scheduled.forEach { item ->
@@ -196,22 +207,22 @@ internal class GattOperationEngine(
                 GattStatus.SUCCESS
             } catch (e: BleException) {
                 // A status integer cannot carry callback domain/API or the admission token.
-                throw GattWriteCommandFailure(index, e.failure)
+                throw GattWriteCommandFailure(index, e.failure, chunkStarted(item))
             } catch (e: CancellationException) {
+                // 호출자 취소는 그대로 전파한다 — 남은 조각은 큐가 끝까지 내보낸다. 호출자가 살아 있는데
+                // 취소로 끝난 완료는 회수(무효화)다.
                 kotlin.coroutines.coroutineContext.ensureActive()
-                val failure = if (e is TimeoutCancellationException) {
-                    GattFailureFactory.timeoutFailure(session, item)
-                } else {
-                    GattFailureFactory.operationInvalidated(session, item)
-                }
-                throw GattWriteCommandFailure(index, failure)
+                throw GattWriteCommandFailure(index, GattFailureFactory.operationInvalidated(session, item), chunkStarted(item))
             } catch (_: Exception) {
-                throw GattWriteCommandFailure(index, GattFailureFactory.operationInvalidated(session, item))
+                throw GattWriteCommandFailure(index, GattFailureFactory.operationInvalidated(session, item), chunkStarted(item))
             }
             statuses += status
             if (status != GattStatus.SUCCESS) break
         }
         return statuses
     }
+
+    private fun chunkStarted(item: ScheduledGattOperation<*>): Boolean =
+        (item.operation as? QueuedWriteChunk)?.platformStarted == true
 
 }

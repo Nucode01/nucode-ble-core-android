@@ -37,7 +37,9 @@ import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattCallbackSource
 import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.gatt.OperationExecutor
 import kr.co.nucode.ble.internal.gatt.GattDriverEvent
+import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.internal.gatt.GattWriteCommandFailure
 import kr.co.nucode.ble.internal.gatt.OperationQueue
@@ -225,7 +227,7 @@ class GattDriverSeamTest {
     }
 
     @Test
-    fun `started caller cancellation propagates and poisons generation`() = runTest {
+    fun `started caller cancellation detaches only the caller and the late callback completes the departed read`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
@@ -238,20 +240,65 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             operationStarter = { _, _ -> null },
         )
-        val first = async { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
+        val firstRef = charRef(UUID.randomUUID(), UUID.randomUUID())
+        val queuedRef = charRef(UUID.randomUUID(), UUID.randomUUID())
+        val first = async { bridge.read(deviceId, firstRef) }
         runCurrent()
-        val queued = async {
-            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
-                .exceptionOrNull()
-        }
+        val queued = async { runCatching { bridge.read(deviceId, queuedRef) }.getOrNull() }
         runCurrent()
 
         first.cancelAndJoin()
         runCurrent()
 
         assertTrue(first.isCancelled)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+        assertTrue(session.connectionState.value is ConnectionState.Ready)
+        assertEquals(emptyList<String>(), driver.commands)
+        val departed = session.gattOperationScheduler.pending!!
+        assertFalse(departed.completion.isCompleted)
+
+        // 늦은 콜백은 떠난 작업에 붙고, 큐는 다음 작업을 시작한다.
+        driver.emitRead(deviceId, readSnapshot(firstRef), byteArrayOf(1))
+        runCurrent()
+        assertTrue(departed.completion.isCompleted)
+        assertEquals(1L, session.gattOperationScheduler.pending?.sequence?.minus(departed.sequence))
+        driver.emitRead(deviceId, readSnapshot(queuedRef), byteArrayOf(2))
+        runCurrent()
+        assertEquals(2, queued.await()?.single()?.toInt())
+        assertEquals(emptyList<String>(), driver.commands)
+    }
+
+    @Test
+    fun `departed started read without callback is poisoned by the queue deadline as OPERATION_TIMEOUT`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
+        val driver = FakeGattDriver()
+        val bridge = GattBridge(
+            registry = registry,
+            emit = {},
+            scope = this,
+            driver = driver,
+            ackTimeoutMillis = 100,
+            operationStarter = { _, _ -> null },
+        )
+        val first = async { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }
+        runCurrent()
+        val queued = async {
+            runCatching { bridge.read(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID())) }.exceptionOrNull()
+        }
+        runCurrent()
+
+        first.cancelAndJoin()
+        runCurrent()
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+
+        advanceTimeBy(100)
+        runCurrent()
+
         assertFailureCode("OPERATION_INVALIDATED", queued.await())
         assertTrue(session.gattOperationScheduler.isPoisoned)
+        assertEquals("OPERATION_TIMEOUT", session.terminalLifecycleCause?.code?.value)
         assertEquals(listOf("disconnect", "close"), driver.commands)
     }
 
@@ -298,6 +345,7 @@ class GattDriverSeamTest {
         val result = write.await() as WriteResult.Failed
         assertEquals(0, result.failure.writeProgress?.failedChunkIndex)
         assertEquals("OPERATION_TIMEOUT", result.failure.code.value)
+        assertWriteProgressCause(result, started = true, unknown = true)
         assertTrue(session.gattOperationScheduler.isPoisoned)
         assertNull(session.gattOperationScheduler.pending)
         assertEquals(0, session.gattOperationScheduler.queuedCount)
@@ -309,8 +357,90 @@ class GattDriverSeamTest {
         )
     }
 
+    private fun assertWriteProgressCause(result: WriteResult.Failed, started: Boolean, unknown: Boolean) {
+        val progress = requireNotNull(result.failure.writeProgress)
+        assertEquals(started, progress.failedChunkWasStarted)
+        assertEquals(unknown, progress.currentChunkDeliveryUnknown)
+    }
+
     @Test
-    fun `started write caller cancellation through OperationQueue propagates and poisons generation`() = runTest {
+    fun `write progress 시작 전 거절은 started false, unknown false이고 앞 조각만 확정으로 센다`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        registry.getOrCreate(deviceId).apply {
+            setStateForTest(ConnectionState.Ready)
+            chunkSize = 2
+        }
+        val driver = FakeGattDriver()
+        var starts = 0
+        val bridge = GattBridge(
+            registry = registry,
+            emit = {},
+            scope = this,
+            driver = driver,
+            ackTimeoutMillis = 5_000,
+            operationStarter = { session, scheduled ->
+                starts += 1
+                if (starts == 2) GattFailureFactory.operationStartFailure(session, scheduled.operation) else null
+            },
+        )
+        val queue = OperationQueue(registry, {}, 5_000, bridge::writeCommand)
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
+        val write = async {
+            queue.write(deviceId, charRef, byteArrayOf(1, 2, 3, 4), WriteType.WithResponse, BleChunking.Automatic)
+        }
+        runCurrent()
+        driver.emitCharacteristicWrite(GattCharacteristicIdentity.from(charRef))
+        runCurrent()
+
+        val result = write.await() as WriteResult.Failed
+        assertEquals("GATT_OPERATION_START_FAILED", result.failure.code.value)
+        assertWriteProgressCause(result, started = false, unknown = false)
+        val progress = requireNotNull(result.failure.writeProgress)
+        assertEquals(1, progress.failedChunkIndex)
+        assertEquals(1, progress.chunksCompleted)
+        assertEquals(2, progress.bytesCompleted)
+    }
+
+    @Test
+    fun `write progress 줄에서 무효화된 시작 전 조각은 started false, unknown false다`() = runTest {
+        val registry = SessionRegistry()
+        val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
+        registry.getOrCreate(deviceId).apply {
+            setStateForTest(ConnectionState.Ready)
+            chunkSize = 20
+        }
+        val driver = FakeGattDriver()
+        val bridge = GattBridge(
+            registry = registry,
+            emit = {},
+            scope = this,
+            driver = driver,
+            ackTimeoutMillis = 100,
+            operationStarter = { _, _ -> null },
+        )
+        val queue = OperationQueue(registry, {}, 100, bridge::writeCommand)
+        val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
+        val first = async { queue.write(deviceId, charRef, byteArrayOf(1), WriteType.WithResponse, BleChunking.Disabled) }
+        runCurrent()
+        val second = async { queue.write(deviceId, charRef, byteArrayOf(2), WriteType.WithResponse, BleChunking.Disabled) }
+        runCurrent()
+
+        // 첫 write 가 응답 없이 timeout 되면 generation 이 poison 되어 줄에 있던 둘째가 무효화된다.
+        advanceTimeBy(100)
+        runCurrent()
+
+        val started = first.await() as WriteResult.Failed
+        assertEquals("OPERATION_TIMEOUT", started.failure.code.value)
+        assertWriteProgressCause(started, started = true, unknown = true)
+        val queued = second.await() as WriteResult.Failed
+        assertEquals("OPERATION_INVALIDATED", queued.failure.code.value)
+        assertWriteProgressCause(queued, started = false, unknown = false)
+        assertEquals(0, requireNotNull(queued.failure.writeProgress).chunksCompleted)
+    }
+
+    @Test
+    fun `started write caller cancellation through OperationQueue detaches only the caller and the remaining chunks still go out`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
@@ -334,13 +464,14 @@ class GattDriverSeamTest {
             writeCommand = bridge::writeCommand,
         )
 
+        val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
         val write = async {
             queue.write(
                 deviceId,
-                charRef(UUID.randomUUID(), UUID.randomUUID()),
-                byteArrayOf(1),
+                ref,
+                byteArrayOf(1, 2, 3),
                 WriteType.WithResponse,
-                BleChunking.Disabled,
+                BleChunking.Fixed(2),
             )
         }
         runCurrent()
@@ -350,13 +481,23 @@ class GattDriverSeamTest {
         runCurrent()
 
         assertTrue(write.isCancelled)
-        assertTrue(session.gattOperationScheduler.isPoisoned)
-        assertNull(session.gattOperationScheduler.pending)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+        assertTrue(session.connectionState.value is ConnectionState.Ready)
+        assertEquals(1, session.gattOperationScheduler.queuedCount)
+
+        // 취소 뒤에도 첫 조각 ack 로 둘째 조각이 시작된다.
+        val identity = GattCharacteristicIdentity.from(ref)
+        driver.emitCharacteristicWrite(identity)
+        runCurrent()
         assertEquals(0, session.gattOperationScheduler.queuedCount)
-        assertEquals(listOf("disconnect", "close"), driver.commands)
+        assertEquals(GattOperationKind.WriteWithResponse, session.gattOperationScheduler.pending?.operation?.kind)
+        driver.emitCharacteristicWrite(identity)
+        runCurrent()
+        assertNull(session.gattOperationScheduler.pending)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+        assertEquals(emptyList<String>(), driver.commands)
         assertTrue(
-            events.filterIsInstance<BleEvent.Diagnostic>()
-                .any { it.code == "OPERATION_INVALIDATED" },
+            events.filterIsInstance<BleEvent.Diagnostic>().none { it.code == "OPERATION_INVALIDATED" },
         )
     }
 
@@ -397,7 +538,7 @@ class GattDriverSeamTest {
     }
 
     @Test
-    fun `started CCCD caller cancellation through subscribe propagates and poisons generation`() = runTest {
+    fun `started CCCD caller cancellation detaches only the caller and the ack completes the departed subscribe`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
@@ -411,10 +552,9 @@ class GattDriverSeamTest {
             ackTimeoutMillis = 5_000,
             operationStarter = { _, _ -> null },
         )
+        val ref = charRef(UUID.randomUUID(), UUID.randomUUID())
 
-        val subscribe = async {
-            bridge.subscribe(deviceId, charRef(UUID.randomUUID(), UUID.randomUUID()))
-        }
+        val subscribe = async { bridge.subscribe(deviceId, ref) }
         runCurrent()
         assertEquals(GattOperationKind.Subscribe, session.gattOperationScheduler.pending?.operation?.kind)
 
@@ -422,13 +562,17 @@ class GattDriverSeamTest {
         runCurrent()
 
         assertTrue(subscribe.isCancelled)
-        assertTrue(session.gattOperationScheduler.isPoisoned)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+        assertEquals(GattOperationKind.Subscribe, session.gattOperationScheduler.pending?.operation?.kind)
+        assertEquals(emptyList<String>(), driver.commands)
+
+        driver.emitDescriptorWrite(
+            GattDescriptorIdentity(GattCharacteristicIdentity.from(ref), OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID),
+        )
+        runCurrent()
         assertNull(session.gattOperationScheduler.pending)
-        assertEquals(0, session.gattOperationScheduler.queuedCount)
-        assertEquals(listOf("disconnect", "close"), driver.commands)
         assertTrue(
-            events.filterIsInstance<BleEvent.Diagnostic>()
-                .any { it.code == "OPERATION_INVALIDATED" },
+            events.filterIsInstance<BleEvent.Diagnostic>().none { it.code == "OPERATION_INVALIDATED" },
         )
     }
 
@@ -842,7 +986,7 @@ class GattDriverSeamTest {
     }
 
     @Test
-    fun `pre-start public write 취소는 예약한 모든 청크를 제거한다`() = runTest {
+    fun `pre-start public write 취소는 예약한 모든 청크를 제거하지 않고 끝까지 내보낸다`() = runTest {
         val registry = SessionRegistry()
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
@@ -889,12 +1033,20 @@ class GattDriverSeamTest {
         assertEquals(2, session.gattOperationScheduler.queuedCount)
 
         queuedWrite.cancelAndJoin()
-        assertEquals(0, session.gattOperationScheduler.queuedCount)
+        assertEquals(2, session.gattOperationScheduler.queuedCount)
 
+        // blocker ack 뒤 떠난 write 의 두 조각이 차례로 시작된다.
         driver.emitCharacteristicWrite(identity)
         runCurrent()
         blocker.await()
-        assertEquals(listOf(GattOperationKind.WriteWithResponse), starts)
+        assertEquals(1, session.gattOperationScheduler.queuedCount)
+        driver.emitCharacteristicWrite(identity)
+        runCurrent()
+        driver.emitCharacteristicWrite(identity)
+        runCurrent()
+        assertEquals(List(3) { GattOperationKind.WriteWithResponse }, starts)
+        assertNull(session.gattOperationScheduler.pending)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
     }
 
     @Test
@@ -1121,6 +1273,7 @@ class GattDriverSeamTest {
         val result = write.await() as WriteResult.Failed
         assertEquals(0, result.failure.writeProgress?.failedChunkIndex)
         assertEquals("GATT_STATUS_FAILED", result.failure.code.value)
+        assertWriteProgressCause(result, started = true, unknown = false)
         assertEquals(133, (result.failure.platformDetail as PlatformDetail.Android).statusCode)
         assertEquals("onCharacteristicWrite", (result.failure.platformDetail as PlatformDetail.Android).apiOperation)
         assertTrue(result.failure.context.operationId?.startsWith("gatt-") == true)
@@ -1351,6 +1504,16 @@ class GattDriverSeamTest {
         val scheduled: ScheduledGattOperation<ByteArray>,
         val snapshot: GattCharacteristicSnapshot,
     )
+
+    private fun readSnapshot(ref: kr.co.nucode.ble.CharacteristicRef): GattCharacteristicSnapshot {
+        val identity = GattCharacteristicIdentity.from(ref)
+        return GattCharacteristicSnapshot(
+            serviceUuid = identity.serviceUuid,
+            charUuid = identity.characteristicUuid,
+            instanceIndex = identity.characteristicInstanceIndex,
+            propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
+        )
+    }
 
     private class FakeGattDriver : NoopGattDriver() {
         val commands = mutableListOf<String>()

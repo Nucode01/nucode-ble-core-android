@@ -48,6 +48,7 @@ internal class ContractLog(private val enabled: Set<String> = emptySet()) {
 
     companion object {
         fun render(state: AdapterState): String = when (state) {
+            AdapterState.Unknown -> "Unknown"
             AdapterState.Ready -> "Ready"
             AdapterState.PoweredOff -> "PoweredOff"
             AdapterState.Resetting -> "Resetting"

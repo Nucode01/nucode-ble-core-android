@@ -391,7 +391,7 @@ class GattLifecycleCharacterizationTest {
     }
 
     @Test
-    fun `started operation timeout and cancellation terminalize lifecycle before the next attempt`() = runTest {
+    fun `started operation timeout terminalizes lifecycle before the next attempt and caller cancellation only detaches the caller`() = runTest {
         val registry = SessionRegistry()
         val session = registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = false
@@ -493,6 +493,15 @@ class GattLifecycleCharacterizationTest {
         runCurrent()
 
         cancelledRead.cancelAndJoin()
+        runCurrent()
+
+        // 호출자 취소는 호출자만 뗀다 — 세션은 Ready 로 남고 정리도 시작되지 않는다.
+        assertEquals(ConnectionStage.Ready, session.connectionCoordinator.stage)
+        assertFalse(session.gattOperationScheduler.isPoisoned)
+        assertEquals(listOf("disconnect", "close", "connect:false"), driver.commands)
+
+        // 콜백이 없으면 큐가 든 기한(플랫폼 시작부터 25ms)에서만 poison 된다.
+        advanceTimeBy(25)
         runCurrent()
 
         assertEquals(ConnectionStage.Disconnected, session.connectionCoordinator.stage)

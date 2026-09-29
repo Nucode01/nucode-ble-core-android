@@ -10,6 +10,8 @@ import kr.co.nucode.ble.BleWriteOptions
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.GattService
+import kr.co.nucode.ble.OperationKind
+import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.WriteReceipt
 
@@ -61,7 +63,12 @@ internal class DefaultBleSession(
                 },
             )
             is WriteResult.Failed -> throw kr.co.nucode.ble.BleException(result.failure)
-            is WriteResult.TooLarge -> throw IllegalArgumentException("write exceeds ${result.max} bytes")
+            is WriteResult.TooLarge -> throw kr.co.nucode.ble.BleException(
+                GattFailureFactory.payloadTooLarge(
+                    backing,
+                    if (options.mode == BleWriteMode.WithResponse) OperationKind.WriteWithResponse else OperationKind.WriteWithoutResponse,
+                ),
+            )
         }
     }
 

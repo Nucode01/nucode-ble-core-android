@@ -92,17 +92,74 @@ class CallerDetachProbeTest {
     }
 
     @Test
-    fun `기준 - 지금 동작은 시작된 read 의 호출자 취소가 세션을 끝낸다`() = runTest {
+    fun `계약 - 시작된 read 의 호출자 취소 뒤에도 세션은 Ready 로 남고 늦은 콜백이 떠난 작업을 끝낸다`() = runTest {
         val h = ready()
-        h.fake.onRead = CallbackVariant.Late(1_000)
+        h.fake.onRead = CallbackVariant.Late(300)
         val caller = launch { h.session(id).read(ref) }
         runCurrent()
         advanceTimeBy(100); runCurrent()
         caller.cancel(); runCurrent()
+        val stateAfterCancel = h.session(id).connectionState.value
+        advanceTimeBy(250); runCurrent() // 늦은 콜백(300ms) 도착
+        val last = h.states(id).last()
+        probe("cancel-started-read", "afterCancel" to stateAfterCancel, "finalState" to last, "closeCalls" to h.fake.calls.count { it == "close" })
+        assertEquals(ConnectionState.Ready, stateAfterCancel)
+        assertEquals(ConnectionState.Ready, last)
+        assertEquals(0, h.fake.calls.count { it == "close" })
+        h.close()
+    }
+
+    @Test
+    fun `계약 - 호출자가 떠난 read 가 콜백을 못 받으면 큐 기한이 OPERATION_TIMEOUT 으로 세션을 끝낸다`() = runTest {
+        val h = ready()
+        h.fake.onRead = CallbackVariant.Missing
+        val caller = launch { h.session(id).read(ref) }
+        runCurrent()
+        caller.cancel(); runCurrent()
+        assertEquals(ConnectionState.Ready, h.session(id).connectionState.value)
         h.advancePastAllDeadlines()
         val last = h.states(id).last()
-        probe("baseline-cancel-started-read", "finalState" to last, "closeCalls" to h.fake.calls.count { it == "close" })
-        assertTrue("지금 동작: 링크 종료 $last", last is ConnectionState.Disconnected)
+        probe("cancel-missing-callback", "finalState" to last)
+        val failed = (last as? ConnectionState.Disconnected)?.reason as? kr.co.nucode.ble.BleDisconnectReason.Failed
+        assertEquals("OPERATION_TIMEOUT", failed?.failure?.code?.value)
+        h.close()
+    }
+
+    @Test
+    fun `계약 - 대기 중이던 subscribe 를 호출자가 취소해도 완료되어 활성 구독과 의도에 남는다`() = runTest {
+        val h = ready()
+        h.fake.onRead = CallbackVariant.Late(200)
+        h.fake.onDescriptorWrite = CallbackVariant.Late(100)
+        val reader = launch { h.session(id).read(ref) }
+        runCurrent()
+        val subscriber = launch { h.session(id).subscribe(ref) } // read 뒤에 대기
+        runCurrent()
+        subscriber.cancel(); runCurrent()
+        advanceTimeBy(400); runCurrent()
+        val active = ref in h.session(id).activeSubscriptions.value
+        probe("cancel-queued-subscribe", "active" to active, "state" to h.session(id).connectionState.value)
+        assertTrue("대기 중 취소된 subscribe 도 시작·완료되어 활성으로 남는다", active)
+        assertEquals(ConnectionState.Ready, h.session(id).connectionState.value)
+        reader.cancel()
+        h.close()
+    }
+
+    @Test
+    fun `계약 - 취소된 subscribe 를 unsubscribe 로 되돌리면 의도도 활성도 남지 않는다`() = runTest {
+        val h = ready()
+        h.fake.onRead = CallbackVariant.Late(200)
+        h.fake.onDescriptorWrite = CallbackVariant.Late(100)
+        val reader = launch { h.session(id).read(ref) }
+        runCurrent()
+        val subscriber = launch { h.session(id).subscribe(ref) } // read 뒤에 대기
+        runCurrent()
+        subscriber.cancel(); runCurrent()
+        val undo = launch { h.session(id).unsubscribe(ref) }
+        runCurrent()
+        advanceTimeBy(600); runCurrent()
+        undo.join()
+        assertTrue("되돌린 구독은 활성에 남지 않는다", ref !in h.session(id).activeSubscriptions.value)
+        reader.cancel()
         h.close()
     }
 

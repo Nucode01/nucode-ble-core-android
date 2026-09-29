@@ -153,6 +153,8 @@ internal object FailureCatalog {
             "INTERNAL_TRANSPORT_ERROR",
             listOf(
                 Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "RuntimeCommands.kt:failureFromInternalException, LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만)"),
+                Route("core scope uncaught exception (session-owned)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:onUncaughtCoreException, LinkTeardown.kt:failInternal(SessionOwner 컨텍스트로 귀속 — 그 세션만 종결·handle close)"),
+                Route("core scope uncaught exception (unattributed)", TriggerKind.AsyncInfo, setOf(Channel.Event), "BleRuntime.kt:onUncaughtCoreException(귀속 불명 — Diagnostic 만)"),
             ),
         ),
         FailureSpec(
@@ -194,7 +196,6 @@ internal object FailureCatalog {
             "OPERATION_INVALIDATED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:invalidateScheduledOperations, OperationQueue.kt:write"),
-                Route("caller cancellation of started operation", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe"),
                 Route("connect command (user disconnect during rediscovery)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattConnectionLifecycle.kt:disconnect(Scanner.kt:endRediscovery) → ConnectStarter.kt:connect(재발견 뒤 종결 판정, Disconnected(Requested) 는 그대로)"),
             ),
@@ -202,10 +203,15 @@ internal object FailureCatalog {
         FailureSpec(
             "OPERATION_TIMEOUT",
             listOf(
-                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:awaitAfterStart, OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
-                Route("read/write/subscribe command (still queued)", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:awaitAfterStart"),
+                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:armDeadline, OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, OperationExecutor.kt:poisonStartedOperation"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
+            ),
+        ),
+        FailureSpec(
+            "PAYLOAD_TOO_LARGE",
+            listOf(
+                Route("write command (chunking Disabled over chunk size, or Fixed over chunk size)", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationQueue.kt:write(WriteResult.TooLarge), DefaultBleSession.kt:write, GattFailureFactory.kt:payloadTooLarge"),
             ),
         ),
         FailureSpec(

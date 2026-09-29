@@ -142,13 +142,14 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
 
     override suspend fun setAdapter(value: String) {
         val state = when (value) {
+            "Unknown" -> AdapterState.Unknown
             "Ready" -> AdapterState.Ready
             "PoweredOff" -> AdapterState.PoweredOff
             "Resetting" -> AdapterState.Resetting
             "Unsupported" -> AdapterState.Unsupported
             "Unauthorized(true)" -> AdapterState.Unauthorized(canRequest = true)
             "Unauthorized(false)" -> AdapterState.Unauthorized(canRequest = false)
-            else -> error("어댑터 값 '$value' 를 이 라이브러리 버전에서 만들 수 없다(Unknown 은 전달 계획 §5-4 결정 뒤 4단계에서 공개 API 에 생긴다)")
+            else -> error("어댑터 값 '$value' 를 만들 수 없다")
         }
         h.fake.setAdapter(state)
         // 플랫폼이 앱에 알리는 홉(코어 디스패처에 예약된 refreshAdapterState)이 끝나게 한다.

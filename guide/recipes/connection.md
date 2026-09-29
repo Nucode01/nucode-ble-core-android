@@ -153,5 +153,5 @@ suspend fun bondThenConnect(context: Context, client: BleClient, peripheralId: P
 - 시스템 페어링 대화상자가 뜰 수 있습니다. 사용자가 응답할 시간을 고려해 `timeoutMillis` 를 정하세요.
 - 본딩 해제(remove bond) API 는 없습니다.
 - `bondState()` 와 `createBond()` 는 `BleException` 으로 감싸지 않은 예외를 그대로 던집니다. Android 12 이상에서 `BLUETOOTH_CONNECT` 가 허용되지 않았으면 `SecurityException`(Android 의 본딩 상태 조회 · 본딩 시작 호출에서 발생),
-  주소 형식이 틀리면(소문자 포함) `IllegalArgumentException`, 블루투스 어댑터가 없는 기기면 `NullPointerException` 입니다.
+  `bondState()` 는 주소 형식이 틀리면 `IllegalArgumentException`, 블루투스 어댑터가 없는 기기면 `NullPointerException` 입니다. `createBond` 는 던지지 않고 `StartRejected`/`Failed` 로 돌려줍니다.
 - 기기 쪽에서 본딩 정보를 지웠는데 폰에 남아 있으면 연결이나 암호화가 실패할 수 있습니다. 이때는 Android 설정에서 기기를 지우고 다시 본딩해야 합니다.

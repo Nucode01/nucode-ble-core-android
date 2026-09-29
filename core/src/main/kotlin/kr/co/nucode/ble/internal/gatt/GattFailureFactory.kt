@@ -2,7 +2,7 @@ package kr.co.nucode.ble.internal.gatt
 
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.FailureCategory
+import kr.co.nucode.ble.FailureCategories
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailureMapper
@@ -32,14 +32,13 @@ import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 internal object GattFailureFactory {
 
     private fun failure(
-        category: String,
         code: String,
         phase: FailurePhase,
         retryability: Retryability,
         context: FailureContext,
         platformDetail: PlatformDetail? = null,
     ): BleFailure = BleFailure(
-        category = FailureCategory(category),
+        category = FailureCategories.of(code),
         code = FailureCode(code),
         phase = phase,
         retryability = retryability,
@@ -59,7 +58,6 @@ internal object GattFailureFactory {
     )
 
     fun notConnected(session: Session): BleFailure = failure(
-        category = "connection",
         code = "NOT_CONNECTED",
         phase = FailurePhase.Operation,
         retryability = Retryability.NewConnectionMayHelp,
@@ -67,7 +65,6 @@ internal object GattFailureFactory {
     )
 
     fun unknownDevice(): BleFailure = failure(
-        category = "validation",
         code = "UNKNOWN_DEVICE",
         phase = FailurePhase.Validation,
         retryability = Retryability.Never,
@@ -75,7 +72,6 @@ internal object GattFailureFactory {
     )
 
     fun peripheralNotFound(session: Session): BleFailure = failure(
-        category = "connection",
         code = "PERIPHERAL_NOT_FOUND",
         phase = FailurePhase.Connect,
         retryability = Retryability.TransientMayHelp,
@@ -83,7 +79,6 @@ internal object GattFailureFactory {
     )
 
     fun characteristicNotFound(session: Session, kind: OperationKind? = null): BleFailure = failure(
-        category = "attribute",
         code = "CHARACTERISTIC_NOT_FOUND",
         phase = FailurePhase.Operation,
         retryability = Retryability.Never,
@@ -114,7 +109,6 @@ internal object GattFailureFactory {
         invalidated(session, operation?.kind?.let(::operationKind))
 
     private fun invalidated(session: Session, kind: OperationKind?): BleFailure = failure(
-        category = "operation",
         code = "OPERATION_INVALIDATED",
         phase = FailurePhase.Operation,
         retryability = Retryability.NewConnectionMayHelp,
@@ -130,7 +124,6 @@ internal object GattFailureFactory {
         timedOut(session, operationKind(operation.kind))
 
     private fun timedOut(session: Session, kind: OperationKind?): BleFailure = failure(
-        category = "operation",
         code = "OPERATION_TIMEOUT",
         phase = FailurePhase.Operation,
         retryability = Retryability.NewConnectionMayHelp,
@@ -193,7 +186,6 @@ internal object GattFailureFactory {
         status: Int,
         callbackKind: String,
     ): BleFailure = failure(
-        category = "operation",
         code = code,
         phase = FailurePhase.Operation,
         retryability = Retryability.Unknown,
@@ -220,7 +212,6 @@ internal object GattFailureFactory {
             else -> error("unreachable: lifecycleTimeout($reason)")
         }
         return failure(
-            category = "connection",
             code = code,
             phase = phase,
             retryability = Retryability.NewConnectionMayHelp,
@@ -230,7 +221,6 @@ internal object GattFailureFactory {
 
     /** `Disconnecting` stage deadline 자체가 지나면. */
     fun disconnectCleanupTimeout(session: Session): BleFailure = failure(
-        category = "connection",
         code = "DISCONNECT_CLEANUP_TIMEOUT",
         phase = FailurePhase.Close,
         retryability = Retryability.NewConnectionMayHelp,
@@ -239,7 +229,6 @@ internal object GattFailureFactory {
 
     /** `driver.disconnect()` 호출 자체가 던질 때(연결 정리 시작 실패). */
     fun disconnectStartFailed(session: Session): BleFailure = failure(
-        category = "connection",
         code = "DISCONNECT_START_FAILED",
         phase = FailurePhase.Close,
         retryability = Retryability.NewConnectionMayHelp,
@@ -248,7 +237,6 @@ internal object GattFailureFactory {
 
     /** service discovery 응답에 같은 `CharacteristicRef` 키가 두 번 나올 때(경고, 비치명). */
     fun duplicateCharacteristicReference(session: Session): BleFailure = failure(
-        category = "connection",
         code = "DUPLICATE_CHARACTERISTIC_REFERENCE",
         phase = FailurePhase.DiscoverServices,
         retryability = Retryability.Never,
@@ -319,9 +307,16 @@ internal object GattFailureFactory {
         context = operationContext(session, kind = kind),
     )
 
+    /** 나누기를 끄거나 고정 크기가 한 번에 보낼 수 있는 크기를 넘을 때 — 아무것도 보내지 않는다(writeProgress 없음). */
+    fun payloadTooLarge(session: Session, kind: OperationKind): BleFailure = failure(
+        code = "PAYLOAD_TOO_LARGE",
+        phase = FailurePhase.Operation,
+        retryability = Retryability.Never,
+        context = operationContext(session, kind = kind),
+    )
+
     /** notify/indicate payload 관찰 — 진단 전용, `DiagnosticPolicy` report 여부는 호출부가 결정한다. */
     fun payloadObserved(session: Session, scheduled: ScheduledGattOperation<*>?): BleFailure = failure(
-        category = "diagnostic",
         code = "GATT_PAYLOAD_OBSERVED",
         phase = FailurePhase.Operation,
         retryability = Retryability.Never,

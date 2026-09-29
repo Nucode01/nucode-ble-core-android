@@ -11,6 +11,7 @@ import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.charRef
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,6 +86,32 @@ class PublicCommandContractTest {
         try { block(); null } catch (t: Throwable) { t }
 
     private fun codeOf(t: Throwable?): String? = (t as? BleException)?.failure?.code?.value
+
+    @Test(timeout = 10_000)
+    fun `write over one chunk throws PAYLOAD_TOO_LARGE for Disabled and Fixed without progress`() = runTest {
+        val (client, core) = newClient { AdapterState.Ready }
+        val session = client.session(id)
+        core.registry.get(id)!!.apply {
+            setStateForTest(ConnectionState.Ready)
+            chunkSize = 20
+        }
+        val cases = listOf(
+            Triple(BleWriteOptions(chunking = BleChunking.Disabled), 21, OperationKind.WriteWithResponse),
+            Triple(
+                BleWriteOptions(mode = BleWriteMode.WithoutResponse, chunking = BleChunking.Fixed(21)),
+                40, OperationKind.WriteWithoutResponse,
+            ),
+        )
+        for ((options, size, kind) in cases) {
+            val thrown = capture { session.write(ref, ByteArray(size), options) }
+            val failure = (thrown as? BleException)?.failure ?: throw AssertionError("BleException 아님: $thrown")
+            assertEquals("PAYLOAD_TOO_LARGE", failure.code.value)
+            assertEquals("operation", failure.category.value)
+            assertEquals(Retryability.Never, failure.retryability)
+            assertEquals(kind, failure.context.operationKind)
+            assertNull(failure.writeProgress)
+        }
+    }
 
     @Test
     fun `every public command in the api dump has a contract classification`() {

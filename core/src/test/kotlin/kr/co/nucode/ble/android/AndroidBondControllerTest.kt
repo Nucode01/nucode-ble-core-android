@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.android
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -9,6 +10,7 @@ import kr.co.nucode.ble.PeripheralId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -94,9 +96,63 @@ class AndroidBondControllerTest {
         assertTrue(platform.observedIds.isEmpty())
     }
 
+    @Test
+    fun `exception before start returns start rejected`() = runTest {
+        for (failure in listOf(SecurityException(), IllegalArgumentException(), IllegalStateException())) {
+            val platform = FakeBondPlatform(AndroidBondState.None, beginFailure = failure)
+
+            assertEquals(
+                AndroidBondResult.StartRejected,
+                DefaultAndroidBondController(platform).createBond(peripheralId),
+            )
+            assertEquals(1, platform.closeCount)
+        }
+    }
+
+    @Test
+    fun `state lookup exception returns start rejected`() = runTest {
+        val platform = FakeBondPlatform(AndroidBondState.None, stateFailure = IllegalArgumentException("bad id"))
+
+        assertEquals(
+            AndroidBondResult.StartRejected,
+            DefaultAndroidBondController(platform).createBond(peripheralId),
+        )
+        assertEquals(0, platform.observeCount)
+    }
+
+    @Test
+    fun `exception after start attempt returns failed`() = runTest {
+        val platform = FakeBondPlatform(
+            AndroidBondState.None,
+            beginAccepted = false,
+            stateFailureAfterBegin = SecurityException(),
+        )
+
+        assertEquals(
+            AndroidBondResult.Failed,
+            DefaultAndroidBondController(platform).createBond(peripheralId),
+        )
+        assertEquals(1, platform.closeCount)
+    }
+
+    @Test
+    fun `cancellation exception from platform propagates`() = runTest {
+        val platform = FakeBondPlatform(AndroidBondState.None, beginFailure = CancellationException("x"))
+
+        try {
+            DefaultAndroidBondController(platform).createBond(peripheralId)
+            fail("expected cancellation")
+        } catch (e: CancellationException) {
+            assertEquals(1, platform.closeCount)
+        }
+    }
+
     private class FakeBondPlatform(
         var state: AndroidBondState,
         private val beginAccepted: Boolean = true,
+        private val beginFailure: RuntimeException? = null,
+        private val stateFailure: RuntimeException? = null,
+        private val stateFailureAfterBegin: RuntimeException? = null,
     ) : AndroidBondPlatform {
         var beginCount = 0
         var observeCount = 0
@@ -105,10 +161,13 @@ class AndroidBondControllerTest {
         val observedIds = mutableListOf<PeripheralId>()
         private var listener: ((AndroidBondState) -> Unit)? = null
 
-        override fun bondState(peripheralId: PeripheralId): AndroidBondState = state
+        override fun bondState(peripheralId: PeripheralId): AndroidBondState =
+            stateFailure?.let { throw it }
+                ?: if (beginCount > 0) stateFailureAfterBegin?.let { throw it } ?: state else state
 
         override fun beginBond(peripheralId: PeripheralId): Boolean {
             beginCount += 1
+            beginFailure?.let { throw it }
             return beginAccepted
         }
 

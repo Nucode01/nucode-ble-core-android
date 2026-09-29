@@ -57,7 +57,7 @@ internal class AdapterReaction(
         }
     }
 
-    internal fun ensureAdapterReady(operation: AndroidApiOperation) {
+    internal suspend fun ensureAdapterReady(operation: AndroidApiOperation) {
         adapterMonitor.ensureAdapterReady(operation)
     }
 }

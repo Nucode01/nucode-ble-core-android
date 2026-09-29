@@ -104,6 +104,8 @@ class FailureRouteVerificationTest {
         const val TERMINAL_CAUSE = "kr.co.nucode.ble.internal.TerminalCauseLifecycleTest"
         const val INFO = "kr.co.nucode.ble.FailureRouteInfoDeliveryTest"
         const val AUTO_REDISCOVERY = "kr.co.nucode.ble.harness.AutoReconnectRediscoveryTest"
+        const val CORE_SCOPE = "kr.co.nucode.ble.harness.CoreScopeExceptionTest"
+        const val COMMAND_CONTRACT = "kr.co.nucode.ble.PublicCommandContractTest"
 
         /** "CODE | context" → "fqcn#JVM 메서드 이름". */
         val ROUTE_VERIFIED_BY: Map<String, String> = mapOf(
@@ -141,6 +143,10 @@ class FailureRouteVerificationTest {
                 "$ACTIVE#restore CCCD status failure GATT_STATUS_FAILED keeps ref out of active with event",
             "INTERNAL_TRANSPORT_ERROR | subscription restore (non-BleException)" to
                 "$ACTIVE#restore non-BleException INTERNAL_TRANSPORT_ERROR keeps ref out of active with event",
+            "INTERNAL_TRANSPORT_ERROR | core scope uncaught exception (session-owned)" to
+                "$CORE_SCOPE#세션 소유 코루틴의 잡히지 않은 예외는 그 세션만 INTERNAL_TRANSPORT_ERROR 로 끝내고 handle 을 한 번 닫는다",
+            "INTERNAL_TRANSPORT_ERROR | core scope uncaught exception (unattributed)" to
+                "$CORE_SCOPE#귀속 불명 예외는 Diagnostic 만 내고 어떤 세션도 끝내지 않는다",
             "LINK_FAILED | link lifecycle (link status callback)" to
                 "$DELIVERY#link status callback LINK_FAILED publishes Disconnected Failed and Diagnostic",
             "LINK_START_FAILED | adapter return relink start" to
@@ -158,13 +164,9 @@ class FailureRouteVerificationTest {
             "OPERATION_INVALIDATED | connect command (user disconnect during rediscovery)" to
                 "$AUTO_REDISCOVERY#f 재발견 대기 중 disconnect 는 재발견을 즉시 끝내고 Disconnected(Requested) 뒤 새 connect 를 받는다",
             "OPERATION_INVALIDATED | read/write/subscribe command" to
-                "$WIRING#Slice1 public read started caller cancellation은 generation을 poison한다",
-            "OPERATION_INVALIDATED | caller cancellation of started operation" to
-                "$DELIVERY#started read caller cancellation publishes Disconnected Failed OPERATION_INVALIDATED and Diagnostic",
+                "$WIRING#Slice1 public read started caller cancellation은 호출자만 떼고 기한이 지나야 poison한다",
             "OPERATION_TIMEOUT | read/write/subscribe command (started)" to
                 "$DELIVERY#started read timeout throws OPERATION_TIMEOUT publishes Disconnected Failed and Diagnostic",
-            "OPERATION_TIMEOUT | read/write/subscribe command (still queued)" to
-                "$DELIVERY#queued read cut by caller timeout throws OPERATION_TIMEOUT",
             "OPERATION_TIMEOUT | subscription restore" to
                 "$ACTIVE#restore CCCD ack timeout OPERATION_TIMEOUT publishes Disconnected Failed with event",
             "PERIPHERAL_NOT_FOUND | connect rediscovery not found (autoReconnect fallback)" to
@@ -173,6 +175,8 @@ class FailureRouteVerificationTest {
                 "kr.co.nucode.ble.internal.GattBridgeRediscoveryTest#NotFound 는 fail-fast 로 PERIPHERAL_NOT_FOUND 를 던지고 driver connect 를 부르지 않는다",
             "PERMISSION_DENIED | command adapter preflight" to
                 "$ADAPTER#op는 Unauthorized 어댑터에서 PERMISSION_DENIED를 던진다",
+            "PAYLOAD_TOO_LARGE | write command (chunking Disabled over chunk size, or Fixed over chunk size)" to
+                "$COMMAND_CONTRACT#write over one chunk throws PAYLOAD_TOO_LARGE for Disabled and Fixed without progress",
             "PERMISSION_DENIED | startScan command" to
                 "$SCAN#i 스캔 시작 권한 거부는 PERMISSION_DENIED 를 던지고 Diagnostic 을 낸다",
             "PERMISSION_DENIED | connect command" to

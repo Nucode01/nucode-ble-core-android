@@ -105,6 +105,7 @@ FIELD public static final int kr.co.nucode.ble.DiagnosticValue.MAX_TEXT_LENGTH
 FIELD public static final kr.co.nucode.ble.AdapterState$PoweredOff kr.co.nucode.ble.AdapterState$PoweredOff.INSTANCE
 FIELD public static final kr.co.nucode.ble.AdapterState$Ready kr.co.nucode.ble.AdapterState$Ready.INSTANCE
 FIELD public static final kr.co.nucode.ble.AdapterState$Resetting kr.co.nucode.ble.AdapterState$Resetting.INSTANCE
+FIELD public static final kr.co.nucode.ble.AdapterState$Unknown kr.co.nucode.ble.AdapterState$Unknown.INSTANCE
 FIELD public static final kr.co.nucode.ble.AdapterState$Unsupported kr.co.nucode.ble.AdapterState$Unsupported.INSTANCE
 FIELD public static final kr.co.nucode.ble.BleChunking$Automatic kr.co.nucode.ble.BleChunking$Automatic.INSTANCE
 FIELD public static final kr.co.nucode.ble.BleChunking$Disabled kr.co.nucode.ble.BleChunking$Disabled.INSTANCE
@@ -120,6 +121,7 @@ FIELD public static final kr.co.nucode.ble.DiagnosticOptions$Companion kr.co.nuc
 FIELD public static final kr.co.nucode.ble.DiagnosticRecord$Companion kr.co.nucode.ble.DiagnosticRecord.Companion
 FIELD public static final kr.co.nucode.ble.DiagnosticValue$Companion kr.co.nucode.ble.DiagnosticValue.Companion
 FIELD public static final kr.co.nucode.ble.DiagnosticValue$Redacted kr.co.nucode.ble.DiagnosticValue$Redacted.INSTANCE
+FIELD public static final kr.co.nucode.ble.FailureCode$Companion kr.co.nucode.ble.FailureCode.Companion
 FIELD public static final kr.co.nucode.ble.android.AndroidBleClientFactory kr.co.nucode.ble.android.AndroidBleClientFactory.INSTANCE
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.connect-bxWR3DE(java.lang.String,kr.co.nucode.ble.BleConnectOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.BleSession>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.snapshot(kotlin.coroutines.Continuation<? super kr.co.nucode.ble.ClientSnapshot>) throws=
@@ -219,6 +221,44 @@ METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticFailure.getCo
 METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticValue$Text.component1() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.DiagnosticValue$Text.getValue() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCategory.getValue() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getADAPTER_UNAVAILABLE-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getBLE_UNSUPPORTED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCHARACTERISTIC_NOT_FOUND-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCLEANUP_FAILURE-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCLIENT_CLOSED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONFIGURATION_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONFIGURATION_TIMEOUT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECTION_OPTIONS_CONFLICT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECT_DURING_DISCONNECT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_CLEANUP_TIMEOUT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_START_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDUPLICATE_CHARACTERISTIC_REFERENCE-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getGATT_OPERATION_CALLBACK_MISMATCH-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getGATT_OPERATION_DUPLICATE_CALLBACK-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getGATT_OPERATION_START_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getGATT_PAYLOAD_OBSERVED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getGATT_STATUS_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getINTERNAL_TRANSPORT_ERROR-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getLINK_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getLINK_START_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getLINK_TIMEOUT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getNOT_CONNECTED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getNOT_READY-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getOPERATION_INVALIDATED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getOPERATION_TIMEOUT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getPAYLOAD_TOO_LARGE-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getPERIPHERAL_NOT_FOUND-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getPERMISSION_DENIED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCANNER_UNAVAILABLE-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCAN_ALREADY_RUNNING-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCAN_RUNTIME_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCAN_START_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCAN_START_THROTTLED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSCAN_STOPPED_BY_ADAPTER-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSERVICE_DISCOVERY_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSERVICE_DISCOVERY_START_FAILED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getSERVICE_DISCOVERY_TIMEOUT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getUNKNOWN_DEVICE-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode.getValue() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.component1() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureContext.component3() throws=
@@ -521,6 +561,7 @@ TYPE public static final kr.co.nucode.ble.AdapterState$PoweredOff extends=java.l
 TYPE public static final kr.co.nucode.ble.AdapterState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Resetting extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Unauthorized extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
+TYPE public static final kr.co.nucode.ble.AdapterState$Unknown extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Unsupported extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.BleChunking$Automatic extends=java.lang.Object implements=kr.co.nucode.ble.BleChunking
 TYPE public static final kr.co.nucode.ble.BleChunking$Disabled extends=java.lang.Object implements=kr.co.nucode.ble.BleChunking
@@ -546,6 +587,7 @@ TYPE public static final kr.co.nucode.ble.DiagnosticValue$Number extends=java.la
 TYPE public static final kr.co.nucode.ble.DiagnosticValue$Payload extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
 TYPE public static final kr.co.nucode.ble.DiagnosticValue$Redacted extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
 TYPE public static final kr.co.nucode.ble.DiagnosticValue$Text extends=java.lang.Object implements=kr.co.nucode.ble.DiagnosticValue
+TYPE public static final kr.co.nucode.ble.FailureCode$Companion extends=java.lang.Object implements=
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Connection extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent
 TYPE public static final kr.co.nucode.ble.OfficialBleClientEvent$Services extends=java.lang.Object implements=kr.co.nucode.ble.OfficialBleClientEvent

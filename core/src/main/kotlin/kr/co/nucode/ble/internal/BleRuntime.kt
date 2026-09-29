@@ -7,6 +7,8 @@ import android.content.Context
 import android.os.SystemClock
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -38,6 +40,7 @@ import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
+import kr.co.nucode.ble.internal.session.SessionOwner
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 
@@ -156,7 +159,44 @@ internal class BleRuntime private constructor(
         (config.dispatcher ?: defaultDispatcher()) + onRuntimeThread.asContextElement(true)
 
     private val coreScope: CoroutineScope =
-        CoroutineScope(SupervisorJob() + coreDispatcherOnly)
+        CoroutineScope(
+            SupervisorJob() + coreDispatcherOnly +
+                CoroutineExceptionHandler { context, error -> onUncaughtCoreException(context, error) },
+        )
+
+    /**
+     * 코어 스코프의 마지막 방어선 — 잡히지 않은 예외가 프로세스나 다른 세션을 끌고 가지 않게 한다.
+     * [SessionOwner] 를 실은 코루틴의 예외는 그 세션만 `Disconnected(Failed:INTERNAL_TRANSPORT_ERROR)` 로
+     * 끝내고 handle 을 닫는다. 귀속 불명이면 `Diagnostic(Error, INTERNAL_TRANSPORT_ERROR)` 만 낸다.
+     * 취소는 실패가 아니다. 상태는 코어 디스패처에서만 만지므로 Job 없는 디스패처로 한 홉 옮긴다
+     * (coreScope 취소와 독립 — [closer] 와 같은 이유). 처리기 자신은 던지지 않는다.
+     */
+    private fun onUncaughtCoreException(context: CoroutineContext, error: Throwable) {
+        if (error is CancellationException) return
+        val deviceId = context[SessionOwner]?.deviceId
+        CoroutineScope(coreDispatcherOnly).launch {
+            runCatching {
+                if (closer.isClosed()) return@launch
+                val session = deviceId?.let(registry::get)
+                val failure = commands.transportFailure(
+                    code = "INTERNAL_TRANSPORT_ERROR",
+                    phase = FailurePhase.Operation,
+                    deviceId = deviceId,
+                    retryability = Retryability.NewConnectionMayHelp,
+                )
+                if (session == null) {
+                    emit(BleEvent.Diagnostic(Severity.Error, failure))
+                } else {
+                    gattBridge.failInternal(session, failure)
+                }
+            }
+        }
+    }
+
+    /** 테스트 seam — 세션 귀속 컨텍스트([deviceId] 가 null 이면 귀속 없음)로 코어 스코프에 코루틴을 띄운다. */
+    internal fun launchOwned(deviceId: PeripheralId?, block: suspend () -> Unit) {
+        coreScope.launch(deviceId?.let { SessionOwner(it) } ?: kotlin.coroutines.EmptyCoroutineContext) { block() }
+    }
 
     /**
      * 닫기 상태의 소유자. [eventBus]·[gattBridge] 가 생성 시 `isClosed` 람다로 잡으므로 그보다 먼저

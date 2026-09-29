@@ -98,13 +98,13 @@ class GattConnectionLifecycleTest {
 
     /**
      * 중복 connect 판정 코드("CONNECTION_OPTIONS_CONFLICT"/"CONNECT_DURING_DISCONNECT") 문자열 리터럴은 main 에서
-     * ConnectStarter.kt(admitConnect, lifecycle 의 연결 시작 칸) 에만 있다 — FailureCatalog.kt 등록 항목은 예외.
+     * ConnectStarter.kt(admitConnect, lifecycle 의 연결 시작 칸) 에만 있다 — FailureCatalog.kt 등록 항목과 BleFailure.kt 의 FailureCode 공개 상수는 예외.
      */
     @Test
     fun `중복 connect 판정 코드는 ConnectStarter 에만 있다`() {
         val literal = Regex("\"(CONNECTION_OPTIONS_CONFLICT|CONNECT_DURING_DISCONNECT)\"")
         val offenders = File("src/main/kotlin").walkTopDown()
-            .filter { it.isFile && it.extension == "kt" && it.name != "FailureCatalog.kt" }
+            .filter { it.isFile && it.extension == "kt" && it.name != "FailureCatalog.kt" && it.name != "BleFailure.kt" }
             .filter { literal.containsMatchIn(it.readText()) }
             .map { it.invariantSeparatorsPath }
             .toList()

@@ -10,7 +10,7 @@
 | 권한을 받은 뒤 `adapterState` 가 `Ready` 가 되길 기다림 | 권한 결과에서 바로 `startScan` 등 명령을 부름([2.3](install.md#23-권한)) |
 | `subscribe()` 먼저, 수집 나중 | 수집을 `UNDISPATCHED` 로 먼저 걸고 `subscribe()` |
 | write 한 뒤에 응답 수집 시작 | 응답 수집을 먼저 등록하고 write |
-| `read`/`write` 를 짧은 `withTimeout` 으로 감쌈 | 시작된 작업을 취소하면 연결이 끊깁니다. 코어의 `operationTimeoutMillis` 를 믿거나 `BleConfig` 에서 조정 |
+| `read`/`write` 를 짧은 `withTimeout` 으로 감쌈 | 호출자 시간 제한은 호출자만 떼어 내고 작업은 계속됩니다(예외는 `OPERATION_TIMEOUT`). 코어의 `operationTimeoutMillis` 를 믿거나 `BleConfig` 에서 조정 |
 | 재연결될 때마다 앱이 다시 `subscribe()` | 코어가 `Ready` 전에 복원합니다. 확인은 `activeSubscriptions` |
 | `disconnect()` 뒤 다시 연결하면 구독이 살아 있다고 가정 | 명시적 해제는 구독 의도를 지웁니다. 다시 `subscribe()` |
 | `events` 로 연결 · 스캔 · 구독 상태를 재구성 | `connectionState` · `scanState` · `activeSubscriptions` 를 봅니다 |

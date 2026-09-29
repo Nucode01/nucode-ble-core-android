@@ -1,9 +1,10 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kr.co.nucode.ble.internal.session.SessionOwner
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
@@ -35,6 +36,7 @@ import kr.co.nucode.ble.internal.session.TerminalCleanupReason
  */
 internal class OperationExecutor(
     private val emit: (BleEvent) -> Unit,
+    private val scope: CoroutineScope,
     private val driver: GattDriver,
     private val ackTimeoutMillis: Long,
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)?,
@@ -77,68 +79,54 @@ internal class OperationExecutor(
         }
 
 
+    /**
+     * 호출자는 작업의 완료(정상·실패)만 기다린다. 작업 기한은 큐가 [armDeadline] 로 갖고 있으므로 호출자 취소는
+     * 작업에 손대지 않는다 — 대기 작업은 차례가 오면 시작되고, 시작된 작업은 콜백·기한으로 끝난다.
+     */
     suspend fun <T> awaitAfterStart(
         session: Session,
         scheduled: ScheduledGattOperation<T>,
         timeoutMillis: Long,
     ): T {
-        val startTracked = scheduled.operation as? StartTrackedGattOperation
-            ?: return withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
-        return try {
-            select {
-                startTracked.started.onAwait {
-                    withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
-                }
-                // Task 4 poison/lifecycle drain can complete or cancel a queued item before it
-                // ever starts. Observe that terminal signal as well, otherwise waiting only on
-                // `started` would strand the caller forever.
-                scheduled.completion.onAwait { it }
-            }
-        } catch (e: TimeoutCancellationException) {
-            if (session.gattOperationScheduler.removeQueued(scheduled)) {
-                scheduled.completion.cancel(e)
-                abortRemainingWriteChunks(session, scheduled, GattFailureFactory.operationInvalidated(session, scheduled))
-            } else if (session.gattOperationScheduler.pending === scheduled) {
-                poisonStartedOperation(session, scheduled, e)
-            }
-            throw BleException(GattFailureFactory.timeoutFailure(session, scheduled))
-        } catch (e: CancellationException) {
-            if (session.gattOperationScheduler.removeQueued(scheduled)) {
-                scheduled.completion.cancel(e)
-                abortRemainingWriteChunks(session, scheduled, GattFailureFactory.operationInvalidated(session, scheduled))
-            } else if (session.gattOperationScheduler.pending === scheduled) {
-                // Platform start 뒤에는 callback operation ID를 다시 받을 방법이 없다.
-                // timeout/caller cancellation이 pending의 수신자를 없애면 같은 generation을
-                // 재사용하지 않고 모든 waiter와 handle을 한 번에 종결한다.
-                poisonStartedOperation(session, scheduled, e)
-            }
-            throw e
+        if (scheduled.operation !is StartTrackedGattOperation) {
+            return withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
         }
+        return scheduled.completion.await()
     }
 
+    /**
+     * 플랫폼 시작이 성공한 순간부터 [StartTrackedGattOperation.timeoutMillis](없으면 [ackTimeoutMillis])를 센다.
+     * 기한은 코어 스코프가 갖는다 — 호출자가 떠나도 콜백이 안 오는 작업은 여기서 `OPERATION_TIMEOUT` 으로 poison 된다.
+     */
+    private fun armDeadline(session: Session, scheduled: ScheduledGattOperation<*>) {
+        val tracked = scheduled.operation as? StartTrackedGattOperation ?: return
+        val timeoutMillis = tracked.timeoutMillis ?: ackTimeoutMillis
+        val timer = scope.launch(SessionOwner(session.deviceId)) {
+            delay(timeoutMillis)
+            poisonStartedOperation(session, scheduled)
+        }
+        scheduled.completion.invokeOnCompletion { timer.cancel() }
+    }
+
+    /** 시작된 작업이 기한 안에 끝나지 않았다 — 콜백 귀속을 잃었으니 같은 generation 을 재사용하지 않고 모두 종결한다. */
     fun poisonStartedOperation(
         session: Session,
         scheduled: ScheduledGattOperation<*>,
-        failure: CancellationException,
     ) {
         val scheduler = session.gattOperationScheduler
         if (scheduler.isPoisoned || scheduler.pending !== scheduled) return
 
+        val timeoutFailure = GattFailureFactory.timeoutFailure(session, scheduled)
         val drained = scheduler.poisonCurrentGeneration()
-        drained.pending?.completion?.completeExceptionally(failure)
+        drained.pending?.completion?.completeExceptionally(BleException(timeoutFailure))
         drained.queued.forEach { queued ->
             queued.completion.completeExceptionally(BleException(GattFailureFactory.operationInvalidated(session, queued)))
         }
 
-        val invalidationCause = if (failure is TimeoutCancellationException) {
-            GattFailureFactory.timeoutFailure(session, scheduled)
-        } else {
-            GattFailureFactory.operationInvalidated(session, scheduled)
-        }
         // poison 꼬리(plan §접근·§잠재 에러) — completeCleanup이 driver.disconnect/close보다
         // 먼저다(callback 동기 재진입 대비). 순서는 lifecycle.terminateForOperationInvalidation이 보존한다.
         // handle 을 항상 닫으므로 복원 CCCD 도 재연결 대상이 아니다 — 모든 operation 이 suppressReconnect 다.
-        lifecycle.terminateForOperationInvalidation(session, invalidationCause, suppressReconnect = true)
+        lifecycle.terminateForOperationInvalidation(session, timeoutFailure, suppressReconnect = true)
     }
 
     /** Lifecycle 종료가 pending/queued waiter를 callback 없이 유한 종결하는 단일 경로. */
@@ -154,17 +142,9 @@ internal class OperationExecutor(
     }
 
     suspend fun <T> awaitScheduled(
-        session: Session,
+        @Suppress("UNUSED_PARAMETER") session: Session,
         scheduled: ScheduledGattOperation<T>,
-    ): T = try {
-        scheduled.completion.await()
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        val scheduler = session.gattOperationScheduler
-        if (scheduler.removeQueued(scheduled)) {
-            scheduled.completion.cancel(e)
-        }
-        throw e
-    }
+    ): T = scheduled.completion.await()
 
     /** pending이 없을 때 FIFO head 하나를 플랫폼에 시작한다. 시작 실패는 즉시 종결한다. */
     fun startNextOperation(session: Session) {
@@ -192,7 +172,11 @@ internal class OperationExecutor(
             }
             val attributedFailure = failure?.let { GattFailureFactory.failureFor(session, scheduled, it) }
             (scheduled.operation as? StartTrackedGattOperation)?.started?.complete(Unit)
-            if (attributedFailure == null) return
+            if (attributedFailure == null) {
+                (scheduled.operation as? QueuedWriteChunk)?.platformStarted = true
+                armDeadline(session, scheduled)
+                return
+            }
 
             val operation = scheduled.operation
             scheduler.takePendingIfMatches(

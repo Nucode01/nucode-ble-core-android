@@ -659,7 +659,7 @@ class BleHardwareIntegrationTest {
                     AdapterState.PoweredOff -> error("Bluetooth must be enabled")
                     is AdapterState.Unauthorized -> error("Bluetooth runtime permissions are unavailable")
                     AdapterState.Unsupported -> error("Device does not support Bluetooth LE")
-                    AdapterState.Resetting -> false
+                    AdapterState.Resetting, AdapterState.Unknown -> false
                 }
             }
         }

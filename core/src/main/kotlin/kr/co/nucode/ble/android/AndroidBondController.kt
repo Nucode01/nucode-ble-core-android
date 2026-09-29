@@ -8,9 +8,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.normalized
 
 /** Android bond state projected without exposing Android framework types. */
 public enum class AndroidBondState {
@@ -30,10 +32,23 @@ public enum class AndroidBondResult {
 
 /** Android-only bond operations kept outside the platform-neutral BLE client contract. */
 public interface AndroidBondController {
-    /** Returns the device's current Android bond state. */
+    /**
+     * Returns the device's current Android bond state.
+     *
+     * @throws SecurityException if the Bluetooth permission is missing.
+     * @throws IllegalArgumentException if [peripheralId] is not a valid Bluetooth address.
+     * @throws IllegalStateException if the device has no Bluetooth adapter.
+     */
     public fun bondState(peripheralId: PeripheralId): AndroidBondState
 
-    /** Starts bonding if needed and waits for a terminal Android bond state. */
+    /**
+     * Starts bonding if needed and waits for a terminal Android bond state.
+     *
+     * Platform failures (missing permission, malformed id, no adapter) are returned as
+     * [AndroidBondResult.StartRejected] before bonding starts and [AndroidBondResult.Failed]
+     * once it is being observed. Only [kotlinx.coroutines.CancellationException] and an invalid
+     * [timeoutMillis] are thrown.
+     */
     public suspend fun createBond(
         peripheralId: PeripheralId,
         timeoutMillis: Long = 30_000L,
@@ -59,37 +74,55 @@ internal class DefaultAndroidBondController(
     private val platform: AndroidBondPlatform,
 ) : AndroidBondController {
     override fun bondState(peripheralId: PeripheralId): AndroidBondState =
-        platform.bondState(peripheralId)
+        platform.bondState(peripheralId.normalized())
 
     override suspend fun createBond(
         peripheralId: PeripheralId,
         timeoutMillis: Long,
     ): AndroidBondResult {
+        val id = peripheralId.normalized()
         require(timeoutMillis > 0L) { "timeoutMillis must be positive" }
-        if (platform.bondState(peripheralId) == AndroidBondState.Bonded) {
+        val initial = try {
+            platform.bondState(id)
+        } catch (e: RuntimeException) {
+            requirePlatformFailure(e)
+            return AndroidBondResult.StartRejected
+        }
+        if (initial == AndroidBondState.Bonded) {
             return AndroidBondResult.AlreadyBonded
         }
 
         val terminal = CompletableDeferred<AndroidBondResult>()
         val bondingStarted = AtomicBoolean(false)
-        val observation = platform.observeBondState(peripheralId) { state ->
-            when (state) {
-                AndroidBondState.Bonded -> terminal.complete(AndroidBondResult.Bonded)
-                AndroidBondState.Bonding -> bondingStarted.set(true)
-                AndroidBondState.None -> if (bondingStarted.get()) {
-                    terminal.complete(AndroidBondResult.Failed)
+        val observation = try {
+            platform.observeBondState(id) { state ->
+                when (state) {
+                    AndroidBondState.Bonded -> terminal.complete(AndroidBondResult.Bonded)
+                    AndroidBondState.Bonding -> bondingStarted.set(true)
+                    AndroidBondState.None -> if (bondingStarted.get()) {
+                        terminal.complete(AndroidBondResult.Failed)
+                    }
                 }
             }
+        } catch (e: RuntimeException) {
+            requirePlatformFailure(e)
+            return AndroidBondResult.StartRejected
         }
 
+        var started = false
         try {
-            when (platform.bondState(peripheralId)) {
+            when (platform.bondState(id)) {
                 AndroidBondState.Bonded -> return AndroidBondResult.AlreadyBonded
-                AndroidBondState.Bonding -> bondingStarted.set(true)
+                AndroidBondState.Bonding -> {
+                    bondingStarted.set(true)
+                    started = true
+                }
                 AndroidBondState.None -> {
                     bondingStarted.set(true)
-                    if (!platform.beginBond(peripheralId)) {
-                        return when (platform.bondState(peripheralId)) {
+                    val accepted = platform.beginBond(id)
+                    started = true
+                    if (!accepted) {
+                        return when (platform.bondState(id)) {
                             AndroidBondState.Bonded -> AndroidBondResult.Bonded
                             AndroidBondState.Bonding -> awaitTerminal(terminal, timeoutMillis)
                             AndroidBondState.None -> AndroidBondResult.StartRejected
@@ -98,8 +131,16 @@ internal class DefaultAndroidBondController(
                 }
             }
             return awaitTerminal(terminal, timeoutMillis)
+        } catch (e: RuntimeException) {
+            requirePlatformFailure(e)
+            return if (started) AndroidBondResult.Failed else AndroidBondResult.StartRejected
         } finally {
-            observation.close()
+            try {
+                observation.close()
+            } catch (e: RuntimeException) {
+                requirePlatformFailure(e)
+                // Closing is best effort; the result is already decided.
+            }
         }
     }
 
@@ -110,11 +151,18 @@ internal class DefaultAndroidBondController(
         ?: AndroidBondResult.TimedOut
 }
 
+/** Rethrows anything that is not a platform failure (notably CancellationException). */
+private fun requirePlatformFailure(e: RuntimeException) {
+    if (e is CancellationException) throw e
+    if (e !is SecurityException && e !is IllegalArgumentException && e !is IllegalStateException) throw e
+}
+
 internal class ContextAndroidBondPlatform(
     private val context: Context,
 ) : AndroidBondPlatform {
     private val adapter
-        get() = context.getSystemService(BluetoothManager::class.java).adapter
+        get() = context.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: throw IllegalStateException("Bluetooth adapter is not available")
 
     override fun bondState(peripheralId: PeripheralId): AndroidBondState =
         device(peripheralId).bondState.toAndroidBondState()

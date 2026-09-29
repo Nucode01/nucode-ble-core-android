@@ -116,7 +116,7 @@ class ContractDeviceTest(private val name: String) {
             client.adapterState.first { state ->
                 when (state) {
                     AdapterState.Ready -> true
-                    AdapterState.Resetting -> false
+                    AdapterState.Resetting, AdapterState.Unknown -> false
                     else -> error("Bluetooth 를 쓸 수 없다: $state")
                 }
             }

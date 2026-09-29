@@ -14,7 +14,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.FailureCategory
+import kr.co.nucode.ble.FailureCategories
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailureMapper
@@ -65,7 +65,7 @@ internal class AndroidGattDriver(
         } catch (e: IllegalArgumentException) {
             throw BleException(
                 BleFailure(
-                    category = FailureCategory("validation"),
+                    category = FailureCategories.of("UNKNOWN_DEVICE"),
                     code = FailureCode("UNKNOWN_DEVICE"),
                     phase = FailurePhase.Validation,
                     retryability = Retryability.Never,

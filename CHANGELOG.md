@@ -7,6 +7,15 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Breaking changes
 
+- `AdapterState.Unknown` 을 추가했다(아직 판정 전). `else` 없이 `AdapterState` 를 전수 분기하던 `when` 은 컴파일되지 않으므로 `Unknown` 을 판정 대기로 다루는 분기를 더한다. Android 는 이 값을 내지 않는다. 명령(`connect`·`startScan`·`read`·`write`·`subscribe`)은 `Unknown` 이면 최대 2000ms 판정을 기다린 뒤 `ADAPTER_UNAVAILABLE` 로 실패하고, `Ready` 에서 `Unknown` 이 되면 어댑터 이탈과 같이 세션·스캔을 정리한다.
+- 청크 한도를 넘는 `write`(`BleChunking.Disabled` 로 한 청크보다 긴 값, `Fixed(n)` 의 n 이 한도 초과)가 `IllegalArgumentException` 대신 `BleException(PAYLOAD_TOO_LARGE)`(category operation, `Never`, `writeProgress == null`)를 던진다.
+- 호출자 취소가 세션을 끝내지 않는다. 세션 줄에 접수된 GATT 작업(read·write·subscribe·unsubscribe)은 호출자가 취소돼도 끝까지 진행한다: 나머지 write 조각이 모두 전송되고, 취소한 `subscribe` 는 완료되어 `activeSubscriptions` 와 구독 의도에 남아 재연결마다 복원된다(되돌리려면 `unsubscribe`). 작업 기한(`operationTimeoutMillis`)은 큐가 갖고, 그 만료(`OPERATION_TIMEOUT`)만 세션을 끝낸다. 이전에는 시작된 작업을 취소하면 `Disconnected(Failed(OPERATION_INVALIDATED))` 였다. `OPERATION_INVALIDATED` 는 해제·링크 유실·세션 종결에서만 난다. 앱의 `withTimeout` 만료는 여전히 호출자에게 `OPERATION_TIMEOUT`(`unsubscribe` 는 `TimeoutCancellationException`)이지만 작업은 계속된다.
+- `WriteProgress` 의 `failedChunkWasStarted`·`currentChunkDeliveryUnknown` 을 원인별로 채운다: 시작 전 거절·줄에서 무효화 → 시작 안 함, 불명 아님; 기기 확정 거절(실패 status) → 시작함, 불명 아님; 응답 없이 timeout·링크 유실 → 시작함, 불명. 이전에는 원인과 무관하게 시작함·불명이었다. `bytesCompleted`·`chunksCompleted` 는 확정된 앞 조각까지다.
+- `UNKNOWN_DEVICE` 의 category 는 validation 이다(이전 connection 경로 포함). 코드 하나에 category 하나이며 시험이 `failure-codes.json` 과 대조한다. category 로 분기하던 앱은 확인한다.
+- `AndroidBondController.createBond` 가 플랫폼 예외(권한 없음, 형식이 틀린 id, 어댑터 없음)를 던지지 않고 `AndroidBondResult` 로 돌려준다: 시작 전 예외 → `StartRejected`, 관찰 중 예외 → `Failed`. 호출자 취소는 그대로 전파한다. `bondState()` 는 조회라 그대로 던질 수 있다.
+- `PeripheralId` 를 라이브러리 입구(`session`·`connect`·세션 작업·`AndroidBondController`)에서 대문자로 정규화한다. 소문자·대문자 MAC 은 같은 세션이고 이벤트·snapshot 의 id 는 대문자다. 이전에는 소문자 id 가 `UNKNOWN_DEVICE` 였다.
+- 코어 스코프에서 잡히지 않은 내부 예외는 그 세션만 `Disconnected(Failed(INTERNAL_TRANSPORT_ERROR))` 로 끝내고 handle 을 닫는다(다른 세션은 계속 쓸 수 있다). 세션을 특정할 수 없으면 `Diagnostic(Error, INTERNAL_TRANSPORT_ERROR)` 로만 알린다. 이전에는 처리되지 않았다.
+- `CLEANUP_FAILURE` 진단의 `cleanup_exception` 값이 예외 메시지 대신 예외 클래스 이름만 싣는다(메시지에 주소 등이 실릴 수 있다).
 - 사용자 `disconnect()` 는 그 세션의 구독 의도를 비운다(v1 계약: 명시적으로 끊은 구독은 복원하지 않는다). 이전에는 다시 `connect()` 하면 이전 구독이 CCCD 까지 복원됐다. 재연결 후 통지가 필요하면 `subscribe()` 를 다시 부른다. 예기치 않은 끊김 뒤 자동 재연결의 복원은 그대로다.
 - `BleClient.startScan()` 이 호출 중 확정된 시작 실패를 던진다: 다른 요청으로 이미 스캔 중(`SCAN_ALREADY_RUNNING`), 스캐너 획득 실패(`SCANNER_UNAVAILABLE`), 플랫폼 호출 단계의 권한 거절(`PERMISSION_DENIED`), 스캔 시작 한도 초과(`SCAN_START_THROTTLED`). 이전에는 `events` 의 `Diagnostic` 으로만 알려 버퍼가 차면 실패가 사라지고 앱은 스캔 중이라고 믿었다. `Diagnostic` 기록은 유지된다. 같은 요청 재호출은 여전히 no-op 이다.
 - 라이브러리 재연결 시간표(백오프·예산·소진)를 제거했다. `BleReconnectPolicy`(`Disabled`, `ExponentialBackoff`)와 `BleConnectOptions.reconnectPolicy` 가 없어지고 연결 옵션은 `BleConnectOptions(autoReconnect: Boolean = false)` 하나다. 끊긴 뒤 다시 붙이는 것은 Android autoConnect(`autoReconnect = true`) 또는 앱이 한다.
@@ -43,6 +52,7 @@ Android 14 + nRF52840 NUS 펌웨어) 실기기 검증을 수행했다. publish, 
 
 ### Added
 
+- `FailureCode` 공개 상수 — `contract/failure-codes.json` 의 코드 전부(값 = 이름). Android 전용 코드는 KDoc 에 표시한다. 코드 문자열 대신 상수로 분기할 수 있다(비 BREAKING).
 - `BleClient.scanState: StateFlow<ScanState>` — `Idle(lastFailure)` / `Scanning(request)`. 스캔 도중 중단(`SCAN_RUNTIME_FAILED`, `SCAN_STOPPED_BY_ADAPTER`)이 유실 없이 이유와 함께 남는다.
 - `BleSession.activeSubscriptions: StateFlow<Set<CharacteristicRef>>` — 현재 연결에서 통지가 실제로 켜진 캐릭터리스틱. 끊기면 비고, 재연결 뒤 복원에 실패한 것은 `Ready` 여도 빠진다.
 - `BleConnectOptions.autoReconnect: Boolean`(기본 `false`) — `true` 면 Android `connectGatt(autoConnect = true)` 로 연결하고, 링크가 끊기면 handle 을 열어 둔 채 `Recovering(lastFailure)` 으로 OS 재연결을 기다린다. OS 가 다시 붙이면 첫 연결과 같은 경로(서비스 탐색 → MTU → 구독 복원 → `Ready`)를 탄다. 첫 연결에도 link deadline 이 없다 — 포기는 `disconnect()` 로 하며 `Disconnected(Requested)` 로 끝난다(`close()` 는 `ClientClosed`, 어댑터 꺼짐은 `Failed(ADAPTER_UNAVAILABLE)` — 어댑터가 다시 켜지면 한 번 다시 건다).

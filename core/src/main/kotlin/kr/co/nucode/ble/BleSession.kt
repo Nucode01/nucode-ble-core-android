@@ -30,8 +30,20 @@ public interface BleSession {
     public suspend fun connect(options: BleConnectOptions = BleConnectOptions())
     public suspend fun disconnect()
 
+    /**
+     * GATT operations (read, write, subscribe, unsubscribe): once accepted, cancelling the caller detaches only
+     * the caller. The operation still runs to completion (a queued one still starts, remaining write chunks are
+     * still sent), the caller gets only `CancellationException`, and the session is not torn down. Only the
+     * internal `operationTimeoutMillis` deadline, counted from the platform start, fails the session
+     * (`OPERATION_TIMEOUT`). A cancelled subscribe that completes still becomes an active subscription.
+     */
     public suspend fun read(characteristic: CharacteristicRef): ByteArray
 
+    /**
+     * Writes [value]. If chunking is disabled and [value] exceeds one chunk, or a fixed chunk size
+     * exceeds what one write can carry, throws `BleException` with code `PAYLOAD_TOO_LARGE`
+     * (retryability Never) and sends nothing.
+     */
     public suspend fun write(
         characteristic: CharacteristicRef,
         value: ByteArray,

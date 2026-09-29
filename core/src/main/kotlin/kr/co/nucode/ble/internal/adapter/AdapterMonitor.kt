@@ -5,6 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
@@ -163,10 +165,15 @@ internal class AdapterMonitor(
      * 권한을 새로 허용하는 것처럼 그 리시버가 못 잡는 변화는, 늦어도 다음 명령 진입에서
      * 이 재계산으로 반영된다.
      */
-    fun ensureAdapterReady(
+    suspend fun ensureAdapterReady(
         operation: AndroidApiOperation,
     ) {
         updateAdapterState(computeAdapterState())
+        if (_adapterState.value is AdapterState.Unknown) {
+            // 판정 전(Unknown)이면 세션 전이 없이 값이 바뀌기를 기다린다. 호출자 취소는 대기를 끝낸다.
+            withTimeoutOrNull(UNKNOWN_WAIT_MILLIS) { _adapterState.first { it !is AdapterState.Unknown } }
+            updateAdapterState(computeAdapterState())
+        }
         when (val state = _adapterState.value) {
             is AdapterState.Unauthorized -> throw BleException(
                 FailureMapper.permissionDenied(
@@ -175,9 +182,14 @@ internal class AdapterMonitor(
                     canRequest = state.canRequest,
                 ),
             )
-            AdapterState.Unsupported, AdapterState.PoweredOff, AdapterState.Resetting ->
+            AdapterState.Unsupported, AdapterState.PoweredOff, AdapterState.Resetting, AdapterState.Unknown ->
                 throw BleException(FailureMapper.fromAdapterState(state))
             AdapterState.Ready -> Unit
         }
+    }
+
+    private companion object {
+        /** Unknown 인 어댑터를 명령이 기다리는 최대 시간. 설정이 아니라 내부 상수다. */
+        const val UNKNOWN_WAIT_MILLIS = 2_000L
     }
 }

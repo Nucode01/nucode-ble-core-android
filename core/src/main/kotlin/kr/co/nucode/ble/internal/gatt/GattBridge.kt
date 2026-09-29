@@ -127,6 +127,7 @@ internal class GattBridge(
         operations = GattOperationEngine(
             registry = registry,
             emit = emit,
+            scope = scope,
             driver = driver,
             ackTimeoutMillis = ackTimeoutMillis,
             operationStarter = operationStarter,
@@ -183,6 +184,9 @@ internal class GattBridge(
 
     /** Close the current platform handle while keeping ownership in the existing [Session]. */
     fun close(session: Session) = lifecycle.close(session)
+
+    /** 코어 스코프 처리기가 세션 소유 코루틴의 잡히지 않은 예외를 그 세션 종결로 옮긴다. */
+    fun failInternal(session: Session, cause: BleFailure) = lifecycle.failInternal(session, cause)
 
     // ── operation 위임 ────────────────────────────────────────────────────────
 

@@ -59,14 +59,7 @@ internal class RuntimeCommands(
         charRef: CharacteristicRef? = null,
         retryability: Retryability = Retryability.Unknown,
     ): BleFailure = BleFailure(
-        category = FailureCategory(
-            when (phase) {
-                FailurePhase.Adapter -> "environment"
-                FailurePhase.Scan -> "scan"
-                FailurePhase.Operation -> "operation"
-                else -> "connection"
-            },
-        ),
+        category = FailureCategories.of(code),
         code = FailureCode(code),
         phase = phase,
         retryability = retryability,
@@ -174,9 +167,9 @@ internal class RuntimeCommands(
      * 자신이 실제로 스냅샷한 Session 집합만 책임진다 — 이 함수가 그 집합을 사후에 축소할
      * 권한을 갖지 않는다.
      */
-    internal fun sessionForView(deviceId: PeripheralId): Session {
+    internal fun sessionForView(requestedId: PeripheralId): Session {
         checkOpen()
-        val session = registry.getOrCreate(deviceId)
+        val session = registry.getOrCreate(requestedId.normalized())
         if (isClosed()) throw clientClosed()
         return session
     }
@@ -199,8 +192,9 @@ internal class RuntimeCommands(
         currentCoroutineContext().ensureActive()
     }
 
-    internal suspend fun connect(deviceId: PeripheralId, options: ConnectOptions = ConnectOptions()): Unit =
-        transportCommand(FailurePhase.Connect, deviceId) {
+    internal suspend fun connect(requestedId: PeripheralId, options: ConnectOptions = ConnectOptions()): Unit {
+        val deviceId = requestedId.normalized()
+        return transportCommand(FailurePhase.Connect, deviceId) {
         onCore {
             val existing = registry.get(deviceId)
             // 중복 connect 판정은 연결 stage 소유자(lifecycle)가 한다 — 실패 구성·게시·throw 는 여기서 그대로.
@@ -220,6 +214,7 @@ internal class RuntimeCommands(
             // review LOW-1 — 재발견 대기 중 close 가 연결을 끝냈으면 정상 반환하지 않는다.
             if (isClosed()) throw clientClosed()
         }
+        }
     }
 
     /**
@@ -228,8 +223,8 @@ internal class RuntimeCommands(
      * 이고 링크가 끊기면 재연결 없이 Disconnected(Failed) 로 끝난다. handle 을 OS 대기용으로 남길지
      * (suppressReconnect)는 lifecycle 이 연결 시작 시점에 모드로 정한다.
      */
-    internal suspend fun connectOfficial(deviceId: PeripheralId, options: BleConnectOptions) {
-        onCore { connect(deviceId, ConnectOptions(autoConnect = options.autoReconnect)) }
+    internal suspend fun connectOfficial(requestedId: PeripheralId, options: BleConnectOptions) {
+        onCore { connect(requestedId.normalized(), ConnectOptions(autoConnect = options.autoReconnect)) }
     }
 
     /**
@@ -248,7 +243,9 @@ internal class RuntimeCommands(
         throw BleException(failure)
     }
 
-    internal suspend fun disconnect(deviceId: PeripheralId): Unit = transportCommand(FailurePhase.Close, deviceId) {
+    internal suspend fun disconnect(requestedId: PeripheralId): Unit {
+        val deviceId = requestedId.normalized()
+        transportCommand(FailurePhase.Close, deviceId) {
         if (isClosed()) return@transportCommand
         // 해제는 정리 동작이다 — 취소된 호출자라도 링크 정리가 시작돼야 하므로 NonCancellable 로
         // 블록을 끝까지 돌리고, 취소는 그 뒤 ensureActive() 로 호출자에게 그대로 전파한다(stopScan 과 같은 규칙).
@@ -261,14 +258,16 @@ internal class RuntimeCommands(
             gattBridge.disconnect(deviceId)
         }
         currentCoroutineContext().ensureActive()
+        }
     }
 
     /**
      * 현재 연결 generation에서 characteristic 값을 한 번 읽는다. 응답 bytes는 notification
      * event로 방출하지 않고 이 호출 결과로만 반환한다.
      */
-    internal suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray =
-        transportCommand(FailurePhase.Operation, deviceId, charRef) {
+    internal suspend fun read(requestedId: PeripheralId, charRef: CharacteristicRef): ByteArray {
+        val deviceId = requestedId.normalized()
+        return transportCommand(FailurePhase.Operation, deviceId, charRef) {
             onCore {
         adapterReaction.ensureAdapterReady(AndroidApiOperation.ReadCharacteristic)
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -276,6 +275,7 @@ internal class RuntimeCommands(
         gattBridge.read(deviceId, charRef)
     }
         }
+    }
 
     /**
      * write 만 [WriteResult] 를 반환한다 — 부분 전달을 타입으로 강제해야 하므로(설계 §5).
@@ -283,12 +283,14 @@ internal class RuntimeCommands(
      * 청크 단위 실패는 [OperationQueue.write] 가 처리한다.
      */
     internal suspend fun write(
-        deviceId: PeripheralId,
+        requestedId: PeripheralId,
         charRef: CharacteristicRef,
         bytes: ByteArray,
         writeType: WriteType = WriteType.Auto,
         chunking: BleChunking = BleChunking.Automatic,
-    ): WriteResult = transportCommand(FailurePhase.Operation, deviceId, charRef) {
+    ): WriteResult {
+        val deviceId = requestedId.normalized()
+        return transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
         adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteCharacteristic)
         val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -296,23 +298,24 @@ internal class RuntimeCommands(
         operationQueue.write(deviceId, charRef, bytes, writeType, chunking)
     }
     }
+    }
 
-    internal suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit =
+    internal suspend fun subscribe(requestedId: PeripheralId, charRef: CharacteristicRef) {
+        val deviceId = requestedId.normalized()
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteDescriptor)
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
             if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
-            // CCCD ack 성공 후에만 기록한다(plan §접근 ③, review #18/H-1) — 먼저 기록하면
-            // 실패 시 롤백 없이 남아 snapshot·재구독이 거짓 사실 위에 선다.
+            // 구독 의도·활성 표시는 큐 완료 쪽(SubscriptionCommands.subscribe)이 ack 성공 때만 남긴다 —
+            // 호출자가 취소돼도 접수된 subscribe 는 끝까지 가서 남는다. 여기서는 살아 있는 호출자에게만 결과를 판정한다.
             val startGeneration = session.connectionCoordinator.generation
             gattBridge.subscribe(deviceId, charRef)
-            // ack 뒤 재개 전에 사용자 disconnect(clearDesired)·정리가 시작됐으면 의도를 되살리지 않는다 —
-            // 시작한 generation 이 더 이상 Ready 가 아니면 disconnect 로 무효화된 다른 연산과 같이 던진다.
+            // ack 뒤 재개 전에 사용자 disconnect(clearDesired)·정리가 시작됐으면 던진다.
             if (!session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
                 throw BleException(GattFailureFactory.operationInvalidated(session))
             }
-            session.subscriptionState.confirmSubscribed(charRef, session.connectionCoordinator.generation)
+        }
         }
     }
 
@@ -325,7 +328,8 @@ internal class RuntimeCommands(
      * 안 보이면 notify 를 하염없이 기다리게 되지만, 끄는 방향은 로컬에서 이미 지웠으므로
      * 잃을 게 없다(규칙 1 — throw 로 소비자에게 재시도 상태 기계를 강제하지 않는다).
      */
-    internal suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit =
+    internal suspend fun unsubscribe(requestedId: PeripheralId, charRef: CharacteristicRef) {
+        val deviceId = requestedId.normalized()
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
             val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
@@ -333,6 +337,7 @@ internal class RuntimeCommands(
             // 매 항목 의도를 재확인한다(LinkSetup, plan cross-review-fixes LOW-7).
             session.subscriptionState.removeDesired(charRef)
             gattBridge.unsubscribe(deviceId, charRef)
+        }
         }
     }
 }

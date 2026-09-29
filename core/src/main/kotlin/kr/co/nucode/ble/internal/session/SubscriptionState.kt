@@ -15,6 +15,8 @@ import kr.co.nucode.ble.CharacteristicRef
 internal class SubscriptionState {
     private val desired = linkedSetOf<CharacteristicRef>()
     private val active = linkedSetOf<CharacteristicRef>()
+    private val removals = hashMapOf<CharacteristicRef, Long>()
+    private var clearEpoch = 0L
     private val _activeFlow = MutableStateFlow<Set<CharacteristicRef>>(emptySet())
 
     /** Published copy of [activeSnapshot]; republished on every mutation of `active`. */
@@ -44,8 +46,21 @@ internal class SubscriptionState {
         return markActive(characteristic, generation)
     }
 
+    /**
+     * 해제 표식 — 지금까지 [characteristic] 에 일어난 해제(removeDesired·clearDesired)의 횟수 표. subscribe 가 큐에 들어갈 때
+     * 잡고, ack 완료 때 [confirmSubscribedIfNotRemoved] 로 비교해 그 사이 unsubscribe 가 있었으면 의도를 되살리지 않는다.
+     */
+    fun removalMark(characteristic: CharacteristicRef): Long = (removals[characteristic] ?: 0L) + clearEpoch
+
+    /** [mark] 이후 해제가 없었을 때만 [confirmSubscribed] 한다. */
+    fun confirmSubscribedIfNotRemoved(characteristic: CharacteristicRef, generation: Long, mark: Long): Boolean {
+        if (removalMark(characteristic) != mark) return false
+        return confirmSubscribed(characteristic, generation)
+    }
+
     /** Removing intent must also prevent a late completion from restoring active state. */
     fun removeDesired(characteristic: CharacteristicRef): Boolean {
+        removals[characteristic] = (removals[characteristic] ?: 0L) + 1
         if (active.remove(characteristic)) publishActive()
         return desired.remove(characteristic)
     }
@@ -56,6 +71,7 @@ internal class SubscriptionState {
      * 아직 Ready 인지 확인해 거부한다.
      */
     fun clearDesired() {
+        clearEpoch++
         desired.clear()
         active.clear()
         publishActive()

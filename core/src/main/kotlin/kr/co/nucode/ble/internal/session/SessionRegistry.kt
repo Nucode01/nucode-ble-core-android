@@ -1,6 +1,17 @@
 package kr.co.nucode.ble.internal.session
 
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.AbstractCoroutineContextElement
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.normalized
+
+/**
+ * 코어 스코프 코루틴이 어느 세션 소유인지 싣는 컨텍스트 원소. 잡히지 않은 예외 처리기(BleRuntime)가
+ * 이것으로 예외를 그 세션에만 귀속한다 — 없으면 귀속 불명이라 Diagnostic 으로만 알린다.
+ */
+internal class SessionOwner(val deviceId: PeripheralId) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<SessionOwner>
+}
 
 /**
  * 기기별 상태를 담는 유일한 PeripheralId 키 맵(설계 §3 규칙 2 — `sessions: Map[PeripheralId, Session]`).
@@ -16,16 +27,18 @@ internal class SessionRegistry {
 
     /** 없으면 새로 만들어 등록한다. */
     @Synchronized
-    fun getOrCreate(deviceId: PeripheralId): Session =
-        sessions.getOrPut(deviceId) { Session(deviceId) }
+    fun getOrCreate(deviceId: PeripheralId): Session {
+        val id = deviceId.normalized()
+        return sessions.getOrPut(id) { Session(id) }
+    }
 
     /** 이미 있는 것만 조회한다. connect 되지 않은 기기는 null. */
     @Synchronized
-    fun get(deviceId: PeripheralId): Session? = sessions[deviceId]
+    fun get(deviceId: PeripheralId): Session? = sessions[deviceId.normalized()]
 
     /** 제거된 Session 을 돌려준다 — 호출부가 gatt.close() 등 정리를 할 수 있게. */
     @Synchronized
-    fun remove(deviceId: PeripheralId): Session? = sessions.remove(deviceId)
+    fun remove(deviceId: PeripheralId): Session? = sessions.remove(deviceId.normalized())
 
     /** officialSnapshot()·sweep 이 쓰는 전체 조회. 항상 스냅샷 복사본을 돌려준다. */
     @Synchronized

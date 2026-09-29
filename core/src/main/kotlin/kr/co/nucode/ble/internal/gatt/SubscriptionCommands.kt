@@ -37,11 +37,14 @@ internal class SubscriptionCommands(
      * write와 같은 [GattOperationScheduler] FIFO에 들어간다. 플랫폼 호출 직전에 resolve해
      * queue 대기 중 서비스 재탐색으로 바뀐 characteristic handle도 따라간다.
      *
+     * [recordIntent] 면 구독 의도와 활성 표시를 큐 완료 쪽에서 남긴다 — ack 가 성공하면 호출자가 이미 취소됐어도
+     * 의도·활성이 남고 재연결마다 복원된다(호출자 취소는 작업을 떼어 내지 않는다). 복원 경로는 의도가 이미 있어 끈다.
+     *
      * 반환값은 없다 — 실패는 전부 BleException으로 throw 한다. subscribe
      * (켜는 방향)는 실패가 소비자에게 보여야 한다 — 못 켰는데 조용하면 notify 를 기다리다
      * 하염없다. [unsubscribe](끄는 방향, D8 best-effort)와 비대칭인 이유가 이것이다.
      */
-    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef) {
+    suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef, recordIntent: Boolean) {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
@@ -65,6 +68,21 @@ internal class SubscriptionCommands(
                 descriptorIdentity = identity,
             ),
         )
+        if (recordIntent) {
+            val startGeneration = session.connectionCoordinator.generation
+            val removalMark = session.subscriptionState.removalMark(charRef)
+            scheduled.completion.invokeOnCompletion { cause ->
+                // ack 성공 뒤 시작 generation 이 더 이상 Ready 가 아니면(disconnect·정리) 의도를 되살리지 않는다.
+                // 큐에 있는 동안 unsubscribe 가 불렸으면(취소된 subscribe 를 되돌리는 경로) 그 해제가 이긴다.
+                if (cause == null && session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
+                    session.subscriptionState.confirmSubscribedIfNotRemoved(
+                        charRef,
+                        session.connectionCoordinator.generation,
+                        removalMark,
+                    )
+                }
+            }
+        }
         executor.startNextOperation(session)
         executor.awaitAfterStart(session, scheduled, ackTimeoutMillis)
     }
@@ -73,7 +91,8 @@ internal class SubscriptionCommands(
      * LinkSetup 복원 경로. [subscribe] 와 같은 FIFO·같은 실패 처리다 — timeout 으로 poison 되면
      * [GattConnectionLifecycle.terminateForOperationInvalidation] 이 handle 을 닫고 세션을 끝낸다(재연결로 회복하지 않는다).
      */
-    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = subscribe(deviceId, charRef)
+    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) =
+        subscribe(deviceId, charRef, recordIntent = false)
 
     /**
      * 구독 해제 — D8 best-effort(plan design decisions v1, review L-1). `subscribe` 와

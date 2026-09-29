@@ -18,7 +18,7 @@ import kr.co.nucode.ble.BleScanFilter
 import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.FailureCategory
+import kr.co.nucode.ble.FailureCategories
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
@@ -416,14 +416,14 @@ internal class Scanner(
     }
 
     private fun alreadyRunning() = BleFailure(
-        category = FailureCategory("scan"),
+        category = FailureCategories.of("SCAN_ALREADY_RUNNING"),
         code = FailureCode("SCAN_ALREADY_RUNNING"),
         phase = FailurePhase.Scan,
         retryability = Retryability.Never,
     )
 
     private fun startThrottled(waitMillis: Long) = BleFailure(
-        category = FailureCategory("scan"),
+        category = FailureCategories.of("SCAN_START_THROTTLED"),
         code = FailureCode("SCAN_START_THROTTLED"),
         phase = FailurePhase.Scan,
         retryability = Retryability.TransientMayHelp,

@@ -2,11 +2,22 @@ package kr.co.nucode.ble
 
 import java.util.UUID
 import java.util.Collections
+import java.util.Locale
 import kotlin.coroutines.CoroutineContext
 
-/** Opaque SDK-local identifier for a discovered peripheral. */
+/**
+ * Opaque SDK-local identifier for a discovered peripheral.
+ *
+ * Android normalizes the id to an upper-case MAC address at the library entry points, so ids that differ
+ * only in letter case name the same session; sessions, events and snapshots report the upper-case form.
+ */
 @JvmInline
 public value class PeripheralId(public val value: String)
+
+internal fun PeripheralId.normalized(): PeripheralId {
+    val upper = value.uppercase(Locale.ROOT)
+    return if (upper == value) this else PeripheralId(upper)
+}
 
 /** Platform-neutral UUID wrapper used by the common public API. */
 @JvmInline
@@ -288,8 +299,14 @@ public sealed interface BleClientEvent
 /**
  * 어댑터 상태. Unauthorized(canRequest) 로 요청 가능/영구 거부를 구분한다 —
  * 안 하면 제품이 "권한 허용" 버튼을 띄우고 눌러도 아무 일이 없다(설계 §5).
+ *
+ * [Unknown] 은 아직 판정되지 않은 상태다(iOS 가 첫 판정을 내기 전). Android 는 이 값을 내지 않는다.
+ * connect·startScan 같은 명령은 Unknown 이면 판정될 때까지 최대 2000ms 기다린 뒤, 그래도 Unknown 이면
+ * `ADAPTER_UNAVAILABLE` 로 실패한다. 앱은 Unknown 을 "판정 대기"로 다룬다.
  */
 public sealed interface AdapterState {
+    public data object Unknown : AdapterState
+
     public data object Unsupported : AdapterState
 
     public data class Unauthorized(

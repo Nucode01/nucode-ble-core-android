@@ -53,6 +53,7 @@ class GattOperationEngineTest {
         val engine = GattOperationEngine(
             registry = registry,
             emit = {},
+            scope = backgroundScope,
             driver = FakeGattDriver(),
             ackTimeoutMillis = 5_000,
             operationStarter = { _, _ -> throw SecurityException("no BLUETOOTH_CONNECT") },

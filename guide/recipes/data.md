@@ -25,7 +25,7 @@ suspend fun readBatteryPercent(session: BleSession): Int? =
 **주의점**
 
 - read 결과는 반환값으로만 옵니다. `notifications()` 로는 오지 않습니다.
-- `read()` 를 짧은 `withTimeout` 으로 감싸지 마세요. 시작된 read 를 취소하면 연결이 끊깁니다([4.8](../concepts.md#48-스레드와-코루틴)). 코어가 `operationTimeoutMillis` 로 이미 제한합니다.
+- `read()` 를 짧은 `withTimeout` 으로 감싸지 마세요. 호출자를 떼어 낼 뿐 read 는 계속됩니다([4.8](../concepts.md#48-스레드와-코루틴)). 코어가 `operationTimeoutMillis` 로 이미 제한합니다.
 - 암호화가 필요한 캐릭터리스틱은 코드상 `GATT_STATUS_FAILED` + `AfterEnvironmentChange` 로 실패하도록 매핑돼 있습니다. 실기기에서는 확인하지 않았습니다(Android 가 스스로 페어링을 시작할 수도 있고, GATT status 8 은 검증 필요). 이 실패를 받으면 본딩([5.11](connection.md#511-본딩)) 뒤 다시 연결하세요.
 
 ## 5.6 write: 응답 있음/없음, 긴 데이터, 결과 확인
@@ -82,8 +82,8 @@ suspend fun sendIn20ByteChunks(session: BleSession, data: ByteArray): WriteRecei
 | `mode` | `WithResponse` (기본) | 청크마다 기기의 응답을 기다립니다. `receipt.delivery == RemoteAcknowledged` |
 | | `WithoutResponse` | 응답을 기다리지 않습니다. `SubmittedToPlatform` = Android 에 넘겼다는 뜻이지 기기가 받았다는 증거가 아닙니다 |
 | `chunking` | `Automatic` (기본) | 협상된 MTU − 3 바이트씩 자릅니다(요청 MTU 247 → 244 바이트, 협상 실패 시 23 → 20 바이트) |
-| | `Fixed(maxBytes)` | `maxBytes` 씩 자릅니다. 협상된 청크 크기보다 크면 `IllegalArgumentException` |
-| | `Disabled` | 자르지 않습니다. 한 청크보다 길면 `IllegalArgumentException` |
+| | `Fixed(maxBytes)` | `maxBytes` 씩 자릅니다. 협상된 청크 크기보다 크면 `PAYLOAD_TOO_LARGE` |
+| | `Disabled` | 자르지 않습니다. 한 청크보다 길면 `PAYLOAD_TOO_LARGE` |
 
 **주의점**
 
@@ -163,6 +163,6 @@ class NusClient(private val session: BleSession) {
 **주의점**
 
 - 응답 수집을 **write 보다 먼저** 등록합니다. 기기가 빨리 답하면 write 가 끝나기 전에 응답이 올 수 있습니다.
-- 시간 제한은 응답 대기(`reply.await()`)에만 겁니다. `session.write` 까지 감싸면 시작된 write 가 취소돼 연결이 끊길 수 있습니다.
+- 시간 제한은 응답 대기(`reply.await()`)에만 겁니다. `session.write` 까지 감싸면 만료 때 호출자만 떨어지고 write 의 나머지 조각은 계속 나갑니다.
 - 이 예시는 "첫 notify 하나 = 응답"이라고 가정합니다. 응답이 여러 notify 로 나뉘어 오거나 요청하지 않은 알림이 섞이는 기기라면 앱 프로토콜에 맞는 조립 · 매칭이 필요합니다.
 - `Mutex` 로 요청을 한 번에 하나만 보냅니다. 동시에 보내면 응답이 뒤섞입니다.

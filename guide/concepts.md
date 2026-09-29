@@ -18,10 +18,10 @@
 기기를 가리키는 불투명한 ID 입니다. Android 에서는 Bluetooth 주소 문자열(`"AA:BB:CC:DD:EE:FF"` 형식, 대문자)입니다.
 
 - 스캔 결과의 `ScanResult.peripheralId` 를 그대로 쓰세요. 저장할 때는 `peripheralId.value` 를 저장하고 `PeripheralId(saved)` 로 되살립니다.
-- **저장 · 복원은 대문자 MAC 그대로 합니다.** `PeripheralId` 는 값을 바꾸지 않고, Android 의 `getRemoteDevice` 는 대문자 주소만 받습니다. 다른 곳에서 받은 주소면 `PeripheralId(address.uppercase())` 로 만드세요.
+- 라이브러리가 입구에서 id 를 대문자 MAC 으로 정규화합니다. 소문자로 만든 `PeripheralId` 와 대문자 것은 같은 세션이고, 세션 · 이벤트 · snapshot 의 id 는 대문자입니다. 저장은 `peripheralId.value` 를 그대로 하면 됩니다.
 - 주소가 틀리면 `connect()` 가 결국 실패하지만 바로 실패하지는 않습니다. 처음 보는 주소라 먼저 아래의 주소 찾기 스캔을 거치기 때문입니다.
   MAC 형식이 아니면 스캔 없이 `Diagnostic`(`SCAN_START_FAILED`)을 남긴 뒤 `UNKNOWN_DEVICE` 로 실패합니다.
-  소문자 MAC 이면 스캔(최대 `rediscoveryTimeoutMillis`)은 그 기기를 찾지만 연결 단계에서 `UNKNOWN_DEVICE` 로 실패합니다. 기기가 광고하지 않으면 그 시간을 다 기다린 뒤 `PERIPHERAL_NOT_FOUND` 입니다(`autoReconnect = true` 면 진단만 남기고 `UNKNOWN_DEVICE`).
+  `UNKNOWN_DEVICE` 의 category 는 validation 입니다.
 - 이 클라이언트가 최근에 본 적 없는 주소(앱 재시작 뒤 저장된 ID 등)로 연결하면, 코어가 먼저 그 주소만 찾는 짧은 스캔(기본 3초, `BleConfig.rediscoveryTimeoutMillis`)을 돌립니다.
   못 찾으면 `autoReconnect = false` 는 `PERIPHERAL_NOT_FOUND` 를 던지고, `autoReconnect = true` 는 진단(`Diagnostic`)만 남기고 OS 대기로 넘어갑니다.
 
@@ -79,6 +79,7 @@ client.close() ──► 아직 끝나지 않은 세션은 Disconnected(ClientCl
 | `Unauthorized(canRequest = false)` | 매니페스트 선언 누락 | 앱을 고쳐야 함 |
 | `Unsupported` | 블루투스 어댑터 없음 | 기능 숨김 |
 | `Resetting` | 어댑터 재시작 중 | 기다림. (현재 Android 구현은 이 값을 만들지 않습니다) |
+| `Unknown` | 아직 판정 전 | 기다림. (현재 Android 구현은 이 값을 만들지 않습니다.) 명령은 최대 2초 판정을 기다린 뒤 `ADAPTER_UNAVAILABLE` 로 실패합니다. `when` 에 이 분기가 있어야 컴파일됩니다 |
 
 판정 순서는 `Unsupported` → `Unauthorized` → `PoweredOff`/`Ready` 입니다. 권한이 없으면 블루투스가 꺼져 있어도 `Unauthorized` 입니다.
 
@@ -147,8 +148,8 @@ fun logEvents(client: BleClient, scope: CoroutineScope): Job = scope.launch {
 
 `BleException` 이 아닌 예외도 있습니다.
 
-- `IllegalArgumentException`: 모델 생성 시 잘못된 값(예: `BleChunking.Fixed(0)`, 음수 `instanceIndex`), 그리고 `BleChunking.Disabled` 로 한 청크보다 긴 데이터를 쓰거나 `BleChunking.Fixed(n)` 의 n 이 협상된 청크 크기보다 클 때의 `write`.
-- `SecurityException`: 권한 없이 `AndroidBondController` 를 부를 때.
+- `IllegalArgumentException`: 모델 생성 시 잘못된 값(예: `BleChunking.Fixed(0)`, 음수 `instanceIndex`). `BleChunking.Disabled` 로 한 청크보다 긴 데이터를 쓰거나 `BleChunking.Fixed(n)` 의 n 이 협상된 청크 크기보다 크면 `write` 는 `BleException(PAYLOAD_TOO_LARGE)` 를 던집니다(아무것도 보내지 않음).
+- `SecurityException`: 권한 없이 `AndroidBondController.bondState()` 를 부를 때. `createBond` 는 플랫폼 예외를 던지지 않고 `StartRejected`/`Failed` 로 돌려줍니다.
 - `CancellationException`: 호출한 코루틴의 Job 이 취소될 때. 앱이 건 `withTimeout` 이 만료된 경우는 `read` · `write` · `subscribe` 에서만 예외입니다 — 코어가 이를 잡아 `BleException(OPERATION_TIMEOUT)` 으로 던집니다.
   `unsubscribe` 는 그 실패를 던지지 않고 `events` 의 `Diagnostic` 으로만 남기므로 호출자는 `withTimeout` 의 `TimeoutCancellationException` 을 받습니다. `connect`(주소 찾기 스캔 중) · `startScan` 등도 `TimeoutCancellationException` 을 그대로 받습니다.
 
@@ -160,11 +161,11 @@ fun logEvents(client: BleClient, scope: CoroutineScope): Job = scope.launch {
 - Flow 값은 **수집하는 쪽의 디스패처**에서 받습니다. 화면에 그릴 값이면 Main 에서 수집하세요.
 - 한 세션의 GATT 작업(read · write 의 모든 청크 · 구독 · 구독 해제)은 한 줄로 서서 하나씩 실행됩니다. 긴 write 의 청크 사이에 다른 작업이 끼어들지 않습니다. 서로 다른 세션은 따로 진행됩니다.
 - 각 GATT 작업은 시작된 뒤 `operationTimeoutMillis`(기본 5초) 안에 응답이 와야 합니다. 넘기면 `OPERATION_TIMEOUT` 을 던지고 **그 연결을 끝냅니다.**
-- **이미 시작된 GATT 작업을 호출자가 끊으면 그 연결이 끝나고, `autoReconnect` 여도 재연결하지 않습니다.** 응답을 받을 방법이 없어져서 코어가 연결을 정리하기 때문입니다. 끊는 방법에 따라 결과가 다릅니다.
-  - Job 취소: 호출자는 `CancellationException`, 연결은 `Disconnected(Failed(OPERATION_INVALIDATED))`.
-  - 앱의 `withTimeout` 만료(`read` · `write` · `subscribe`): 호출자는 `BleException(OPERATION_TIMEOUT)`, 연결은 `Disconnected(Failed(OPERATION_TIMEOUT))`.
-  - 앱의 `withTimeout` 만료(`unsubscribe`): 연결은 똑같이 끝나지만 `OPERATION_TIMEOUT` 은 `Diagnostic` 으로만 나가고, 호출자는 `TimeoutCancellationException` 을 받습니다.
-  - 아직 줄에서 기다리던 작업은 끊어도 연결에 영향이 없습니다(`read` · `write` · `subscribe` 를 `withTimeout` 으로 끊었으면 `OPERATION_TIMEOUT` 을 받습니다).
+- **호출자를 끊어도 접수된 GATT 작업은 끝까지 진행됩니다.** 작업이 세션 줄에 들어간 뒤 호출자가 취소되면 호출자만 떨어지고 세션은 끝나지 않습니다. 대기 중이던 작업도 차례가 오면 시작되고, 긴 write 의 나머지 조각도 모두 나갑니다. 취소한 `subscribe` 는 완료되어 `activeSubscriptions` 와 구독 의도에 남고 재연결마다 복원됩니다. 되돌리려면 `unsubscribe` 를 부릅니다.
+  - Job 취소: 호출자는 `CancellationException`, 세션은 그대로입니다.
+  - 앱의 `withTimeout` 만료(`read` · `write` · `subscribe`): 호출자는 `BleException(OPERATION_TIMEOUT)`, 작업은 계속됩니다.
+  - 앱의 `withTimeout` 만료(`unsubscribe`): 호출자는 `TimeoutCancellationException` 을 받고 작업은 계속됩니다.
+  - 떠난 작업이 응답을 못 받으면 큐의 기한(`operationTimeoutMillis`)이 끝냅니다. 그때만 `OPERATION_TIMEOUT` 으로 연결이 끝납니다.
 - GATT 작업이 아닌 `connect` 는 주소 찾기 스캔 중에 끊으면 그 연결 시도를 정리하고 `CancellationException`(`withTimeout` 이면 `TimeoutCancellationException`)을 그대로 던집니다. `startScan` 도 변환하지 않습니다.
 - `stopScan()` 과 `disconnect()` 는 호출 코루틴이 이미 취소됐어도 정리를 끝까지 한 뒤 취소를 전파합니다. `finally` 에서 그냥 불러도 됩니다.
 - `BleConfig.dispatcher` 는 테스트용 주입 지점입니다. 앱에서는 넣지 마세요. 넣는다면 `Job` 없이 단일 스레드 디스패처만 넣어야 합니다.

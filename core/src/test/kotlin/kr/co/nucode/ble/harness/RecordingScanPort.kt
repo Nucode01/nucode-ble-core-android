@@ -1,7 +1,7 @@
 package kr.co.nucode.ble.harness
 
 import kr.co.nucode.ble.internal.port.PlatformScanPort
-import kr.co.nucode.ble.internal.port.PlatformScanSpec
+import kr.co.nucode.ble.internal.model.PlatformScanSpec
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.internal.model.ScanObservation
 

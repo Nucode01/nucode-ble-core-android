@@ -5,7 +5,7 @@ import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kr.co.nucode.ble.internal.port.GattServiceSnapshot
 import kr.co.nucode.ble.internal.port.PlatformScanPort
-import kr.co.nucode.ble.internal.port.PlatformScanSpec
+import kr.co.nucode.ble.internal.model.PlatformScanSpec
 import kr.co.nucode.ble.internal.port.TargetResolution
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity

@@ -1,6 +1,6 @@
 package kr.co.nucode.ble
 
-import kr.co.nucode.ble.internal.port.PlatformScanSpec
+import kr.co.nucode.ble.internal.model.PlatformScanSpec
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -15,7 +15,7 @@ import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.TestClock
 import kr.co.nucode.ble.internal.model.BleEvent
-import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.Scanner
 import org.junit.Assert.assertEquals
@@ -236,10 +236,10 @@ class ScanRediscoveryJoinTest {
         val scanner = newScanner()
         scanner.startScan(filtered)
         val outcome = rediscover(scanner)
-        val adapterOff = failure("SCAN_STOPPED_BY_ADAPTER")
-        scanner.stopForAdapter(adapterOff)
+        scanner.stopForAdapter(AdapterState.PoweredOff)
         runCurrent()
-        assertEquals(RediscoveryOutcome.Unavailable(adapterOff), outcome.await())
+        val adapterOff = (outcome.await() as RediscoveryOutcome.Unavailable).failure
+        assertEquals("SCAN_STOPPED_BY_ADAPTER", adapterOff.code.value)
         assertEquals(ScanState.Idle(adapterOff), scanner.scanState.value)
         assertFalse(port.running)
     }

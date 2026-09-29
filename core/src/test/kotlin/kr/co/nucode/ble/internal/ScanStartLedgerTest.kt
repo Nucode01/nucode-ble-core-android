@@ -6,6 +6,7 @@ import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
+import kr.co.nucode.ble.internal.core.scan.ScanCore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,7 +36,7 @@ class ScanStartLedgerTest {
                 }
             }
             assertTrue(done.await(10, java.util.concurrent.TimeUnit.SECONDS))
-            assertEquals("round $round", ScanStartLedger.START_BUDGET, allowed.get())
+            assertEquals("round $round", ScanCore.START_BUDGET, allowed.get())
         }
     }
 
@@ -55,7 +56,7 @@ class ScanStartLedgerTest {
             now += 10
         }
         val firstEnd = firstBegin + delays.first()
-        val window = ScanStartLedger.START_WINDOW_MILLIS + ScanStartLedger.START_WINDOW_MARGIN_MILLIS
+        val window = ScanCore.START_WINDOW_MILLIS + ScanCore.START_WINDOW_MARGIN_MILLIS
 
         now = firstBegin + window + 1
         assertEquals("호출 전 시각 기준으로는 허용되는 위험 지점", 500L, ledger.tryStart { now += 2_000; true })

@@ -40,7 +40,8 @@ import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleScanOptions
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanState
-import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.core.scan.ScanCore
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScannerContractTest {
@@ -57,7 +58,7 @@ class ScannerContractTest {
             txPower = null,
             isConnectable = null,
         )
-        assertTrue(scanner.matches(
+        assertTrue(ScanCore.matches(
             BleScanFilter(
                 manufacturerData = listOf(BleManufacturerDataFilter(9)),
                 serviceUuids = listOf(service),
@@ -65,7 +66,7 @@ class ScannerContractTest {
             ),
             advertisement,
         ))
-        assertFalse(scanner.matches(BleScanFilter(serviceUuids = listOf(service), namePrefix = "other"), advertisement))
+        assertFalse(ScanCore.matches(BleScanFilter(serviceUuids = listOf(service), namePrefix = "other"), advertisement))
     }
 
     @Test
@@ -125,8 +126,8 @@ class ScannerContractTest {
             txPower = null,
             isConnectable = null,
         )
-        assertTrue(runningScanner.matches(requireNotNull(platformFilter), originalAdvertisement))
-        assertFalse(runningScanner.matches(requireNotNull(platformFilter), changedAdvertisement))
+        assertTrue(ScanCore.matches(requireNotNull(platformFilter), originalAdvertisement))
+        assertFalse(ScanCore.matches(requireNotNull(platformFilter), changedAdvertisement))
         assertNull(runningScanner.startScan(request))
 
         val failure = requireNotNull(runningScanner.startScan(ScanRequest(BleScanFilter())))

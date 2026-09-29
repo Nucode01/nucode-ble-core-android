@@ -41,7 +41,7 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterCore.kt:step(스윕 판정), AdapterMonitor.kt:updateAdapterState, ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -232,7 +232,7 @@ internal object FailureCatalog {
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, ConnectStarter.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterCore.kt:step(스윕 판정), AdapterMonitor.kt:updateAdapterState, ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -251,9 +251,9 @@ internal object FailureCatalog {
         FailureSpec(
             "SCAN_RUNTIME_FAILED",
             listOf(
-                Route("scan runtime callback", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "Scanner.kt:handleFailure(scanState=Idle(failure)) — ScanContractTest"),
-                Route("stale scan failure (ended/other scan)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(generation 불일치·정지 뒤 → 상태 불변, Warning) — ScanContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:handleFailure(재발견 중 onScanFailed → 모든 소비자 종료) → Unavailable, ConnectStarter.kt:connect"),
+                Route("scan runtime callback", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ScanCore.kt:platformFailed(scanState=Idle(failure)) — ScanContractTest"),
+                Route("stale scan failure (ended/other scan)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ScanCore.kt:platformFailed(generation 불일치·정지 뒤 → 상태 불변, Warning) — ScanContractTest"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ScanCore.kt:platformFailed(재발견 중 onScanFailed → 모든 소비자 종료) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
@@ -266,14 +266,14 @@ internal object FailureCatalog {
         FailureSpec(
             "SCAN_START_THROTTLED",
             listOf(
-                Route("startScan command (start budget exceeded)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← Scanner.kt:reconcile(30 s + 여유 1 s 안 성공 시작 5회 → 플랫폼 호출 없이 거부, 도는 스캔 유지) — ScannerContractTest"),
-                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:scheduleReconcile(한도 초과 → 도는 스캔이 덮지 못하는 재발견만) → Unavailable, ConnectStarter.kt:connect"),
+                Route("startScan command (start budget exceeded)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "Scanner.kt:startScan ← ScanCore.kt:settleUser(30 s + 여유 1 s 안 성공 시작 5회 → 플랫폼 호출 없이 거부, 도는 스캔 유지) — ScannerContractTest"),
+                Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ScanCore.kt:settleReconcile(한도 초과 → 도는 스캔이 덮지 못하는 재발견만) → Unavailable, ConnectStarter.kt:connect"),
             ),
         ),
         FailureSpec(
             "SCAN_STOPPED_BY_ADAPTER",
             listOf(
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), Scanner.kt:stopForAdapter(scanState=Idle(failure)) — ScanContractTest"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterCore.kt:step(스윕 판정), AdapterMonitor.kt:updateAdapterState, Scanner.kt:stopForAdapter(scanState=Idle(failure)) — ScanContractTest"),
             ),
         ),
         FailureSpec(

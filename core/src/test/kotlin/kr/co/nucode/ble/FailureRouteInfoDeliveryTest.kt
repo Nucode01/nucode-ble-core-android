@@ -33,7 +33,7 @@ import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.TestClock
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
-import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

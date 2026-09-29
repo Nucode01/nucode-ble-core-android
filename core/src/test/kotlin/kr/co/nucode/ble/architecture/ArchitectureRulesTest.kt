@@ -31,6 +31,12 @@ import org.junit.Test
  * 결과인 `OPERATION_TIMEOUT` 식별자와 그 실패를 만드는 입구를 쓰지 않고(f), Core 밖 Domain 은 큐의 차례 상태(기다리는 줄·현재 작업·순번·
  * poison·generation·항목의 해석/시작/묶음 칸)를 가변으로 두지 않는다(g). 가드·순수성 위반·소유 위반을 한 메시지로 모아 한 번에 실패한다.
  * 예외 목록으로 위반을 덮지 않는다.
+ *
+ * R5 규칙 — 스캔 Core(`internal.core.scan`)와 어댑터 Core(`internal.core.adapter`)는 순수하다(R3 순수성 여섯 갈래를 두 Core 에 그대로 적용).
+ * 가드는 Core 마다 `object ScanCore`·`object AdapterCore` 와 `step(상태, 사건)` 결과 모양(a), Runtime(Core 밖 Domain)의 `ScanCore.step(`·
+ * `AdapterCore.step(` 호출(e)을 확인한다. Runtime 은 판정을 Core 에 맡긴다: 어댑터 값·스캔 공개 상태 값을 이름으로 만들거나 분기하지 않고,
+ * 판정 실패 조립 입구와 판정 상수를 쓰지 않으며(f), 스캔 수명·어댑터 현재 값의 상태 칸을 가변으로 두지 않는다(g). f·g 는 이름 기반이라
+ * 문자열 리터럴 속 식별자는 보지 못한다. 가드·순수성 위반·소유 위반을 한 메시지로 모아 한 번에 실패한다. 예외 목록으로 위반을 덮지 않는다.
  */
 class ArchitectureRulesTest {
 
@@ -500,6 +506,234 @@ class ArchitectureRulesTest {
         assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("f/F.kt", "package kr.co.nucode.ble.android\nclass F { fun f() = GattQueueCore.step(a, b) }")), "(e)"))
     }
 
+    @Test
+    fun R5_scanAdapterCoreIsPure() {
+        val files = analyze(productSources())
+        val guard = scanAdapterCoreGuard(files)
+        val pure = scanAdapterCorePurity(files)
+        val own = scanAdapterCoreOwnership(files)
+        val msg = buildString {
+            if (guard.isNotEmpty()) append(guard.joinToString("\n")).append('\n')
+            append("순수성 위반 ${pure.size}건:")
+            if (pure.isNotEmpty()) append('\n').append(pure.joinToString("\n"))
+            append("\nCore 밖 소유 위반 ${own.size}건:")
+            if (own.isNotEmpty()) append('\n').append(own.joinToString("\n"))
+        }
+        assertTrue(msg, guard.isEmpty() && pure.isEmpty() && own.isEmpty())
+    }
+
+    @Test
+    fun scanAdapterCoreRuleCatchesSeededViolations() {
+        val scanPkg = "package kr.co.nucode.ble.internal.core.scan\n"
+        val adapterPkg = "package kr.co.nucode.ble.internal.core.adapter\n"
+        val domain = "package kr.co.nucode.ble.internal.session\n"
+        val base = listOf(
+            Src("s/Session.kt", "${domain}class Session"),
+            Src("m/ScanObservation.kt", "package kr.co.nucode.ble.internal.model\nclass ScanObservation"),
+            Src("m/AdapterState.kt", "package kr.co.nucode.ble\nclass AdapterState"),
+            Src("c/X.kt", "package kr.co.nucode.ble.internal.core.connection\nclass X"),
+        )
+        fun pureScan(text: String) = scanAdapterCorePurity(analyze(base + Src("k/S.kt", scanPkg + text)))
+        fun pureAdapter(text: String) = scanAdapterCorePurity(analyze(base + Src("k/A.kt", adapterPkg + text)))
+        fun own(pkg: String, text: String, path: String = "o/O.kt") = scanAdapterCoreOwnership(analyze(base + Src(path, "package $pkg\n$text")))
+
+        // 순수성 위반: 두 Core 모두
+        listOf(
+            "import kr.co.nucode.ble.internal.scan.Scanner\nclass K" to "kr.co.nucode.ble.internal.scan.Scanner",
+            "import android.bluetooth.BluetoothAdapter\nclass K" to "android.bluetooth.BluetoothAdapter",
+            "suspend fun f() {}" to "suspend",
+            "class K { var x = 1 }" to "var",
+            "fun f() { val l = mutableListOf<Int>() }" to "mutableListOf",
+            "class K(val cb: (Int) -> Unit)" to ":(Int)->",
+            "class K { val t = System.currentTimeMillis() }" to "System.currentTimeMillis",
+        ).forEach { (text, token) ->
+            mapOf("스캔" to ::pureScan, "어댑터" to ::pureAdapter).forEach { (name, pure) ->
+                val v = pure(text)
+                assertTrue("$name Core 의 $token 를 못 잡았다: $v", v.any { it.contains(" → ") && it.contains(token) })
+            }
+        }
+        val okText = "import kr.co.nucode.ble.AdapterState\n" +
+            "import kr.co.nucode.ble.internal.model.ScanObservation\n" +
+            "import kr.co.nucode.ble.internal.core.connection.X\n" +
+            "class K { fun f(state: Any, r: Any) = state.copy(userRequest = r)\n" +
+            "  val re = Regex(\"^x$\")\n" +
+            "  // var suspend System.nanoTime() mutableListOf()\n  /** var suspend System. */\n" +
+            "  val d = \"var suspend System. println(1) kotlinx.coroutines.launch\" }"
+        assertEquals(emptyList<String>(), pureScan(okText))
+        assertEquals(emptyList<String>(), pureAdapter(okText))
+        assertEquals(emptyList<String>(), scanAdapterCorePurity(analyze(base + Src("o/O.kt", "${domain}suspend fun f() { var x = 1 }"))))
+
+        // 소유 위반 f: Runtime(Core 밖 Domain)의 판정
+        val fLines = listOf(
+            "fun f(s: Any) = s is AdapterState.Ready" to "AdapterState.Ready",
+            "val v = AdapterState.Unauthorized(true)" to "AdapterState.Unauthorized",
+            "val v = kr.co.nucode.ble.AdapterState.Unknown" to "kr.co.nucode.ble.AdapterState.Unknown",
+            "val v = AdapterState . PoweredOff" to "AdapterState.PoweredOff",
+            "val v = AdapterState.Resetting" to "AdapterState.Resetting",
+            "val v = AdapterState.Unsupported" to "AdapterState.Unsupported",
+            "val s = ScanState.Idle(null)" to "ScanState.Idle",
+            "val s = ScanState.Scanning(r)" to "ScanState.Scanning",
+            "val f = FailureMapper.fromAdapterState(x)" to "fromAdapterState(",
+            "fun alreadyRunning() = 1" to "alreadyRunning(",
+            "val t = startThrottled (1)" to "startThrottled(",
+            "val c = FailureCode.SCAN_ALREADY_RUNNING" to "SCAN_ALREADY_RUNNING",
+            "val c = SCAN_STOPPED_BY_ADAPTER" to "SCAN_STOPPED_BY_ADAPTER",
+            "val c = SCAN_START_THROTTLED" to "SCAN_START_THROTTLED",
+            "val p = FailurePhase.Adapter" to "FailurePhase.Adapter",
+            "val w = UNKNOWN_WAIT_MILLIS" to "UNKNOWN_WAIT_MILLIS",
+            "val b = ScanCore.START_BUDGET" to "START_BUDGET",
+            "val b = START_WINDOW_MILLIS" to "START_WINDOW_MILLIS",
+            "val b = START_WINDOW_MARGIN_MILLIS" to "START_WINDOW_MARGIN_MILLIS",
+            "import kr.co.nucode.ble.ScanState.*" to "import kr.co.nucode.ble.ScanState.*",
+            "import kr.co.nucode.ble.AdapterState.*" to "import kr.co.nucode.ble.AdapterState.*",
+        )
+        val notRuntime = listOf(
+            "Driver" to "kr.co.nucode.ble.internal.platform.android",
+            "Factory" to "kr.co.nucode.ble.android",
+            "Ports" to "kr.co.nucode.ble.internal.port",
+            "Model" to "kr.co.nucode.ble.internal.model",
+            "Model(root)" to "kr.co.nucode.ble",
+            "연결 Core" to "kr.co.nucode.ble.internal.core.connection",
+            "큐 Core" to "kr.co.nucode.ble.internal.core.gatt",
+            "스캔 Core" to "kr.co.nucode.ble.internal.core.scan",
+            "어댑터 Core" to "kr.co.nucode.ble.internal.core.adapter",
+        )
+        // core 아래라도 알려진 Core 가 아닌 패키지는 Runtime 이다 — 소유 위반을 잡아야 한다.
+        assertTrue(
+            own("kr.co.nucode.ble.internal.core.util", "class U { var isScanning = false; val r = AdapterState.Ready }")
+                .any { it == "o/O.kt → AdapterState.Ready" || it.contains("var isScanning") },
+        )
+        // 알려진 Core 가 core 밖 아닌 비순수 도우미를 import 하면 순수성 위반이다.
+        assertTrue(
+            scanAdapterCorePurity(
+                analyze(
+                    base + Src("u/U.kt", "package kr.co.nucode.ble.internal.core.util\nobject U") +
+                        Src("k/S.kt", scanPkg + "import kr.co.nucode.ble.internal.core.util.U\nclass S"),
+                ),
+            ).isNotEmpty(),
+        )
+        fLines.forEach { (text, token) ->
+            val v = own("kr.co.nucode.ble.internal.session", text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it == "o/O.kt → $token" })
+            notRuntime.forEach { (name, pkg) ->
+                assertEquals("$name 은 대상이 아니다: $text", emptyList<String>(), own(pkg, text))
+            }
+        }
+        listOf(
+            "// AdapterState.Ready fromAdapterState(x) START_BUDGET\nclass A",
+            "class A { val s = \"SCAN_ALREADY_RUNNING AdapterState.Ready\" }",
+            "class A { val x = AdapterCore.isReady(s) }",
+            "class A { val a: StateFlow<AdapterState> = f }",
+            "class A { val v = MyAdapterState.Ready }",
+            "class A { val v = MyScanState.Idle }",
+            "class A { val v = FailurePhase.Scan }",
+        ).forEach { text -> assertEquals(text, emptyList<String>(), own("kr.co.nucode.ble.internal.session", text)) }
+
+        // 소유 위반 g: Runtime 의 가변 상태 칸
+        listOf(
+            "class A { private var isScanning = false }" to "var isScanning",
+            "class A { var activeRequest: ScanRequest? = null }" to "var activeRequest",
+            "class A { var platformSpec: PlatformScanSpec? = null }" to "var platformSpec: PlatformScanSpec",
+            "class A { internal var scanGeneration: Long = 0L }" to "var scanGeneration",
+            "class A { var reconcileScheduled = false }" to "var reconcileScheduled",
+            "class A { var userRequest = 1 }" to "var userRequest",
+            "class A { var rediscoveries = 1 }" to "var rediscoveries",
+            "class A { var wasReady = false }" to "var wasReady",
+            "class A { var currentAdapter = 1 }" to "var currentAdapter",
+            "class A { private val w = mutableListOf<RediscoveryWaiter>() }" to "mutableListOf<RediscoveryWaiter",
+            "class A { val m = LinkedHashMap<Long, RediscoveryWaiter>() }" to "LinkedHashMap",
+            "class A { val m = ArrayDeque<RediscoveryConsumer>() }" to "ArrayDeque<RediscoveryConsumer",
+            "class A { var last: AdapterState = x }" to "var last: AdapterState",
+            "class A { var shown: ScanState = x }" to "var shown: ScanState",
+            "class A { var c: RediscoveryConsumer? = null }" to "var c: RediscoveryConsumer",
+            "class A { var s2: ScanCoreState = x }" to "var s2: ScanCoreState",
+            "class A { var a2: AdapterCoreState = x }" to "var a2: AdapterCoreState",
+        ).forEach { (text, token) ->
+            val v = own("kr.co.nucode.ble.internal.session", text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it.startsWith("o/O.kt → ") && it.contains(token) })
+        }
+        listOf(
+            "class A { var state: ScanCoreState = s }",
+            "class A { var state: AdapterCoreState = s }",
+            "class A { val isScanning: Boolean get() = true }",
+            "class A { val h = HashMap<Long, RediscoveryWaiter>() }",
+            "class A { var pendingCount = 0 }",
+        ).forEach { text -> assertEquals(text, emptyList<String>(), own("kr.co.nucode.ble.internal.session", text)) }
+        notRuntime.forEach { (name, pkg) ->
+            assertEquals(name, emptyList<String>(), own(pkg, "class A { var isScanning = true; var s2: ScanCoreState = x }"))
+        }
+
+        // 가드
+        fun coreSrc(pkg: String, p: String) = pkg +
+            "internal data class ${p}CoreState(val n: Int)\n" +
+            "internal sealed interface ${p}Event { object Go : ${p}Event }\n" +
+            "internal sealed interface ${p}Effect { object Nothing : ${p}Effect }\n" +
+            "internal data class ${p}Step(val state: ${p}CoreState, val effects: List<${p}Effect>)\n" +
+            "internal object ${p}Core {\n" +
+            "    fun step(state: ${p}CoreState, event: ${p}Event): ${p}Step = ${p}Step(state, emptyList())\n}\n"
+        val scanCore = coreSrc(scanPkg, "Scan")
+        val adapterCore = coreSrc(adapterPkg, "Adapter")
+        val callScan = Src("s/CallS.kt", "${domain}class CallS { fun f() = ScanCore.step(a, b) }")
+        val callAdapter = Src("s/CallA.kt", "${domain}class CallA { fun f() = AdapterCore.step(a, b) }")
+        fun guard(vararg extra: Src) = scanAdapterCoreGuard(analyze(base + extra))
+        fun lines(g: List<String>, key: String) = g.filter { it.startsWith("가드:") && it.contains(key) }
+        val okScan = Src("c/CoreS.kt", scanCore)
+        val okAdapter = Src("c/CoreA.kt", adapterCore)
+        assertEquals(emptyList<String>(), guard(okScan, okAdapter, callScan, callAdapter))
+        assertEquals(
+            emptyList<String>(),
+            guard(okScan, okAdapter, Src("s/Call.kt", "${domain}class C { fun f() { ScanCore . step (a, b); AdapterCore . step (a, b) } }")),
+        )
+        val empty = guard()
+        assertEquals(empty.toString(), 4, empty.size)
+        assertTrue(empty.toString(), lines(empty, "(a) 스캔 Core").size == 1 && lines(empty, "(a) 어댑터 Core").size == 1)
+        assertTrue(empty.toString(), lines(empty, "ScanCore.step(").size == 1 && lines(empty, "AdapterCore.step(").size == 1)
+
+        // (a): 한쪽만 깨면 그쪽 줄만 나온다
+        listOf(
+            Triple("스캔", "Scan", scanPkg) to listOf(okAdapter, callScan, callAdapter),
+            Triple("어댑터", "Adapter", adapterPkg) to listOf(okScan, callScan, callAdapter),
+        ).forEach { (broken, others) ->
+            val (label, p, pkg) = broken
+            val good = coreSrc(pkg, p)
+            val variants = mapOf(
+                "object 없음" to listOf(Src("c/Core.kt", pkg + "class Nothing")),
+                "Core 파일 없음" to emptyList(),
+                "이름이 다른 object" to listOf(Src("c/Core.kt", good.replace("object ${p}Core", "object Other"))),
+                "object 두 번" to listOf(Src("c/Core.kt", good), Src("c/Core2.kt", pkg + "internal object ${p}Core")),
+                "Core 밖에만 object" to listOf(
+                    Src("c/Core.kt", good.replace("internal object ${p}Core", "internal object Other")),
+                    Src("s/Q.kt", "${domain}internal object ${p}Core"),
+                ),
+                "Core 밖에도 object" to listOf(Src("c/Core.kt", good), Src("s/Q.kt", "${domain}internal object ${p}Core")),
+                "step 이름 바꿈" to listOf(Src("c/Core.kt", good.replace("fun step(", "fun advance("))),
+                "결과에 List 없음" to listOf(Src("c/Core.kt", good.replace("val effects: List<${p}Effect>", "val n: Int"))),
+                "할 일 sealed 아님" to listOf(Src("c/Core.kt", good.replace("sealed interface ${p}Effect", "interface ${p}Effect"))),
+            )
+            variants.forEach { (why, srcs) ->
+                val g = guard(*(others + srcs).toTypedArray())
+                assertEquals("$label $why: $g", 1, g.size)
+                assertTrue("$label $why: $g", g.single().startsWith("가드: (a) ${label} Core"))
+            }
+        }
+
+        // (e): 호출이 Runtime 에 있어야 한다
+        val cores = arrayOf(okScan, okAdapter)
+        val noScanCall = guard(*cores, callAdapter)
+        assertTrue(noScanCall.toString(), noScanCall.size == 1 && noScanCall.single().contains("(e)") && noScanCall.single().contains("ScanCore.step("))
+        val noAdapterCall = guard(*cores, callScan)
+        assertTrue(noAdapterCall.toString(), noAdapterCall.size == 1 && noAdapterCall.single().contains("(e)") && noAdapterCall.single().contains("AdapterCore.step("))
+        assertEquals(2, guard(*cores).size)
+        assertEquals(
+            2,
+            guard(*cores, Src("s/C.kt", "${domain}class C { fun f() { ConnectionCore.step(a, b); GattQueueCore.step(a, b) } }")).size,
+        )
+        assertEquals(2, guard(*cores, Src("s/C.kt", "${domain}class C { fun f() { ScanCore.stepper(a); AdapterCore.stepper(a) } }")).size)
+        val callBoth = "class D { fun f() { ScanCore.step(a, b); AdapterCore.step(a, b) } }"
+        assertEquals(2, guard(*cores, Src("d/Drv.kt", "package kr.co.nucode.ble.internal.platform.android\n$callBoth")).size)
+        assertEquals(2, guard(*cores, Src("f/F.kt", "package kr.co.nucode.ble.android\n$callBoth")).size)
+    }
+
     // ---- 분석기 -------------------------------------------------------------------------------------------------
 
     private enum class Layer { Model, Ports, Domain, Driver, Factory }
@@ -675,7 +909,7 @@ class ArchitectureRulesTest {
         val body = f.code.replace(PACKAGE_LINE, "")
         val internalRefs = f.refs.filter { ref ->
             val pkg = f.resolve(ref, files) ?: ref
-            fun allowed(p: String) = p == ROOT || p.under("$ROOT.internal.model") || p.under(CORE_ROOT) ||
+            fun allowed(p: String) = p == ROOT || p.under("$ROOT.internal.model") || KNOWN_CORES.any { p.under(it) } ||
                 !(p.under("$ROOT.internal") || p.under("$ROOT.android"))
             !(allowed(pkg) && allowed(ref))
         }
@@ -757,6 +991,65 @@ class ArchitectureRulesTest {
             out += "가드: (e) Core 밖 Domain 파일 중 GattQueueCore.step( 을 부르는 파일이 없다"
         }
         return out
+    }
+
+    private fun isScanCore(f: Parsed) = f.pkg.under(SCAN_CORE)
+
+    private fun isAdapterCore(f: Parsed) = f.pkg.under(ADAPTER_CORE)
+
+    /**
+     * Runtime = 알려진 Core 네 곳(연결·큐·스캔·어댑터) 밖 Domain 파일. `internal.core` 아래의 그 밖의 패키지도 Runtime 으로 본다 —
+     * 셸을 거기로 옮기거나 비순수 도우미를 두어 규칙을 피할 수 없게. Ports·Driver·Factory·Model 은 보지 않는다.
+     */
+    private fun isRuntime(f: Parsed) = f.layer == Layer.Domain && KNOWN_CORES.none { f.pkg.under(it) }
+
+    /** 스캔 Core·어댑터 Core 파일의 순수성 위반 여섯 갈래(연결 Core 와 같은 판정). */
+    private fun scanAdapterCorePurity(files: List<Parsed>): List<String> =
+        corePurity(files.filter { isScanCore(it) || isAdapterCore(it) }, files)
+
+    /** Runtime 의 스캔·어댑터 판정 소유 위반 (f)(g). `파일 → 토큰`. */
+    private fun scanAdapterCoreOwnership(files: List<Parsed>): List<String> = files.filter(::isRuntime).flatMap { f ->
+        val body = f.code.replace(PACKAGE_LINE, "")
+        val judged = tokensOf(body, SCAN_ADAPTER_JUDGE_TOKENS) +
+            SCAN_ADAPTER_STAR_IMPORT.findAll(body).map { it.value.replace(Regex("\\s*\\.\\s*"), ".").replace(Regex("\\s+"), " ") }
+        val state = tokensOf(body, SCAN_ADAPTER_STATE_VARS, " ") + tokensOf(body, SCAN_ADAPTER_COLLECTIONS)
+        (judged + state).distinct().map { "${f.path} → $it" }
+    }.sorted()
+
+    /** 스캔 Core·어댑터 Core 무신호 통과 방지. 각 줄은 `가드:` 로 시작한다. */
+    private fun scanAdapterCoreGuard(files: List<Parsed>): List<String> {
+        val out = mutableListOf<String>()
+        if (!coreShapeOk(files, SCAN_CORE, SCAN_CORE_OBJECT)) {
+            out += "가드: (a) 스캔 Core(패키지 $SCAN_CORE)가 없거나, object ScanCore 가 Core 에 정확히 하나가 아니거나 Core 밖에 있거나, " +
+                "step(상태, 사건): 결과 선언이 없거나 결과 class 가 새 상태와 sealed 할 일의 List 를 갖지 않는다"
+        }
+        if (!coreShapeOk(files, ADAPTER_CORE, ADAPTER_CORE_OBJECT)) {
+            out += "가드: (a) 어댑터 Core(패키지 $ADAPTER_CORE)가 없거나, object AdapterCore 가 Core 에 정확히 하나가 아니거나 Core 밖에 있거나, " +
+                "step(상태, 사건): 결과 선언이 없거나 결과 class 가 새 상태와 sealed 할 일의 List 를 갖지 않는다"
+        }
+        if (files.none { isRuntime(it) && SCAN_STEP_CALL.containsMatchIn(it.code) }) {
+            out += "가드: (e) Core 밖 Domain 파일 중 ScanCore.step( 을 부르는 파일이 없다"
+        }
+        if (files.none { isRuntime(it) && ADAPTER_STEP_CALL.containsMatchIn(it.code) }) {
+            out += "가드: (e) Core 밖 Domain 파일 중 AdapterCore.step( 을 부르는 파일이 없다"
+        }
+        return out
+    }
+
+    /** [corePkg] Core 에 파일이 있고, [objectRe] object 가 Core 에 정확히 하나·Core 밖에 없고, `step(상태, 사건)` 결과 class 가 상태와 sealed 할 일 List 를 가진다. */
+    private fun coreShapeOk(files: List<Parsed>, corePkg: String, objectRe: Regex): Boolean {
+        val core = files.filter { it.pkg.under(corePkg) }
+        val outside = files.filter { !it.pkg.under(corePkg) }
+        val coreCode = core.joinToString("\n") { it.code }
+        val objectOk = core.sumOf { objectRe.findAll(it.code).count() } == 1 && outside.none { objectRe.containsMatchIn(it.code) }
+        val stepOk = STEP_DECL.findAll(coreCode).any { m ->
+            val (state, _, result) = m.destructured
+            val ctor = constructorOf(coreCode, result) ?: return@any false
+            val effect = Regex("\\bval\\s+\\w+\\s*:\\s*List<\\s*(\\w+)\\s*>").find(ctor)?.groupValues?.get(1)
+            Regex("\\bval\\s+\\w+\\s*:\\s*${Regex.escape(state)}\\b").containsMatchIn(ctor) && effect != null &&
+                Regex("\\bsealed\\s+(?:interface|class)\\s+${Regex.escape(effect)}\\b").containsMatchIn(coreCode)
+        }
+        return core.isNotEmpty() && objectOk && stepOk
     }
 
     /** [code] 에서 `class [name]` 의 주 생성자 괄호 안 텍스트. 없으면 null. */
@@ -883,6 +1176,41 @@ class ArchitectureRulesTest {
         const val CORE_ROOT = "$ROOT.internal.core"
         const val CONNECTION_CORE = "$ROOT.internal.core.connection"
         const val GATT_QUEUE_CORE = "$ROOT.internal.core.gatt"
+        const val SCAN_CORE = "$CORE_ROOT.scan"
+        const val ADAPTER_CORE = "$CORE_ROOT.adapter"
+        val KNOWN_CORES = listOf(CONNECTION_CORE, GATT_QUEUE_CORE, SCAN_CORE, ADAPTER_CORE)
+        val SCAN_CORE_OBJECT = Regex("\\bobject\\s+ScanCore\\b")
+        val ADAPTER_CORE_OBJECT = Regex("\\bobject\\s+AdapterCore\\b")
+        val SCAN_STEP_CALL = Regex("\\bScanCore\\s*\\.\\s*step\\s*\\(")
+        val ADAPTER_STEP_CALL = Regex("\\bAdapterCore\\s*\\.\\s*step\\s*\\(")
+        /** f: 어댑터 값 분류·판정표·스캔 공개 상태 값·판정 실패 조립·판정 상수. 공백을 지우고 본다. */
+        val SCAN_ADAPTER_JUDGE_TOKENS = listOf(
+            Regex(
+                "(?<![\\w.])(?:kr\\.co\\.nucode\\.ble\\.)?AdapterState\\s*\\.\\s*" +
+                    "(?:Unknown|Ready|PoweredOff|Resetting|Unsupported|Unauthorized)\\b",
+            ),
+            Regex("(?<![\\w.])(?:kr\\.co\\.nucode\\.ble\\.)?ScanState\\s*\\.\\s*(?:Idle|Scanning)\\b"),
+            Regex("\\b(?:fromAdapterState|alreadyRunning|startThrottled)\\s*\\("),
+            Regex("\\bSCAN_(?:ALREADY_RUNNING|STOPPED_BY_ADAPTER|START_THROTTLED)\\b"),
+            Regex("(?<![\\w.])FailurePhase\\s*\\.\\s*Adapter\\b"),
+            Regex("\\b(?:UNKNOWN_WAIT_MILLIS|START_BUDGET|START_WINDOW_MILLIS|START_WINDOW_MARGIN_MILLIS)\\b"),
+        )
+        val SCAN_ADAPTER_STAR_IMPORT = Regex("\\bimport\\s+kr\\.co\\.nucode\\.ble\\.(?:AdapterState|ScanState)\\s*\\.\\s*\\*")
+        /** g: 스캔 수명·어댑터 현재 값의 가변 칸. 셸이 드는 상태 값은 이름이 state 인 하나뿐이다. */
+        val SCAN_ADAPTER_STATE_VARS = listOf(
+            Regex(
+                "\\bvar\\s+(?:isScanning|activeRequest|userRequest|platformSpec|scanGeneration|reconcileScheduled|rediscoveries|" +
+                    "wasReady|currentAdapter)\\b",
+            ),
+            Regex("\\bvar\\s+\\w+\\s*:\\s*(?:ScanRequest|PlatformScanSpec|ScanState|AdapterState|RediscoveryConsumer)\\b"),
+            Regex("\\bvar\\s+(?!state\\b)\\w+\\s*:\\s*(?:ScanCoreState|AdapterCoreState)\\b"),
+        )
+        val SCAN_ADAPTER_COLLECTIONS = listOf(
+            Regex(
+                "(?<![\\w.])(?:ArrayDeque|ArrayList|LinkedList|MutableList|mutableListOf|MutableSet|mutableSetOf|LinkedHashSet|linkedSetOf|" +
+                    "LinkedHashMap|linkedMapOf|TreeMap|sortedMapOf)\\s*<[^>]*?\\b(?:RediscoveryWaiter|RediscoveryConsumer)\\b",
+            ),
+        )
         val QUEUE_CORE_OBJECT = Regex("\\bobject\\s+GattQueueCore\\b")
         val QUEUE_STEP_CALL = Regex("\\bGattQueueCore\\s*\\.\\s*step\\s*\\(")
         val QUEUE_TIMEOUT_TOKENS = listOf(

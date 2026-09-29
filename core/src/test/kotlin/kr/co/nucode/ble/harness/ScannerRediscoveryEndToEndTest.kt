@@ -1,6 +1,6 @@
 package kr.co.nucode.ble.harness
 
-import kr.co.nucode.ble.internal.port.PlatformScanSpec
+import kr.co.nucode.ble.internal.model.PlatformScanSpec
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleException
 import kotlinx.coroutines.async

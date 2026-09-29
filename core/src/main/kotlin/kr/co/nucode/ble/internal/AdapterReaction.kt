@@ -3,6 +3,7 @@ package kr.co.nucode.ble.internal
 import kr.co.nucode.ble.*
 import kr.co.nucode.ble.internal.adapter.AdapterMonitor
 import kr.co.nucode.ble.internal.connection.LinkCacheWarmth
+import kr.co.nucode.ble.internal.core.adapter.AdapterCore
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.SessionRegistry
@@ -53,7 +54,7 @@ internal class AdapterReaction(
     /** 어댑터 복귀 — 세션마다 lifecycle 에 넘긴다(재연결 판정·시작은 [GattBridge.resumeAfterAdapter] 소유). */
     internal fun onAdapterReturned() {
         for (session in registry.all()) {
-            gattBridge.resumeAfterAdapter(session.deviceId) { adapterMonitor.adapterState.value is AdapterState.Ready }
+            gattBridge.resumeAfterAdapter(session.deviceId) { AdapterCore.isReady(adapterMonitor.adapterState.value) }
         }
     }
 

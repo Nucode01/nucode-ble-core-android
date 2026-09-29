@@ -50,9 +50,10 @@ class AndroidCentralContractTest {
         // 어댑터 상태 조립은 오케스트레이션 소유자 AdapterMonitor 에 있다(plan runtime-split task 2) — 플랫폼 어댑터
         // (AndroidCentral)나 런타임에 두 번째 계산이 생기지 않는다.
         assertFalse("adapter-state composition moved out of BleRuntime", "computeAdapterState" in methods)
+        assertFalse("adapter-state composition moved out of BleRuntime", "observeFacts" in methods)
         assertTrue(
             "adapter-state composition lives in AdapterMonitor",
-            "computeAdapterState" in AdapterMonitor::class.java.declaredMethods.map { it.name },
+            "observeFacts" in AdapterMonitor::class.java.declaredMethods.map { it.name },
         )
     }
 }

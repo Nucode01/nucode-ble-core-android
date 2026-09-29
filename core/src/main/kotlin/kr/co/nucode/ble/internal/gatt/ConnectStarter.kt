@@ -18,7 +18,7 @@ import kr.co.nucode.ble.internal.core.connection.RediscoveryFact
 import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
-import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
+import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionOwner

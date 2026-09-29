@@ -1,17 +1,7 @@
 package kr.co.nucode.ble.internal.scan
 
-import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
 import kr.co.nucode.ble.PeripheralId
-
-/** Result of one bounded, address-filtered rediscovery scan. */
-internal sealed interface RediscoveryOutcome {
-    /** The peripheral advertised; the platform LE cache now knows its address type. */
-    data object Found : RediscoveryOutcome
-    /** No advertisement within the timeout. */
-    data object NotFound : RediscoveryOutcome
-    /** The scan could not run (permission, throttling, no scanner); caller falls back to a direct connect. */
-    data class Unavailable(val failure: BleFailure) : RediscoveryOutcome
-}
 
 /**
  * Repopulates the platform LE device cache for one address before connectGatt.

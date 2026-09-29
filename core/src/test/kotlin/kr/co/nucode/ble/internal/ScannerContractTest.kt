@@ -44,7 +44,7 @@ import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScannerContractTest {
-    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner(central = null))
+    private val scanner = Scanner({}, CoroutineScope(EmptyCoroutineContext), port = AndroidScanner(central = null), clock = TestClock)
 
     @Test
     fun `candidate filters are OR and advertised name is AND`() {
@@ -100,6 +100,7 @@ class ScannerContractTest {
             emit = {},
             scope = CoroutineScope(EmptyCoroutineContext),
             port = port,
+            clock = TestClock,
         )
 
         assertNull(runningScanner.startScan(request))
@@ -143,7 +144,7 @@ class ScannerContractTest {
                 retryability = Retryability.Unknown,
             )
         }
-        val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext), port = port)
+        val scanner = Scanner(events::add, CoroutineScope(EmptyCoroutineContext), port = port, clock = TestClock)
 
         runCatching { scanner.startScan(BleScanFilter(), kr.co.nucode.ble.BleScanOptions()) } // 거부는 throw 로도 전달된다
 
@@ -179,7 +180,7 @@ class ScannerContractTest {
     private val target = PeripheralId("AA:BB:CC:DD:EE:01")
 
     private fun CoroutineScope.throttledScanner() =
-        Scanner(throttleEvents::add, this, port = throttlePort, now = { clock })
+        Scanner(throttleEvents::add, this, port = throttlePort, clock = TestClock, startLedger = ScanStartLedger { clock })
 
     /** 사용자 시작·정지로 성공한 플랫폼 시작을 [count] 번 쌓는다. */
     private fun Scanner.spendStarts(count: Int) = repeat(count) {
@@ -310,8 +311,8 @@ class ScannerContractTest {
     fun `두 Scanner 가 한 ledger 를 공유하면 시작을 합산해 거부한다`() = runTest {
         val ledger = ScanStartLedger { clock }
         val otherPort = RecordingScanPort()
-        val first = Scanner(throttleEvents::add, this, port = throttlePort, startLedger = ledger)
-        val second = Scanner({}, this, port = otherPort, startLedger = ledger)
+        val first = Scanner(throttleEvents::add, this, port = throttlePort, clock = TestClock, startLedger = ledger)
+        val second = Scanner({}, this, port = otherPort, clock = TestClock, startLedger = ledger)
         first.spendStarts(3)
         second.spendStarts(2)
         clock = 30_000

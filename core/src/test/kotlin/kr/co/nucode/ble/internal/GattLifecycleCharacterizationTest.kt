@@ -60,7 +60,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `stale cleanup generation cannot replace current disconnect reason projection`() = runTest {
-        val session = Session(DEVICE_ID)
+        val session = Session(DEVICE_ID, TestClock)
         val firstGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         assertTrue(
             session.connectionCoordinator.completeCleanup(
@@ -97,7 +97,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `connect starts one coordinator generation and passes it to the driver fake`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this)
         val bridge = GattBridge(
@@ -119,7 +119,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `disconnect start failure completes cleanup immediately with one diagnostic`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this).apply { disconnectFailure = IllegalStateException("gatt gone") }
         val events = mutableListOf<BleEvent>()
@@ -146,7 +146,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `discovery permission exception enters bounded terminal cleanup`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this).apply { discoverFailure = SecurityException() }
         val bridge = GattBridge(
@@ -181,7 +181,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `operation permission exception is typed and enters bounded terminal cleanup`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID)
         val driver = FakeGattDriver(this)
         val bridge = GattBridge(
@@ -331,7 +331,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `platform relink keeps MTU completion Configuring for Core restore orchestration`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         // 플랫폼 재연결 대기 — autoConnect handle 이 열린 채 generation 1 이 끝났다.
         val session = registry.getOrCreate(DEVICE_ID).apply {
             autoConnect = true
@@ -392,7 +392,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `started operation timeout terminalizes lifecycle before the next attempt and caller cancellation only detaches the caller`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = false
         }
@@ -589,7 +589,7 @@ class GattLifecycleCharacterizationTest {
 
     @Test
     fun `same-generation late non-terminal failures cannot tear down readiness stages`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID).apply {
             suppressReconnect = false
         }

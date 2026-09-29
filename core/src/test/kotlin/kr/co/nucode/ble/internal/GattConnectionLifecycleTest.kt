@@ -23,7 +23,7 @@ import java.io.File
 class GattConnectionLifecycleTest {
     @Test
     fun `connect invalidates operations then opens a new generation through the hooks`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId)
         val calls = mutableListOf<String>()

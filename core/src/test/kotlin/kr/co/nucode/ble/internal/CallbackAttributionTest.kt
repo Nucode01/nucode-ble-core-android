@@ -54,7 +54,7 @@ class CallbackAttributionTest {
 
     /** generation 1 을 연 뒤 [stage] 에 도달한 세션. */
     private fun TestScope.sessionAt(stage: ConnectionStage, wait: Wait): Session {
-        val session = Session(deviceId)
+        val session = Session(deviceId, TestClock)
         val c = session.connectionCoordinator
         val g = c.beginConnection(TestStageAuthority, this, 10_000) {}
         when (stage) {

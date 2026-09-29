@@ -3,6 +3,8 @@ package kr.co.nucode.ble
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
+import kr.co.nucode.ble.internal.TestClock
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticRateLimiter
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
 import kr.co.nucode.ble.internal.model.BleEvent
 import org.junit.Assert.assertArrayEquals
@@ -18,7 +20,7 @@ class DiagnosticPayloadTest {
         val compatibility = mutableListOf<BleEvent.Diagnostic>()
         val reporter = DiagnosticReporter(
             emitCompatibility = compatibility::add,
-            dispatcher = DiagnosticDispatcher(logger = null, capacity = 1),
+            dispatcher = DiagnosticDispatcher(logger = null, capacity = 1, limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis)),
             options = DiagnosticOptions(),
         )
         reporter.report(Severity.Info, failure()) {
@@ -37,7 +39,7 @@ class DiagnosticPayloadTest {
         val source = byteArrayOf(7, 8, 9)
         val reporter = DiagnosticReporter(
             emitCompatibility = {},
-            dispatcher = DiagnosticDispatcher(BleLogger { record = it; delivered.countDown() }, capacity = 1),
+            dispatcher = DiagnosticDispatcher(BleLogger { record = it; delivered.countDown() }, capacity = 1, limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis)),
             options = DiagnosticOptions(),
         )
         reporter.report(Severity.Info, failure()) {

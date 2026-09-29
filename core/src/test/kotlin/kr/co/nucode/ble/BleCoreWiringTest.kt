@@ -1,5 +1,6 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.TestClock
 import kr.co.nucode.ble.internal.port.GattCallbackSource
 import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.port.GattDriver
@@ -632,7 +633,7 @@ class BleCoreWiringTest {
      */
     @Test
     fun `D6① GattBridge connect에서 adapter가 사라지면 AdapterUnavailable PoweredOff를 던진다`() {
-        val registry = kr.co.nucode.ble.internal.session.SessionRegistry()
+        val registry = kr.co.nucode.ble.internal.session.SessionRegistry(TestClock)
         val id = testDeviceId()
         registry.getOrCreate(id)
 
@@ -1412,7 +1413,7 @@ class BleCoreWiringTest {
     }
 
     private fun TestScope.lifecycleFixture(): LifecycleFixture {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = testDeviceId("C1")
         val session = registry.getOrCreate(deviceId)
         val driver = LifecycleFakeGattDriver()

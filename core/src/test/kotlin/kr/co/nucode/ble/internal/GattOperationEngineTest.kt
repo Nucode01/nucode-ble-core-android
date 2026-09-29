@@ -26,7 +26,7 @@ import org.junit.Test
 class GattOperationEngineTest {
     @Test
     fun `permission denied at operation start enters lifecycle cleanup through the hook`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val beginCleanupCalls = mutableListOf<Triple<TerminalCleanupReason, String?, Boolean>>()

@@ -6,6 +6,7 @@ import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.platform.android.AndroidAdapterSource
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
+import kr.co.nucode.ble.internal.platform.android.AndroidClock
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
@@ -27,6 +28,7 @@ internal fun androidRuntime(context: Context, config: BleConfig): BleRuntime {
         gattDriverFactory = { mailbox -> AndroidGattDriver(central, mailbox) },
         scanPort = AndroidScanner(central),
         adapterSource = AndroidAdapterSource(central, true),
+        clock = AndroidClock(),
         scanStartLedger = processScanStartLedger,
         scannerRediscovery = true,
     )

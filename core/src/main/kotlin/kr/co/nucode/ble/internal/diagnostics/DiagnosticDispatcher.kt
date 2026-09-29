@@ -1,12 +1,18 @@
 package kr.co.nucode.ble.internal.diagnostics
 
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleLogger
+import kr.co.nucode.ble.DiagnosticFailure
 import kr.co.nucode.ble.DiagnosticRecord
+import kr.co.nucode.ble.DiagnosticSeverity
 import kr.co.nucode.ble.DiagnosticValue
+import kr.co.nucode.ble.FailureCategory
+import kr.co.nucode.ble.FailureCode
+import kr.co.nucode.ble.FailurePhase
+import kr.co.nucode.ble.Retryability
 
 /**
  * Isolates optional application logging from BLE callbacks. Admission is always a bounded
@@ -16,7 +22,7 @@ internal class DiagnosticDispatcher(
     logger: BleLogger?,
     capacity: Int,
     threadName: String = "nucode-ble-diagnostics",
-    private val limiter: DiagnosticRateLimiter = DiagnosticRateLimiter(),
+    private val limiter: DiagnosticRateLimiter,
 ) : AutoCloseable {
     private val accepting = AtomicBoolean(true)
     private val admissionLock = Any()
@@ -59,7 +65,11 @@ internal class DiagnosticDispatcher(
     /** Stops future admission and requests worker termination without flushing or joining. */
     override fun close() {
         synchronized(admissionLock) {
-            if (accepting.compareAndSet(true, false)) worker?.interrupt()
+            if (accepting.compareAndSet(true, false)) {
+                // A full queue is fine: the worker then sees accepting=false on its next pass.
+                queue?.offer(STOP)
+                worker?.interrupt()
+            }
         }
     }
 
@@ -73,10 +83,11 @@ internal class DiagnosticDispatcher(
     private fun drain(records: ArrayBlockingQueue<Envelope>, logger: BleLogger) {
         while (accepting.get()) {
             val envelope = try {
-                records.poll(POLL_MILLIS, TimeUnit.MILLISECONDS)
+                records.take()
             } catch (_: InterruptedException) {
-                null
-            } ?: continue
+                continue
+            }
+            if (envelope === STOP) return
             try {
                 logger.log(envelope.record)
             } catch (_: Throwable) {
@@ -123,6 +134,19 @@ internal class DiagnosticDispatcher(
     private data class Envelope(val record: DiagnosticRecord, val summary: Boolean = false)
 
     private companion object {
-        const val POLL_MILLIS = 100L
+        /** Wakes a worker blocked in take(); never handed to the logger. */
+        val STOP = Envelope(
+            DiagnosticRecord(
+                severity = DiagnosticSeverity.Info,
+                failure = DiagnosticFailure(
+                    BleFailure(
+                        category = FailureCategory("diagnostics"),
+                        code = FailureCode("CLIENT_CLOSED"),
+                        phase = FailurePhase.Operation,
+                        retryability = Retryability.Never,
+                    ),
+                ),
+            ),
+        )
     }
 }

@@ -128,7 +128,7 @@ internal class GattOperationEngine(
 
 
     private val executor = OperationExecutor(
-        emit, scope, driver, ackTimeoutMillis, operationStarter, operationWriteTypeResolver,
+        emit, scope, registry.clock, driver, ackTimeoutMillis, operationStarter, operationWriteTypeResolver,
         operationTargetResolver, diagnosticIngress, lifecycle,
     )
     private val callbacks = OperationCallbacks(registry, emit, executor)

@@ -15,6 +15,7 @@ import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticDispatcher
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
+import kr.co.nucode.ble.internal.diagnostics.DiagnosticRateLimiter
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticReporter
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.session.Session
@@ -30,6 +31,7 @@ internal class ClientEventBus(
     config: BleConfig,
     private val isClosed: () -> Boolean,
     private val sessionOf: (PeripheralId) -> Session?,
+    wallMillis: () -> Long,
 ) {
 
     // ── 배선 ② emit — 규칙 7: 방출 지점은 이 함수 하나뿐 ─────────────────────────────
@@ -69,6 +71,7 @@ internal class ClientEventBus(
     private val diagnosticDispatcher = DiagnosticDispatcher(
         logger = config.logger,
         capacity = config.diagnosticOptions.queueCapacity,
+        limiter = DiagnosticRateLimiter(clockMillis = wallMillis),
     )
     private val diagnosticReporter = DiagnosticReporter(
         emitCompatibility = ::emitCompatibilityDiagnostic,

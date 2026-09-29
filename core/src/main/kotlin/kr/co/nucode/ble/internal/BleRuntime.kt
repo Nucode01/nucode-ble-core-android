@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.internal.port.CoreMailbox
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.port.PlatformScanPort
@@ -56,6 +57,8 @@ internal class BleRuntime internal constructor(
     gattDriverFactory: (CoreMailbox) -> GattDriver,
     private val scanPort: PlatformScanPort,
     private val adapterSource: AdapterSource,
+    /** 도메인이 시각·지연·기한을 얻는 유일한 입구 — 구현은 Factory 조립이 넘긴다. */
+    private val clock: ClockPort,
     /** 플랫폼 스캔 시작 기록 — null 이면 [scanner] 전용 기록(테스트 격리). Factory 조립만 프로세스 공유 기록을 넘긴다(Android 시작 한도는 앱 단위). */
     private val scanStartLedger: ScanStartLedger?,
     /** true 면 재발견을 실제 [scanner] 소비자로 배선한다(운영 조립과 e2e 하네스). false 면 [rediscoveryOverride] 만. */
@@ -169,6 +172,7 @@ internal class BleRuntime internal constructor(
         config = config,
         isClosed = { closer.isClosed() },
         sessionOf = { deviceId -> registry.get(deviceId) },
+        wallMillis = clock::wallMillis,
     )
 
 
@@ -216,7 +220,7 @@ internal class BleRuntime internal constructor(
      * [linkSetup] 분기를 구동한다. 프로덕션 호출자는 워커 4개와
      * `BleRuntime` 자신뿐이다.
      */
-    internal val registry = SessionRegistry()
+    internal val registry = SessionRegistry(clock)
 
     /** 링크 캐시 온기 소유자 — 스캔 관측·LinkSetup·sweep 이 쓰고 lifecycle 이 읽는다. */
     private val linkCacheWarmth = LinkCacheWarmth()
@@ -232,7 +236,8 @@ internal class BleRuntime internal constructor(
         scope = coreScope,
         emitObservation = ::emitScanObservation,
         port = scanPort,
-        startLedger = scanStartLedger ?: ScanStartLedger { System.nanoTime() / 1_000_000 },
+        clock = clock,
+        startLedger = scanStartLedger ?: ScanStartLedger(clock::elapsedMillis),
     )
     private val gattDriver = gattDriverFactory(mailbox)
     /**
@@ -305,6 +310,7 @@ internal class BleRuntime internal constructor(
     private val adapterMonitor: AdapterMonitor = AdapterMonitor(
         scope = coreScope,
         adapterSource = adapterSource,
+        clock = clock,
         adapterStateProbe = adapterStateProbe,
         onAdapterLost = adapterReaction::onAdapterLost,
         onAdapterReturned = adapterReaction::onAdapterReturned,

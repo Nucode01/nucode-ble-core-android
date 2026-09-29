@@ -34,7 +34,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `beginCleanup 원인이 completeCleanup fallback보다 우선한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(c.beginCleanup(TestStageAuthority, g, timeoutCause, this, 100) {})
@@ -48,7 +48,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `latchIfAbsent 원인이 이후 beginCleanup 원인보다 우선한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(c.latchIfAbsent(TestStageAuthority, g, timeoutCause))
@@ -63,7 +63,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `latch된 원인이 없으면 completeCleanup fallback을 기록한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(c.completeCleanup(TestStageAuthority, g, platformFallback))
@@ -73,7 +73,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `새 generation은 latch를 초기화한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g1 = c.beginConnection(TestStageAuthority, this, 100) {}
         c.completeCleanup(TestStageAuthority, g1, timeoutCause)
 
@@ -85,7 +85,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `stale generation 호출은 거부되고 latch를 바꾸지 않는다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g1 = c.beginConnection(TestStageAuthority, this, 100) {}
         c.completeCleanup(TestStageAuthority, g1, timeoutCause)
         val g2 = c.beginConnection(TestStageAuthority, this, 100) {}
@@ -100,7 +100,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `사용자 beginCleanup 뒤 close 대체는 ClientClosed로 끝난다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
         c.beginCleanup(TestStageAuthority, g, TerminalCause(TerminalCleanupReason.UserRequested, null), this, 100) {}
 
@@ -111,7 +111,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `이미 Disconnected면 close 대체는 원래 실패 원인을 유지한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
         c.beginCleanup(TestStageAuthority, g, timeoutCause, this, 100) {}
         c.completeCleanup(TestStageAuthority, g, platformFallback)
@@ -122,7 +122,7 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `beginCleanup UserRequested 뒤 다른 원인은 first wins로 무시된다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
         val user = TerminalCause(TerminalCleanupReason.UserRequested, null)
         assertTrue(c.beginCleanup(TestStageAuthority, g, user, this, 100) {})
@@ -136,7 +136,7 @@ class TerminalCauseLatchTest {
     @Test
     fun `재연결 대기 중인 Disconnected generation은 supersedePlatformWait으로 ClientClosed를 다시 게시한다`() = runTest {
         val published = mutableListOf<ConnectionStage>()
-        val c = ConnectionCoordinator { published += it }
+        val c = ConnectionCoordinator(TestClock) { published += it }
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
         c.completeCleanup(TestStageAuthority, g, TerminalCause(TerminalCleanupReason.PlatformDisconnected, failure("LINK_FAILED")))
         published.clear()
@@ -148,14 +148,14 @@ class TerminalCauseLatchTest {
 
     @Test
     fun `연결 시도 전 generation은 supersedePlatformWait하지 않는다`() {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         assertFalse(c.supersedePlatformWait(TestStageAuthority, 0L, TerminalCause(TerminalCleanupReason.ClientClosed, null)))
         assertNull(c.terminalCause)
     }
 
     @Test
     fun `supersedePlatformWait은 adapter 원인을 받고 소유자가 아닌 원인은 거부한다`() = runTest {
-        val c = ConnectionCoordinator()
+        val c = ConnectionCoordinator(TestClock)
         val g = c.beginConnection(TestStageAuthority, this, 100) {}
         c.completeCleanup(TestStageAuthority, g, TerminalCause(TerminalCleanupReason.PlatformDisconnected, failure("LINK_FAILED")))
         val adapterOff = TerminalCause(TerminalCleanupReason.AdapterUnavailable, failure("ADAPTER_UNAVAILABLE"))

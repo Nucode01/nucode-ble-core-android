@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
+import kr.co.nucode.ble.internal.TestClock
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.model.ScanObservation
@@ -38,6 +39,7 @@ class ScanRediscoveryJoinTest {
         scope = this,
         emitObservation = delivered::add,
         port = port,
+        clock = TestClock,
     )
 
     private val target = PeripheralId("AA:BB:CC:DD:EE:01")

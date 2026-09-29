@@ -29,7 +29,9 @@ import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
+import kr.co.nucode.ble.internal.TestClock
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.Session
@@ -494,7 +496,7 @@ class FailureRouteInfoDeliveryTest {
     @Test
     fun `rediscovery without scanner emits SCANNER_UNAVAILABLE Diagnostic and falls back to connect`() = runTest {
         // 운영 재발견 = Scanner 소비자 → 플랫폼 문 AndroidScanner(스캐너 없음).
-        val f = connectWithRediscovery(Scanner({}, backgroundScope, port = AndroidScanner(central = null)))
+        val f = connectWithRediscovery(Scanner({}, backgroundScope, port = AndroidScanner(central = null), clock = TestClock))
 
         assertTrue(f.diagnosticCodes().toString(), f.diagnostics("SCANNER_UNAVAILABLE").isNotEmpty())
         assertEquals(ConnectionState.Connecting, f.state)
@@ -532,7 +534,7 @@ class FailureRouteInfoDeliveryTest {
     @Test
     fun `rediscovery scan start throttled emits SCAN_START_THROTTLED Diagnostic and falls back to connect`() = runTest {
         // 운영 재발견 = Scanner 소비자. 같은 시각에 성공한 시작 5회로 한도를 채운 뒤 재발견 시작은 거부된다.
-        val scanner = Scanner({}, backgroundScope, port = RecordingScanPort(), now = { 0L })
+        val scanner = Scanner({}, backgroundScope, port = RecordingScanPort(), clock = TestClock, startLedger = ScanStartLedger { 0L })
         repeat(5) {
             scanner.startScan(ScanRequest(BleScanFilter(), BleScanOptions()))
             scanner.stopScan()

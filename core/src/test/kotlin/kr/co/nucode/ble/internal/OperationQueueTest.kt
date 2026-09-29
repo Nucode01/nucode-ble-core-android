@@ -95,7 +95,7 @@ class OperationQueueTest {
 
     @Test
     fun `BleChunking Disabled이고 페이로드가 chunkSize 이하면 쪼개지 않고 그대로 1청크`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -119,7 +119,7 @@ class OperationQueueTest {
 
     @Test
     fun `BleChunking Disabled인데 chunkSize를 넘으면 조용히 쪼개지 않고 TooLarge`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -146,7 +146,7 @@ class OperationQueueTest {
 
     @Test
     fun `BleChunking Automatic면 chunkSize를 넘어도 쪼개져서 성공한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -171,7 +171,7 @@ class OperationQueueTest {
 
     @Test
     fun `BleChunking Fixed는 협상 capability 이내의 지정 크기로 정확히 나눈다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FE")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -193,7 +193,7 @@ class OperationQueueTest {
 
     @Test
     fun `BleChunking Fixed가 협상 capability를 넘으면 platform write 전에 TooLarge다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FD")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -215,7 +215,7 @@ class OperationQueueTest {
 
     @Test
     fun `모르는 PeripheralId면 UnknownDevice를 던진다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val queue = OperationQueue(registry, emit = { }, writeCommand = { _, _, chunks, _, _ -> chunks.map { GATT_SUCCESS } }, ackTimeoutMillis = 5_000)
 
         val failure = runCatching { queue.write(
@@ -230,7 +230,7 @@ class OperationQueueTest {
 
     @Test
     fun `연결 상태가 Connected가 아니면 NotConnected를 던진다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId) // state 기본값은 Disconnected
 
@@ -248,7 +248,7 @@ class OperationQueueTest {
 
     @Test
     fun `MTU 협상 전이어도 Connected면 기본 chunkSize 20으로 write가 동작한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -286,7 +286,7 @@ class OperationQueueTest {
 
     @Test
     fun `writeCommand 람다가 모두 0을 반환하면 Ok, 청크 수만큼 전달되고 각 청크 크기가 맞다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -319,7 +319,7 @@ class OperationQueueTest {
 
     @Test
     fun `MTU 65에서 600바이트 쓰기는 62바이트 단위 10청크로 완료된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -348,7 +348,7 @@ class OperationQueueTest {
 
     @Test
     fun `600바이트 쓰기 중 3번째 청크에서 연결이 끊기면 부분 진행률을 남기고 재전송하지 않는다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -396,7 +396,7 @@ class OperationQueueTest {
 
     @Test
     fun `3번째 청크에서 133을 반환하면 typed progress가 2번째 index를 보존한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -437,7 +437,7 @@ class OperationQueueTest {
 
     @Test
     fun `첫 청크에서 133을 반환하면 typed progress의 completed chunk는 없다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -464,7 +464,7 @@ class OperationQueueTest {
 
     @Test
     fun `writeCommand 람다가 CancellationException을 던지면 Failed로 보고하고 호출자는 살아있다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {
@@ -499,7 +499,7 @@ class OperationQueueTest {
 
     @Test
     fun `production writeCommand seam에는 public write의 모든 청크가 한 번에 전달된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val charRef = charRef(UUID.randomUUID(), UUID.randomUUID())
         registry.getOrCreate(deviceId).apply {

@@ -1,12 +1,12 @@
 package kr.co.nucode.ble.internal.adapter
 
 import kr.co.nucode.ble.internal.port.AdapterSource
+import kr.co.nucode.ble.internal.port.ClockPort
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
@@ -21,10 +21,12 @@ import kr.co.nucode.ble.FailurePhase
  * 으로 준다. 코어 스레드에서만 불린다(리시버는 [scope] 로 홉한다).
  *
  * @param adapterSource 어댑터 조회·on/off 통지 포트 — 리시버 소유는 platform 구현 몫.
+ * @param clock Unknown 대기 기한을 재는 시계 포트.
  */
 internal class AdapterMonitor(
     private val scope: CoroutineScope,
     private val adapterSource: AdapterSource,
+    private val clock: ClockPort,
     private val adapterStateProbe: (() -> AdapterState)?,
     private val onAdapterLost: (AdapterState) -> Unit,
     private val onAdapterReturned: () -> Unit,
@@ -124,7 +126,7 @@ internal class AdapterMonitor(
         updateAdapterState(computeAdapterState())
         if (_adapterState.value is AdapterState.Unknown) {
             // 판정 전(Unknown)이면 세션 전이 없이 값이 바뀌기를 기다린다. 호출자 취소는 대기를 끝낸다.
-            withTimeoutOrNull(UNKNOWN_WAIT_MILLIS) { _adapterState.first { it !is AdapterState.Unknown } }
+            clock.awaitWithinOrNull(UNKNOWN_WAIT_MILLIS) { _adapterState.first { it !is AdapterState.Unknown } }
             updateAdapterState(computeAdapterState())
         }
         when (val state = _adapterState.value) {

@@ -3,6 +3,7 @@ package kr.co.nucode.ble.internal.session
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.normalized
 
 /**
@@ -22,14 +23,14 @@ internal class SessionOwner(val deviceId: PeripheralId) : AbstractCoroutineConte
  * 지키는 건 맵 하나뿐이다 — **Session 내부 상태(state/mtu/…)는 여전히 coreScope 단일
  * 스레드 위에서만 변경된다**(설계 §3 규칙 2 불변). 이 클래스는 그 상태를 들여다보지 않는다.
  */
-internal class SessionRegistry {
+internal class SessionRegistry(val clock: ClockPort) {
     private val sessions = mutableMapOf<PeripheralId, Session>()
 
     /** 없으면 새로 만들어 등록한다. */
     @Synchronized
     fun getOrCreate(deviceId: PeripheralId): Session {
         val id = deviceId.normalized()
-        return sessions.getOrPut(id) { Session(id) }
+        return sessions.getOrPut(id) { Session(id, clock) }
     }
 
     /** 이미 있는 것만 조회한다. connect 되지 않은 기기는 null. */

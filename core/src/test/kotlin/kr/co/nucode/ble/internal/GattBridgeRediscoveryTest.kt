@@ -89,7 +89,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `cold 주소는 driver connect 전에 rediscovery 를 1회 부르고 그 timeout 은 설정값과 같다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:01")
         registry.getOrCreate(deviceId)
         val log = mutableListOf<String>()
@@ -119,7 +119,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `warm 주소는 rediscovery 를 부르지 않고 driver connect 만 1회 부른다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:02")
         registry.getOrCreate(deviceId)
         val warm = setOf(deviceId)
@@ -145,7 +145,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `rediscovery 가 null 이면 기존 경로대로 driver connect 만 1회 부른다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:03")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
@@ -168,7 +168,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `NotFound 는 fail-fast 로 PERIPHERAL_NOT_FOUND 를 던지고 driver connect 를 부르지 않는다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:04")
         val session = registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
@@ -201,7 +201,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `Unavailable 은 직접 연결로 폴백하고 Diagnostic 을 1개 emit 한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:05")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
@@ -235,7 +235,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `재발견 대기 중 disconnect 가 generation 을 끝내면 driver connect 는 불리지 않고 OPERATION_INVALIDATED 로 끝난다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:06")
         registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()
@@ -279,7 +279,7 @@ class GattBridgeRediscoveryTest {
 
     @Test
     fun `호출자 취소는 재발견 대기 중 열린 generation 을 정리하고 Disconnected 를 1회 emit 한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:07")
         val session = registry.getOrCreate(deviceId)
         val driver = RecordingGattDriver()

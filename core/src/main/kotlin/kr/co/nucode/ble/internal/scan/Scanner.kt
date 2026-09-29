@@ -10,10 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AdvertisementData
 import kr.co.nucode.ble.internal.model.BleEvent
+import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleScanFilter
@@ -57,13 +57,13 @@ internal class Scanner(
     private val scope: CoroutineScope,
     private val emitObservation: (ScanObservation) -> Unit = {},
     private val port: PlatformScanPort,
-    /** 단조 시계(ms) — 기본 [startLedger] 의 시작 한도 창 계산용. 테스트는 가상 시간을 넣는다. */
-    now: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** 재발견 시간 제한과 기본 [startLedger] 의 시작 한도 창 계산용 시계 포트. Factory 가 운영 시계를 넣고 테스트는 시험 시계를 넣는다. */
+    private val clock: ClockPort,
     /**
-     * 성공한 플랫폼 시작 기록. 기본값은 이 Scanner 전용(테스트 격리) — Factory 조립(`androidRuntime`)만
+     * 성공한 플랫폼 시작 기록. 기본값은 이 Scanner 전용(테스트 격리, 시계 = [clock]) — Factory 조립(`androidRuntime`)만
      * 프로세스 공유 기록(시계 elapsedRealtime)을 넘긴다(한도는 앱 단위).
      */
-    private val startLedger: ScanStartLedger = ScanStartLedger(now),
+    private val startLedger: ScanStartLedger = ScanStartLedger(clock::elapsedMillis),
 ) : PeripheralRediscovery {
 
     internal var isScanning: Boolean = false
@@ -190,7 +190,7 @@ internal class Scanner(
         rediscoveries += waiter
         try {
             scheduleReconcile()
-            return withTimeoutOrNull(timeoutMillis) { waiter.outcome.await() } ?: RediscoveryOutcome.NotFound
+            return clock.awaitWithinOrNull(timeoutMillis) { waiter.outcome.await() } ?: RediscoveryOutcome.NotFound
         } finally {
             rediscoveries -= waiter
             if (rediscoveries.isEmpty() && activeRequest == null) stopPlatform()

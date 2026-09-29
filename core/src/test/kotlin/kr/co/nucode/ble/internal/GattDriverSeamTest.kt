@@ -68,7 +68,7 @@ import kr.co.nucode.ble.internal.model.GattHandle
 class GattDriverSeamTest {
     @Test
     fun `read command starts once and returns a defensive callback copy`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).setStateForTest(ConnectionState.Ready)
         val driver = FakeGattDriver()
@@ -110,7 +110,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `read synchronous start rejection fails only that operation without poison`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val bridge = GattBridge(
@@ -134,7 +134,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started read timeout poisons generation drains queue and closes handle`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -187,7 +187,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `poison tail keeps its cause when disconnect re-enters DISCONNECTED synchronously`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -230,7 +230,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started caller cancellation detaches only the caller and the late callback completes the departed read`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -272,7 +272,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `departed started read without callback is poisoned by the queue deadline as OPERATION_TIMEOUT`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -306,7 +306,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started write timeout through OperationQueue poisons generation and returns partial-safe failure`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -367,7 +367,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `write progress 시작 전 거절은 started false, unknown false이고 앞 조각만 확정으로 센다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -406,7 +406,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `write progress 줄에서 무효화된 시작 전 조각은 started false, unknown false다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -443,7 +443,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started write caller cancellation through OperationQueue detaches only the caller and the remaining chunks still go out`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -505,7 +505,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started CCCD timeout through subscribe poisons generation`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -541,7 +541,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `started CCCD caller cancellation detaches only the caller and the ack completes the departed subscribe`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -580,7 +580,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `disconnect drains scheduler waiters before platform callback`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -614,7 +614,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `same-UUID service instances keep their own instance index through discovery projection`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId)
         val events = mutableListOf<BleEvent>()
@@ -663,7 +663,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `fake driver injects commands and callbacks without BluetoothGatt`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         val events = mutableListOf<BleEvent>()
@@ -774,7 +774,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `stale callback source cannot mutate the current Session`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         session.setStateForTest(ConnectionState.Connecting)
@@ -837,7 +837,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `write와 CCCD는 common FIFO에서 exact target callback으로만 차례로 완료된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -905,7 +905,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `pending 없는 characteristic callback은 duplicate diagnostic으로 기록된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId)
         val driver = FakeGattDriver()
@@ -922,7 +922,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `pre-start queue time은 write ACK timeout을 소비하지 않는다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -989,7 +989,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `pre-start public write 취소는 예약한 모든 청크를 제거하지 않고 끝까지 내보낸다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -1053,7 +1053,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `Task4 drain이 pre-start completion을 취소하면 started 대기 caller도 종결된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
         val driver = FakeGattDriver()
@@ -1103,7 +1103,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `multi-chunk public write 전체가 뒤에 enqueue된 CCCD보다 먼저 시작된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -1168,7 +1168,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `동시에 들어온 multi-chunk write 두 개는 command 단위 FIFO로 실행된다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -1227,7 +1227,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `multi-chunk write 실패 뒤 남은 청크는 시작하지 않고 다음 command로 진행한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -1287,7 +1287,7 @@ class GattDriverSeamTest {
 
     @Test
     fun `WriteType Auto는 queue 대기 뒤 실제 start에서 다시 판정한다`() = runTest {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         registry.getOrCreate(deviceId).apply {
             setStateForTest(ConnectionState.Ready)
@@ -1470,7 +1470,7 @@ class GattDriverSeamTest {
     }
 
     private fun readFixture(scope: CoroutineScope): ReadFixture {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         // 작업 콜백은 살아 있는 연결 generation 에만 귀속된다(CallbackAttribution).

@@ -15,7 +15,8 @@ package kr.co.nucode.ble.internal.scan
  * 시작은 세지 못한다.
  *
  * @param clock 단조 시계(ms). 운영은 `SystemClock.elapsedRealtime()`(deep sleep 에도 진행 — nanoTime 은 멈춰
- * 창이 늘어나 false throttle). scan 패키지는 Android API 를 쓰지 않으므로 운영 시계는 BleRuntime 이 넣는다.
+ * 창이 늘어나 false throttle). scan 패키지는 Android API 를 쓰지 않으므로 운영 시계는 Factory 가 만든
+ * [kr.co.nucode.ble.internal.port.ClockPort] 의 `elapsedMillis` 로 BleRuntime 이 넣는다.
  */
 internal class ScanStartLedger(private val clock: () -> Long) {
 

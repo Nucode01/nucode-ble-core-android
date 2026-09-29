@@ -26,7 +26,7 @@ class SessionRegistryTest {
     @Test
     fun `getOrCreate 같은 PeripheralId로 두 번 부르면 같은 인스턴스가 온다`() {
         // 다른 인스턴스가 오면 state·gatt·구독 상태가 갈라져 규칙 2(상태는 객체 하나)가 무의미해진다.
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
 
         val first = registry.getOrCreate(deviceId)
@@ -39,7 +39,7 @@ class SessionRegistryTest {
 
     @Test
     fun `get 없는 기기는 null`() {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
 
         assertNull(registry.get(PeripheralId("00:00:00:00:00:00")))
     }
@@ -49,7 +49,7 @@ class SessionRegistryTest {
     @Test
     fun `remove 제거된 Session을 돌려주고 이후 get은 null`() {
         // 호출부(BleCore.close 등)가 반환된 Session 으로 gatt.close() 를 할 수 있어야 한다.
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
 
@@ -63,7 +63,7 @@ class SessionRegistryTest {
 
     @Test
     fun `all은 등록된 Session 전부를 돌려준다`() {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val a = registry.getOrCreate(PeripheralId("A"))
         val b = registry.getOrCreate(PeripheralId("B"))
 
@@ -77,7 +77,7 @@ class SessionRegistryTest {
 
     @Test
     fun `session은 state mtu chunkSize를 그대로 싣는다`() {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         session.setStateForTest(ConnectionState.Ready)
@@ -93,7 +93,7 @@ class SessionRegistryTest {
     @Test
     fun `mtu 미협상이면 mtu는 null`() {
         // 23 바이트 기본값을 임의로 채우지 않는다
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(PeripheralId("AA:BB:CC:DD:EE:FF"))
 
         assertNull(session.mtu)
@@ -104,7 +104,7 @@ class SessionRegistryTest {
 
     @Test
     fun `Session마다 GATT scheduler는 다른 인스턴스다`() {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val a = registry.getOrCreate(PeripheralId("A"))
         val b = registry.getOrCreate(PeripheralId("B"))
 
@@ -114,7 +114,7 @@ class SessionRegistryTest {
     @Test
     fun `remove하면 GATT scheduler도 같이 사라진다`() {
         // scheduler는 Session과 생애주기를 같이 하므로 remove 후 새 세션에 재사용되지 않는다.
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId)
         val originalScheduler = session.gattOperationScheduler
@@ -129,7 +129,7 @@ class SessionRegistryTest {
 
     @Test
     fun `8개 스레드가 동시에 getOrCreate해도 인스턴스는 하나뿐이고 all은 절대 던지지 않는다`() {
-        val registry = SessionRegistry()
+        val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val threadCount = 8
         val iterationsPerThread = 200

@@ -177,8 +177,8 @@ class GattOperationSchedulerTest {
 
     @Test
     fun `scheduler는 Session과 함께 소유되고 Session마다 분리된다`() {
-        val first = Session(PeripheralId("A"))
-        val second = Session(PeripheralId("B"))
+        val first = Session(PeripheralId("A"), TestClock)
+        val second = Session(PeripheralId("B"), TestClock)
 
         assertNotSame(first.gattOperationScheduler, second.gattOperationScheduler)
     }

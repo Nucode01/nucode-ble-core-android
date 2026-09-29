@@ -2,9 +2,9 @@ package kr.co.nucode.ble.internal.session
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.internal.port.ClockPort
 
 /** 한 connection generation이 거치는 readiness/cleanup 단계. */
 internal enum class ConnectionStage {
@@ -84,6 +84,7 @@ internal data class ConnectionReadinessTimeouts(
  * expected stage를 이 API에 전달해야 현재 lifecycle을 변경할 수 있다.
  */
 internal class ConnectionCoordinator(
+    private val clock: ClockPort,
     private val onStageChanged: (ConnectionStage) -> Unit = {},
 ) {
     var generation: Long = 0L
@@ -336,7 +337,7 @@ internal class ConnectionCoordinator(
         )
         activeDeadline = deadline
         deadlineJob = scope.launch {
-            delay(deadline.timeoutMillis)
+            clock.sleep(deadline.timeoutMillis)
             if (activeDeadline !== deadline) return@launch
 
             activeDeadline = null

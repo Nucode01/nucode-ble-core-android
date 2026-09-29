@@ -10,7 +10,7 @@ import kr.co.nucode.ble.DiagnosticRecord
 internal class DiagnosticRateLimiter(
     private val windowMillis: Long = DEFAULT_WINDOW_MILLIS,
     private val maxKeys: Int = DEFAULT_MAX_KEYS,
-    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val clockMillis: () -> Long,
 ) {
     private val entries = LinkedHashMap<Key, Entry>(maxKeys, 0.75f, true)
 

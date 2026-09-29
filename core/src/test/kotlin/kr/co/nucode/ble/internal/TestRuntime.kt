@@ -7,6 +7,7 @@ import kr.co.nucode.ble.internal.platform.android.AndroidAdapterSource
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.internal.port.CoreMailbox
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.port.PlatformScanPort
@@ -29,12 +30,14 @@ internal fun BleRuntime(
     adapterState: (() -> AdapterState)? = null,
     scanPort: PlatformScanPort? = null,
     scannerRediscovery: Boolean = false,
+    clock: ClockPort = TestClock,
 ): BleRuntime = BleRuntime(
     config = config,
     gattDriverFactory = gattDriver?.let { driver -> { _: CoreMailbox -> driver } }
         ?: { mailbox: CoreMailbox -> AndroidGattDriver(null as AndroidCentral?, mailbox) },
     scanPort = scanPort ?: AndroidScanner(central = null),
     adapterSource = AndroidAdapterSource(null, registerReceiver = false),
+    clock = clock,
     scanStartLedger = null,
     scannerRediscovery = scannerRediscovery,
     gattOperationTargetResolver = gattOperationTargetResolver,

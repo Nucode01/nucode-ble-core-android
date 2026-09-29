@@ -32,7 +32,7 @@ import org.junit.Test
  */
 class GattFailureFactoryTest {
 
-    private fun newSession(): Session = Session(PeripheralId("AA:BB:CC:DD:EE:FF"))
+    private fun newSession(): Session = Session(PeripheralId("AA:BB:CC:DD:EE:FF"), TestClock)
 
     private fun characteristicIdentity(): GattCharacteristicIdentity = GattCharacteristicIdentity(
         serviceUuid = UUID.randomUUID(),

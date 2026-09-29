@@ -14,6 +14,7 @@ import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.port.ClockPort
 
 /**
  * 기기 하나의 상태 전부. 설계 §3 규칙 2 — 기기별 상태는 객체 하나에 모은다.
@@ -28,7 +29,7 @@ import kr.co.nucode.ble.internal.model.PlatformCharacteristic
  * coreScope의 단일 스레드가 필드 접근을 직렬화하고, callback 대기 사이의 operation 순서는
  * [gattOperationScheduler] FIFO가 보장한다. 별도 lock이나 PeripheralId별 병렬 map을 두지 않는다.
  */
-internal class Session(val deviceId: PeripheralId) {
+internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
 
     /** Public failure correlation token. It intentionally has no relation to the peripheral ID. */
     val failureSessionId: String = UUID.randomUUID().toString()
@@ -70,7 +71,7 @@ internal class Session(val deviceId: PeripheralId) {
      * stage deadline, terminal cleanup reason을 별도 PeripheralId map으로 흩뜨리지 않고 Session과
      * 함께 폐기한다. 기존 GattBridge/BleRuntime routing은 후속 수직 이관 task가 이 API로 옮긴다.
      */
-    val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(::publishStage)
+    val connectionCoordinator: ConnectionCoordinator = ConnectionCoordinator(clock, ::publishStage)
 
     /**
      * generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected)의 단일 listener 슬롯.

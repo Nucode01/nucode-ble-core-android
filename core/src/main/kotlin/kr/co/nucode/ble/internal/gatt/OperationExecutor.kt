@@ -5,9 +5,7 @@ import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.session.SessionOwner
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
@@ -28,6 +26,7 @@ import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
 import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.TerminalCleanupReason
@@ -39,6 +38,7 @@ import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 internal class OperationExecutor(
     private val emit: (BleEvent) -> Unit,
     private val scope: CoroutineScope,
+    private val clock: ClockPort,
     private val driver: GattDriver,
     private val ackTimeoutMillis: Long,
     private val operationStarter: ((Session, ScheduledGattOperation<*>) -> BleFailure?)?,
@@ -91,7 +91,7 @@ internal class OperationExecutor(
         timeoutMillis: Long,
     ): T {
         if (scheduled.operation !is StartTrackedGattOperation) {
-            return withTimeout(timeoutMillis) { awaitScheduled(session, scheduled) }
+            return clock.awaitWithin(timeoutMillis) { awaitScheduled(session, scheduled) }
         }
         return scheduled.completion.await()
     }
@@ -104,7 +104,7 @@ internal class OperationExecutor(
         val tracked = scheduled.operation as? StartTrackedGattOperation ?: return
         val timeoutMillis = tracked.timeoutMillis ?: ackTimeoutMillis
         val timer = scope.launch(SessionOwner(session.deviceId)) {
-            delay(timeoutMillis)
+            clock.sleep(timeoutMillis)
             poisonStartedOperation(session, scheduled)
         }
         scheduled.completion.invokeOnCompletion { timer.cancel() }

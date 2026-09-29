@@ -30,6 +30,7 @@ class DiagnosticDispatcherTest {
                 delivered.countDown()
             },
             capacity = 2,
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
         )
 
         assertTrue(dispatcher.dispatch(record("ONE")))
@@ -50,6 +51,7 @@ class DiagnosticDispatcherTest {
                 recovered.countDown()
             },
             capacity = 8,
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
         )
 
         assertTrue(dispatcher.dispatch(record("ONE")))
@@ -73,6 +75,7 @@ class DiagnosticDispatcherTest {
                 release.await()
             },
             capacity = 1,
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
         )
 
         assertTrue(dispatcher.dispatch(record("BLOCKING")))
@@ -88,7 +91,7 @@ class DiagnosticDispatcherTest {
 
     @Test
     fun `absent logger has no admission work`() {
-        val dispatcher = DiagnosticDispatcher(logger = null, capacity = 1)
+        val dispatcher = DiagnosticDispatcher(logger = null, capacity = 1, limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis))
         assertFalse(dispatcher.dispatch(record("NO_LOGGER")))
         dispatcher.close()
     }
@@ -117,7 +120,7 @@ class DiagnosticDispatcherTest {
 
     @Test
     fun `close rejects stale producer storm without blocking`() {
-        val dispatcher = DiagnosticDispatcher(logger = BleLogger {}, capacity = 1)
+        val dispatcher = DiagnosticDispatcher(logger = BleLogger {}, capacity = 1, limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis))
         dispatcher.close()
         repeat(1_000) { assertFalse(dispatcher.dispatch(record("STALE"))) }
     }
@@ -138,6 +141,7 @@ class DiagnosticDispatcherTest {
                 delivered.countDown()
             },
             capacity = 2,
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
         )
 
         assertTrue(dispatcher.dispatch(record("BLOCKING")))
@@ -184,6 +188,7 @@ class DiagnosticDispatcherTest {
                 }
             },
             capacity = 2,
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
         )
 
         assertTrue(dispatcher.dispatch(record("BLOCKING_ONE")))
@@ -253,6 +258,28 @@ class DiagnosticDispatcherTest {
         assertEquals(3L, (summary.values["diagnostic_count"] as kr.co.nucode.ble.DiagnosticValue.Number).value)
         dispatcher.close()
     }
+
+    @Test
+    fun `worker ends after close even if logger clears the interrupt flag`() {
+        val entered = CountDownLatch(1)
+        val dispatcher = DiagnosticDispatcher(
+            logger = BleLogger {
+                entered.countDown()
+                Thread.interrupted()
+            },
+            capacity = 2,
+            threadName = "diag-close-test",
+            limiter = DiagnosticRateLimiter(clockMillis = TestClock::wallMillis),
+        )
+        assertTrue(dispatcher.dispatch(record("ONE")))
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+        dispatcher.close()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline && workerAlive()) Thread.sleep(10)
+        assertFalse(workerAlive())
+    }
+
+    private fun workerAlive() = Thread.getAllStackTraces().keys.any { it.name == "diag-close-test" && it.isAlive }
 
     private fun record(code: String) = DiagnosticRecord(
         severity = DiagnosticSeverity.Error,

@@ -36,7 +36,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `readiness state machine은 discovery와 configuration을 건너뛰지 않는다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         assertEquals(ConnectionStage.Connecting, coordinator.stage)
@@ -87,7 +87,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `stage 전이는 이전 deadline을 취소해 동시에 하나만 활성화한다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val timedOut = mutableListOf<ConnectionStageDeadline>()
         val generation = coordinator.beginConnection(TestStageAuthority, this, 100, timedOut::add)
         val linkDeadline = coordinator.activeDeadline
@@ -123,7 +123,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `stale generation과 wrong stage callback은 lifecycle을 바꾸지 않는다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
         val currentDeadline = coordinator.activeDeadline
 
@@ -154,7 +154,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `cleanup은 active stage 어디서든 멱등적이고 terminal reason을 보존한다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val timedOut = mutableListOf<ConnectionStageDeadline>()
         val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
@@ -198,7 +198,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `deadline callback은 generation stage timeout reason을 함께 전달한다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         var observed: ConnectionStageDeadline? = null
         val generation = coordinator.beginConnection(TestStageAuthority, this, 25) { observed = it }
 
@@ -219,7 +219,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `disconnect cleanup callback이 누락돼도 deadline에서 Disconnected로 끝난다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val generation = coordinator.beginConnection(TestStageAuthority, this, 100) {}
 
         assertTrue(
@@ -246,7 +246,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `ClientClosed terminalization은 lifecycle deadline을 취소하고 stale callback을 거부한다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val timedOut = mutableListOf<ConnectionStageDeadline>()
         val generation = coordinator.beginConnection(TestStageAuthority, this, 50, timedOut::add)
 
@@ -272,7 +272,7 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `retained reconnect는 fresh generation을 deadline 없이 시작한다`() = runTest {
-        val coordinator = ConnectionCoordinator()
+        val coordinator = ConnectionCoordinator(TestClock)
         val firstGeneration = coordinator.beginConnection(TestStageAuthority, this, 100) {}
         assertTrue(
             coordinator.completeCleanup(
@@ -301,8 +301,8 @@ class ConnectionCoordinatorTest {
 
     @Test
     fun `Session은 자기 connection coordinator를 독립 소유한다`() {
-        val first = Session(PeripheralId("first"))
-        val second = Session(PeripheralId("second"))
+        val first = Session(PeripheralId("first"), TestClock)
+        val second = Session(PeripheralId("second"), TestClock)
 
         assertFalse(first.connectionCoordinator === second.connectionCoordinator)
         assertEquals(

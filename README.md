@@ -4,7 +4,7 @@
 
 > **문서 상태:** 이 README와 기존 설계 문서는 2026-08 시점의 현재 구현 스냅샷과
 > 역사적 결정 근거를 기록한다. 향후 동작과 API의 **목표 v1 설계 정본**은
-> [docs/v1/README.md](../docs/v1/README.md)다. 목표 v1은 아직 구현 완료 상태를 뜻하지 않는다.
+> [docs/v1/README.md](https://github.com/pdev-jay/nucode-ble-core/blob/main/docs/v1/README.md)다. 목표 v1은 아직 구현 완료 상태를 뜻하지 않는다.
 
 > **F26 진단 hardening:** JVM 기반 deterministic acceptance와 `:core`/`:sample` build는
 > Slice 6 oracle로 검증된다. 실제 기기에서 장애 로그가 충분히 유용한지, PII/secret이

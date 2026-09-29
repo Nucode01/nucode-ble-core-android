@@ -10,6 +10,7 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
+import kr.co.nucode.ble.internal.core.gatt.GattQueueFailures
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.GattOperationKind
@@ -32,6 +33,10 @@ import org.junit.Test
  * `context.sessionId`)를 여기서 함께 고정한다.
  */
 class GattFailureFactoryTest {
+
+    /** `OPERATION_TIMEOUT` 은 큐 Core 만 조립한다 — 같은 기대값을 Core 조립 함수로 만든다. */
+    private fun timedOutByCore(session: Session, operation: GattOperation<*>): BleFailure =
+        GattQueueFailures.timedOut(session.lifecycleFailureContext(), GattQueueFailures.operationKind(operation.kind))
 
     private fun newSession(): Session = Session(PeripheralId("AA:BB:CC:DD:EE:FF"), TestClock)
 
@@ -102,12 +107,12 @@ class GattFailureFactoryTest {
                 "timeoutFailure(operation)", "OPERATION_TIMEOUT", "operation", FailurePhase.Operation,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(OperationKind.Read),
             )
-                to GattFailureFactory.timeoutFailure(session, scheduled.operation),
+                to timedOutByCore(session, scheduled.operation),
             Shape(
                 "timeoutFailure(scheduled)", "OPERATION_TIMEOUT", "operation", FailurePhase.Operation,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(OperationKind.Read),
             )
-                to GattFailureFactory.timeoutFailure(session, scheduled),
+                to GattFailureFactory.failureFor(session, scheduled, timedOutByCore(session, scheduled.operation)),
             Shape(
                 "operationStatusFailure", "GATT_STATUS_FAILED", "operation", FailurePhase.Operation, Retryability.Unknown,
                 operationKind = Check.Expect(OperationKind.Read),
@@ -209,7 +214,7 @@ class GattFailureFactoryTest {
                 "writeTimeout", "OPERATION_TIMEOUT", "operation", FailurePhase.Operation, Retryability.NewConnectionMayHelp,
                 operationKind = Check.Expect(OperationKind.WriteWithResponse),
             )
-                to GattFailureFactory.writeTimeout(session, OperationKind.WriteWithResponse),
+                to GattQueueFailures.timedOut(session.lifecycleFailureContext(), OperationKind.WriteWithResponse),
             Shape(
                 "writeInvalidated", "OPERATION_INVALIDATED", "operation", FailurePhase.Operation, Retryability.NewConnectionMayHelp,
                 operationKind = Check.Expect(OperationKind.WriteWithResponse),
@@ -291,7 +296,7 @@ class GattFailureFactoryTest {
     fun `failureFor attributes context from scheduled operation and preserves invalidation reason`() {
         val session = newSession()
         val scheduled = scheduledRead(session)
-        val input = GattFailureFactory.timeoutFailure(session, scheduled.operation).copy(
+        val input = timedOutByCore(session, scheduled.operation).copy(
             context = FailureContext(invalidationReason = kr.co.nucode.ble.ConnectionInvalidationReason.LinkLost),
         )
 

@@ -234,6 +234,10 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
     /** CharacteristicRef 를 현재 탐색 결과에서 되찾는다. 못 찾으면 null. */
     fun resolve(charRef: CharacteristicRef): PlatformCharacteristic? = discoveredTopology.targets[charRef]
 
-    /** Public GATT operation admission is owned solely by the coordinator readiness stage. */
-    fun canStartPublicGattOperation(): Boolean = connectionCoordinator.admitsPublicGattOperation
+    /**
+     * Public GATT operation admission is owned by the coordinator readiness stage. 큐가 poison 이거나 기한 판정을 기다리는 동안은
+     * 이미 끝나기로 정해진 연결이라 받지 않는다(0.2.0 은 기한 만료 즉시 poison 으로 같은 결과였다).
+     */
+    fun canStartPublicGattOperation(): Boolean =
+        connectionCoordinator.admitsPublicGattOperation && !gattOperationScheduler.isPoisoned
 }

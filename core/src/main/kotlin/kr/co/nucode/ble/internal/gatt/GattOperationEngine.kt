@@ -10,6 +10,7 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.core.gatt.GattQueueEvent
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
@@ -26,25 +27,20 @@ internal interface StartTrackedGattOperation {
     val started: CompletableDeferred<Unit>
 
     /** 플랫폼 시작부터 센 작업 기한. null 이면 엔진의 기본 기한. */
-    var timeoutMillis: Long?
+    val timeoutMillis: Long?
 }
 
-/** Read resolves its platform characteristic only when it reaches the FIFO head. */
+/**
+ * Read 명령 데이터. 플랫폼 characteristic 해석은 FIFO head 에 오를 때 실행기가 하고, 그 결과(종류·대상)는 큐 Core 항목에 남는다.
+ */
 internal class QueuedRead(
     override val generation: Long,
     val charRef: CharacteristicRef,
+    override val timeoutMillis: Long? = null,
 ) : GattOperation<ByteArray>, StartTrackedGattOperation {
-    private var resolvedIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
-
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
-    override var timeoutMillis: Long? = null
     override val kind: GattOperationKind = GattOperationKind.Read
-    override val attributeIdentity: GattCharacteristicIdentity
-        get() = resolvedIdentity
-
-    fun prepare(identity: GattCharacteristicIdentity) {
-        resolvedIdentity = identity
-    }
+    override val attributeIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 }
 
 /** A public write command reserves every chunk before its first chunk starts. */
@@ -52,33 +48,24 @@ internal class QueuedWriteChunk(
     override val generation: Long,
     val charRef: CharacteristicRef,
     val requestedWriteType: WriteType,
-    val commandIndex: Int,
     chunk: ByteArray,
+    override val timeoutMillis: Long? = null,
 ) : GattOperation<Unit>, StartTrackedGattOperation {
     private val immutableChunk = chunk.copyOf()
-    private var resolvedWriteType: Int? = null
-    private var resolvedIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
-    override var timeoutMillis: Long? = null
-    override val kind: GattOperationKind
-        get() = if (resolvedWriteType == GattWriteTypes.NO_RESPONSE) {
+
+    /** 접수 때의 종류. [WriteType.Auto] 는 플랫폼 시작 때 해석된다(해석된 종류는 큐 Core 항목). */
+    override val kind: GattOperationKind =
+        if (requestedWriteType == WriteType.WithoutResponse) {
             GattOperationKind.WriteWithoutResponse
         } else {
             GattOperationKind.WriteWithResponse
         }
-    override val attributeIdentity: GattCharacteristicIdentity
-        get() = resolvedIdentity
+    override val attributeIdentity: GattCharacteristicIdentity = GattCharacteristicIdentity.from(charRef)
 
-    /** 플랫폼 write 호출이 받아들여졌는가(시작 전 거절·줄 무효화와 구분). */
-    @Volatile var platformStarted: Boolean = false
-
-    lateinit var commandMembers: List<ScheduledGattOperation<Unit>>
-
-    fun prepare(identity: GattCharacteristicIdentity, writeType: Int) {
-        resolvedIdentity = identity
-        resolvedWriteType = writeType
-    }
+    /** 플랫폼 write 호출이 받아들여졌을 때 한 번 완료된다(시작 전 거절·줄 무효화와 구분). */
+    val platformAccepted: CompletableDeferred<Unit> = CompletableDeferred()
 
     fun chunkCopy(): ByteArray = immutableChunk.copyOf()
 }
@@ -89,19 +76,12 @@ internal class QueuedCccdWrite(
     val charRef: CharacteristicRef,
     val enabled: Boolean,
     descriptorIdentity: GattDescriptorIdentity,
+    override val timeoutMillis: Long? = null,
 ) : GattOperation<Unit>, StartTrackedGattOperation {
-    private var resolvedIdentity: GattDescriptorIdentity = descriptorIdentity
-
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
-    override var timeoutMillis: Long? = null
     override val kind: GattOperationKind =
         if (enabled) GattOperationKind.Subscribe else GattOperationKind.Unsubscribe
-    override val attributeIdentity: GattDescriptorIdentity
-        get() = resolvedIdentity
-
-    fun prepare(identity: GattDescriptorIdentity) {
-        resolvedIdentity = identity
-    }
+    override val attributeIdentity: GattDescriptorIdentity = descriptorIdentity
 }
 
 /**
@@ -137,9 +117,8 @@ internal class GattOperationEngine(
     override fun invalidateAll(session: Session, failure: BleFailure) =
         executor.invalidateScheduledOperations(session, failure)
 
-    override fun beginGenerationIfPoisoned(session: Session) {
-        if (session.gattOperationScheduler.isPoisoned) session.gattOperationScheduler.beginNextGeneration()
-    }
+    override fun beginGenerationIfPoisoned(session: Session) =
+        executor.dispatch(session, GattQueueEvent.BeginGenerationIfPoisoned)
 
     internal fun handleCharacteristicChanged(event: GattDriverEvent.CharacteristicChanged) = callbacks.handleCharacteristicChanged(event)
     internal fun handleCharacteristicRead(event: GattDriverEvent.CharacteristicRead) = callbacks.handleCharacteristicRead(event)
@@ -155,14 +134,13 @@ internal class GattOperationEngine(
     suspend fun read(deviceId: PeripheralId, charRef: CharacteristicRef): ByteArray {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
         if (!session.canStartPublicGattOperation()) throw BleException(GattFailureFactory.notConnected(session))
-        val scheduler = session.gattOperationScheduler
-        val scheduled = scheduler.enqueue(
+        val scheduled = executor.submit(
+            session,
             QueuedRead(
-                generation = scheduler.currentGeneration,
+                generation = session.gattOperationScheduler.currentGeneration,
                 charRef = charRef,
             ),
         )
-        executor.startNextOperation(session)
         return executor.awaitAfterStart(session, scheduled, ackTimeoutMillis)
     }
 
@@ -185,22 +163,19 @@ internal class GattOperationEngine(
         writeType: WriteType,
         timeoutMillis: Long,
     ): List<Int> {
-        val scheduler = session.gattOperationScheduler
-        val scheduled = chunks.mapIndexed { index, chunk ->
-            scheduler.enqueue(
+        val generation = session.gattOperationScheduler.currentGeneration
+        val scheduled = executor.submitCommand(
+            session,
+            chunks.map { chunk ->
                 QueuedWriteChunk(
-                    generation = scheduler.currentGeneration,
+                    generation = generation,
                     charRef = charRef,
                     requestedWriteType = writeType,
-                    commandIndex = index,
                     chunk = chunk,
-                ).also { it.timeoutMillis = timeoutMillis },
-            )
-        }
-        scheduled.forEach { item ->
-            (item.operation as QueuedWriteChunk).commandMembers = scheduled
-        }
-        executor.startNextOperation(session)
+                    timeoutMillis = timeoutMillis,
+                )
+            },
+        )
 
         val statuses = mutableListOf<Int>()
         for ((index, item) in scheduled.withIndex()) {
@@ -225,6 +200,6 @@ internal class GattOperationEngine(
     }
 
     private fun chunkStarted(item: ScheduledGattOperation<*>): Boolean =
-        (item.operation as? QueuedWriteChunk)?.platformStarted == true
+        (item.operation as? QueuedWriteChunk)?.platformAccepted?.isCompleted == true
 
 }

@@ -10,6 +10,7 @@ import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
+import kr.co.nucode.ble.internal.core.gatt.GattQueueFailures
 import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.GattOperationKind
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
@@ -116,34 +117,23 @@ internal object GattFailureFactory {
     fun operationInvalidated(
         session: Session,
         scheduled: ScheduledGattOperation<*>,
-    ): BleFailure = operationInvalidated(session, scheduled.operation).let { failureFor(session, scheduled, it) }
-
-    fun timeoutFailure(session: Session, operation: GattOperation<*>): BleFailure =
-        timedOut(session, operationKind(operation.kind))
-
-    private fun timedOut(session: Session, kind: OperationKind?): BleFailure = failure(
-        code = "OPERATION_TIMEOUT",
-        phase = FailurePhase.Operation,
-        retryability = Retryability.NewConnectionMayHelp,
-        context = operationContext(session, kind),
+    ): BleFailure = GattQueueFailures.invalidatedFor(
+        session.lifecycleFailureContext(),
+        scheduled.operation.generation,
+        scheduled.sequence,
+        scheduled.operation.kind,
     )
-
-    fun timeoutFailure(session: Session, scheduled: ScheduledGattOperation<*>): BleFailure =
-        timeoutFailure(session, scheduled.operation).let { failureFor(session, scheduled, it) }
 
     fun operationStatusFailure(
         session: Session,
         scheduled: ScheduledGattOperation<*>,
         status: Int,
-    ): BleFailure = FailureMapper.gattStatusFailed(
-        statusCode = status,
-        phase = FailurePhase.Operation,
-        operation = androidOperation(scheduled.operation.kind, callback = true),
-        context = operationContext(
-            session = session,
-            kind = operationKind(scheduled.operation.kind),
-            operationId = scheduled.operationId,
-        ),
+    ): BleFailure = GattQueueFailures.statusFailed(
+        session.lifecycleFailureContext(),
+        scheduled.operation.generation,
+        scheduled.sequence,
+        scheduled.operation.kind,
+        status,
     )
 
     fun operationStartFailure(session: Session, operation: GattOperation<*>): BleFailure =
@@ -161,13 +151,12 @@ internal object GattFailureFactory {
         session: Session,
         scheduled: ScheduledGattOperation<*>,
         failure: BleFailure,
-    ): BleFailure = failure.copy(
-        context = session.lifecycleFailureContext().copy(
-            connectionGeneration = scheduled.operation.generation,
-            operationId = scheduled.operationId,
-            operationKind = operationKind(scheduled.operation.kind),
-            invalidationReason = failure.context.invalidationReason,
-        ),
+    ): BleFailure = GattQueueFailures.attribute(
+        session.lifecycleFailureContext(),
+        scheduled.operation.generation,
+        scheduled.sequence,
+        scheduled.operation.kind,
+        failure,
     )
 
     /** callback이 pending operation과 다른 attribute를 가리킬 때. */
@@ -256,9 +245,6 @@ internal object GattFailureFactory {
         operation = operation,
         context = if (kind == null) connectionContext(session) else operationContext(session, kind = kind),
     )
-
-    /** write 청크 하나가 [ackTimeoutMillis] 안에 ack를 못 받을 때(`OperationQueue.write`). */
-    fun writeTimeout(session: Session, kind: OperationKind): BleFailure = timedOut(session, kind)
 
     /** write 청크 대기 중 연결이 끊겨 취소될 때(`OperationQueue.write`). */
     fun writeInvalidated(session: Session, kind: OperationKind): BleFailure = invalidated(session, kind)

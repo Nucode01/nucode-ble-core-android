@@ -54,7 +54,7 @@ internal object FailureCatalog {
         FailureSpec(
             "CHARACTERISTIC_NOT_FOUND",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "SubscriptionCommands.kt:subscribe, OperationExecutor.kt:startNextOperation, OperationQueue.kt:write"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "SubscriptionCommands.kt:subscribe, OperationExecutor.kt:startOperation, OperationQueue.kt:write"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, ClientEventBus.kt:emitRestoreFailure, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
@@ -117,7 +117,7 @@ internal object FailureCatalog {
         FailureSpec(
             "GATT_OPERATION_CALLBACK_MISMATCH",
             listOf(
-                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "OperationCallbacks.kt:emitCallbackMismatch"),
+                Route("GATT callback routing", TriggerKind.AsyncInfo, setOf(Channel.Event), "OperationExecutor.kt:execute"),
             ),
         ),
         FailureSpec(
@@ -129,7 +129,7 @@ internal object FailureCatalog {
         FailureSpec(
             "GATT_OPERATION_START_FAILED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startNextOperation"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startOperation"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
                 Route("link lifecycle (requestMtu start, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:requestMtu"),
@@ -144,7 +144,7 @@ internal object FailureCatalog {
         FailureSpec(
             "GATT_STATUS_FAILED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationCallbacks.kt:completeUnitOperation, OperationCallbacks.kt:handleCharacteristicRead, OperationQueue.kt:write"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:complete, OperationCallbacks.kt:handleCharacteristicRead, OperationQueue.kt:write"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
@@ -182,7 +182,7 @@ internal object FailureCatalog {
         FailureSpec(
             "NOT_CONNECTED",
             listOf(
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startNextOperation, OperationExecutor.kt:exactIdentity"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startOperation, OperationExecutor.kt:exactIdentity"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
         ),
@@ -203,9 +203,9 @@ internal object FailureCatalog {
         FailureSpec(
             "OPERATION_TIMEOUT",
             listOf(
-                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:armDeadline, OperationExecutor.kt:poisonStartedOperation, ConnectionCleanup.kt:operationInvalidated"),
-                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, OperationExecutor.kt:poisonStartedOperation"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, ConnectionCleanup.kt:operationInvalidated"),
+                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattQueueCore.kt:deadlineJudged, OperationExecutor.kt:execute, ConnectionCleanup.kt:operationInvalidated"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, GattQueueCore.kt:deadlineJudged"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattQueueCore.kt:deadlineJudged, ConnectionCleanup.kt:operationInvalidated"),
             ),
         ),
         FailureSpec(
@@ -227,9 +227,9 @@ internal object FailureCatalog {
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, ConnectionCleanup.kt:beginCleanup"),
-                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, SubscriptionCommands.kt:emitUnsubscribeFailure"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startOperation, ConnectionCleanup.kt:beginCleanup"),
+                Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startOperation, SubscriptionCommands.kt:emitUnsubscribeFailure"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, ConnectStarter.kt:connect"),
                 Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),

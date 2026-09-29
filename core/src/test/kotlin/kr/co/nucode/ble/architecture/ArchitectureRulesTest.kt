@@ -25,6 +25,12 @@ import org.junit.Test
  * 두지 않고(e), 공개 연결 상태 값을 만들지 않으며(f), 연결 단계·종결 원인 값을 이름으로 쓰지 않는다(g). 무신호 가드(`가드:`)는 Core 파일,
  * `step(상태, 사건)` 선언과 반환 타입, 단계·원인 타입의 선언 위치, Core 밖의 `step` 호출을 확인하고, 가드·순수성 위반·소유 위반을
  * 한 메시지로 모아 한 번에 실패한다. 예외 목록으로 위반을 덮지 않는다.
+ *
+ * R4 규칙 — GATT 큐 Core(`internal.core.gatt`)는 순수하다(R3 순수성 여섯 갈래를 그대로 적용). 가드는 `object GattQueueCore` 와
+ * `step(상태, 사건)` 결과 모양(a), Core 밖 Domain 의 `GattQueueCore.step(` 호출(e)을 확인한다. Core·Model 밖 제품 소스는 큐 기한 판정의
+ * 결과인 `OPERATION_TIMEOUT` 식별자와 그 실패를 만드는 입구를 쓰지 않고(f), Core 밖 Domain 은 큐의 차례 상태(기다리는 줄·현재 작업·순번·
+ * poison·generation·항목의 해석/시작/묶음 칸)를 가변으로 두지 않는다(g). 가드·순수성 위반·소유 위반을 한 메시지로 모아 한 번에 실패한다.
+ * 예외 목록으로 위반을 덮지 않는다.
  */
 class ArchitectureRulesTest {
 
@@ -347,6 +353,153 @@ class ArchitectureRulesTest {
         assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("s/Caller.kt", "${domain}class Caller { fun f() = ConnectionCore.stepper(a) }")), "(d)"))
     }
 
+    @Test
+    fun R4_gattQueueCoreIsPure() {
+        val files = analyze(productSources())
+        val guard = gattQueueCoreGuard(files)
+        val pure = gattQueueCorePurity(files)
+        val own = gattQueueCoreOwnership(files)
+        val msg = buildString {
+            if (guard.isNotEmpty()) append(guard.joinToString("\n")).append('\n')
+            append("순수성 위반 ${pure.size}건:")
+            if (pure.isNotEmpty()) append('\n').append(pure.joinToString("\n"))
+            append("\nCore 밖 소유 위반 ${own.size}건:")
+            if (own.isNotEmpty()) append('\n').append(own.joinToString("\n"))
+        }
+        assertTrue(msg, guard.isEmpty() && pure.isEmpty() && own.isEmpty())
+    }
+
+    @Test
+    fun gattQueueCoreRuleCatchesSeededViolations() {
+        val core = "package kr.co.nucode.ble.internal.core.gatt\n"
+        val domain = "package kr.co.nucode.ble.internal.session\n"
+        val base = listOf(
+            Src("s/Session.kt", "${domain}class Session"),
+            Src("p/ClockPort.kt", "package kr.co.nucode.ble.internal.port\ninternal interface ClockPort"),
+            Src("m/GattOperationKind.kt", "package kr.co.nucode.ble.internal.model\nclass GattOperationKind"),
+            Src("m/BleFailure.kt", "package kr.co.nucode.ble\nclass BleFailure"),
+            Src("c/X.kt", "package kr.co.nucode.ble.internal.core.connection\nclass X"),
+        )
+        fun pure(text: String) = gattQueueCorePurity(analyze(base + Src("g/K.kt", core + text)))
+        fun own(pkg: String, text: String, path: String = "o/O.kt") = gattQueueCoreOwnership(analyze(base + Src(path, "package $pkg\n$text")))
+
+        // 순수성 위반
+        listOf(
+            "import kr.co.nucode.ble.internal.session.Session\nclass K" to "kr.co.nucode.ble.internal.session.Session",
+            "import android.os.Handler\nclass K" to "android.os.Handler",
+            "suspend fun f() {}" to "suspend",
+            "class K { var x = 1 }" to "var",
+            "fun f() { val l = mutableListOf<Int>() }" to "mutableListOf",
+            "class K(val cb: (Int) -> Unit)" to ":(Int)->",
+            "class K { val t = System.nanoTime() }" to "System.nanoTime",
+            "import kr.co.nucode.ble.internal.port.ClockPort\nclass K" to "kr.co.nucode.ble.internal.port.ClockPort",
+        ).forEach { (text, token) ->
+            val v = pure(text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it.startsWith("g/K.kt → ") && it.contains(token) })
+        }
+        val okText = "import kr.co.nucode.ble.BleFailure\n" +
+            "import kr.co.nucode.ble.internal.model.GattOperationKind\n" +
+            "import kr.co.nucode.ble.internal.core.connection.X\n" +
+            "class K { fun f(x: Int, w: List<Int>, state: Any) = state.copy(waiting = w)\n" +
+            "  // var suspend System.nanoTime() mutableListOf()\n  /** var suspend System. */\n" +
+            "  val d = \"var suspend System. println(1) kotlinx.coroutines.launch\" }"
+        assertEquals(emptyList<String>(), pure(okText))
+        assertEquals(emptyList<String>(), gattQueueCorePurity(analyze(base + Src("o/O.kt", "${domain}suspend fun f() { var x = 1 }"))))
+
+        // 소유 위반 f: Core·Model 밖 어디서든
+        val fLines = listOf(
+            "val c = FailureCode.OPERATION_TIMEOUT" to "OPERATION_TIMEOUT",
+            "fun timeoutFailure(x: Int) = x" to "timeoutFailure(",
+            "fun f() = GattFailureFactory.timeoutFailure(s, o)" to "timeoutFailure(",
+            "fun f() = x.timedOut(s)" to "timedOut(",
+            "fun f() = x.writeTimeout (s)" to "writeTimeout(",
+            "fun f() = GattQueueFailures.timeoutFor(c, e)" to "timeoutFor(",
+        )
+        listOf(
+            "Domain" to "kr.co.nucode.ble.internal.session",
+            "Driver" to "kr.co.nucode.ble.internal.platform.android",
+            "Factory" to "kr.co.nucode.ble.android",
+            "Ports" to "kr.co.nucode.ble.internal.port",
+        ).forEach { (name, pkg) ->
+            fLines.forEach { (text, token) ->
+                val v = own(pkg, "class A { $text }")
+                assertTrue("$name 의 $token 를 못 잡았다: $v", v.any { it == "o/O.kt → $token" })
+            }
+        }
+        listOf("kr.co.nucode.ble.internal.model", "kr.co.nucode.ble").forEach { pkg ->
+            fLines.forEach { (text, _) -> assertEquals(emptyList<String>(), own(pkg, "class A { $text }")) }
+        }
+        fLines.forEach { (text, _) ->
+            assertEquals(emptyList<String>(), gattQueueCoreOwnership(analyze(base + Src("g/K.kt", core + "class K { $text }"))))
+        }
+        assertEquals(
+            emptyList<String>(),
+            own(
+                "kr.co.nucode.ble.internal.session",
+                "// OPERATION_TIMEOUT timeoutFailure(x)\nclass A { val s = \"OPERATION_TIMEOUT\"; val operationTimeoutMillis = 1 }",
+            ),
+        )
+
+        // 소유 위반 g: Core 밖 Domain 의 가변 차례 칸
+        listOf(
+            "class A { private var pending: ScheduledGattOperation<*>? = null }" to "var pending",
+            "class A { var isPoisoned = false }" to "var isPoisoned",
+            "class A { var nextSequence = 0L }" to "var nextSequence",
+            "class A { var currentGeneration: Long = 0L }" to "var currentGeneration",
+            "class A { private val q = ArrayDeque<ScheduledGattOperation<*>>() }" to "ArrayDeque<ScheduledGattOperation",
+            "class A { lateinit var commandMembers: List<Int> }" to "var commandMembers",
+            "class A { var platformStarted = false }" to "var platformStarted",
+            "class A { var cur: GattQueueEntry? = null }" to "var cur: GattQueueEntry",
+            "class A { val q = mutableListOf<GattQueueEntry>() }" to "mutableListOf<GattQueueEntry",
+            "class A { val q = TreeMap<Long, ScheduledGattOperation<*>>() }" to "TreeMap",
+            "class A { val q = LinkedHashMap<Long, GattQueueEntry>() }" to "LinkedHashMap",
+            "class A { val q = sortedMapOf<Long, ScheduledGattOperation<*>>() }" to "sortedMapOf",
+            "class A { var second: GattQueueState = s }" to "var second: GattQueueState",
+        ).forEach { (text, token) ->
+            val v = own("kr.co.nucode.ble.internal.session", text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it.startsWith("o/O.kt → ") && it.contains(token) })
+        }
+        listOf(
+            "class A { var currentGeneration: Long? = null }",
+            "class A { val pending = 1 }",
+            "class A { var pendingCount = 0 }",
+            "class A { var state: GattQueueState = s }",
+            "class A { val handles = HashMap<Long, ScheduledGattOperation<*>>() }",
+        ).forEach { text -> assertEquals(text, emptyList<String>(), own("kr.co.nucode.ble.internal.session", text)) }
+        listOf("kr.co.nucode.ble.internal.platform.android", "kr.co.nucode.ble.android", "kr.co.nucode.ble.internal.port").forEach { pkg ->
+            assertEquals(emptyList<String>(), own(pkg, "class A { var pending = 1 }"))
+        }
+        assertEquals(emptyList<String>(), gattQueueCoreOwnership(analyze(base + Src("g/K.kt", core + "class K { var pending = 1 }"))))
+
+        // 가드
+        val stepCore = core +
+            "internal data class GattQueueState(val generation: Long)\n" +
+            "internal sealed interface GattQueueEvent { object Go : GattQueueEvent }\n" +
+            "internal sealed interface GattQueueEffect { object Nothing : GattQueueEffect }\n" +
+            "internal data class GattQueueStep(val state: GattQueueState, val effects: List<GattQueueEffect>)\n" +
+            "internal object GattQueueCore {\n" +
+            "    fun step(state: GattQueueState, event: GattQueueEvent): GattQueueStep = GattQueueStep(state, emptyList())\n}\n"
+        val caller = Src("s/Caller.kt", "${domain}class Caller { fun f() = GattQueueCore.step(a, b) }")
+        fun guard(vararg extra: Src) = gattQueueCoreGuard(analyze(base + extra))
+        fun has(g: List<String>, k: String) = g.any { it.startsWith("가드:") && it.contains(k) }
+        assertEquals(emptyList<String>(), guard(Src("c/Core.kt", stepCore), caller))
+        assertEquals(emptyList<String>(), guard(Src("c/Core.kt", stepCore), Src("s/Caller.kt", "${domain}class Caller { fun f() = GattQueueCore . step (a, b) }")))
+        assertTrue("빈 묶음은 (a) 를 보고해야 한다", has(gattQueueCoreGuard(emptyList()), "(a)"))
+        assertTrue(has(guard(caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", core + "class Nothing"), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("object GattQueueCore", "object Other")), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("c/Core2.kt", core + "internal object GattQueueCore"), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("internal object GattQueueCore", "internal object Other")), Src("s/Q.kt", "${domain}internal object GattQueueCore"), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("fun step(", "fun advance(")), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("val effects: List<GattQueueEffect>", "val n: Int")), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("sealed interface GattQueueEffect", "interface GattQueueEffect")), caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore)), "(e)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("s/Caller.kt", "${domain}class Caller { fun f() = ConnectionCore.step(a, b) }")), "(e)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("s/Caller.kt", "${domain}class Caller { fun f() = GattQueueCore.stepper(a) }")), "(e)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("d/Drv.kt", "package kr.co.nucode.ble.internal.platform.android\nclass Drv { fun f() = GattQueueCore.step(a, b) }")), "(e)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("f/F.kt", "package kr.co.nucode.ble.android\nclass F { fun f() = GattQueueCore.step(a, b) }")), "(e)"))
+    }
+
     // ---- 분석기 -------------------------------------------------------------------------------------------------
 
     private enum class Layer { Model, Ports, Domain, Driver, Factory }
@@ -507,11 +660,18 @@ class ArchitectureRulesTest {
 
     private fun isConnectionCore(f: Parsed) = f.pkg.under(CONNECTION_CORE)
 
+    private fun isGattQueueCore(f: Parsed) = f.pkg.under(GATT_QUEUE_CORE)
+
     private fun tokensOf(body: String, res: List<Regex>, join: String = ""): List<String> =
         res.flatMap { re -> re.findAll(body).map { it.value.trim().replace(Regex("\\s+"), join) }.toList() }.distinct()
 
     /** 연결 Core 파일의 순수성 위반 여섯 갈래. `파일 → 토큰` (package 줄 제외, 주석·문자열은 이미 지워진 코드). */
-    private fun connectionCorePurity(files: List<Parsed>): List<String> = files.filter(::isConnectionCore).flatMap { f ->
+    private fun connectionCorePurity(files: List<Parsed>): List<String> = corePurity(files.filter(::isConnectionCore), files)
+
+    /** GATT 큐 Core 파일의 순수성 위반 여섯 갈래(연결 Core 와 같은 판정). */
+    private fun gattQueueCorePurity(files: List<Parsed>): List<String> = corePurity(files.filter(::isGattQueueCore), files)
+
+    private fun corePurity(coreFiles: List<Parsed>, files: List<Parsed>): List<String> = coreFiles.flatMap { f ->
         val body = f.code.replace(PACKAGE_LINE, "")
         val internalRefs = f.refs.filter { ref ->
             val pkg = f.resolve(ref, files) ?: ref
@@ -558,6 +718,43 @@ class ArchitectureRulesTest {
         if (badEnums.isNotEmpty()) out += "가드: (c) ${badEnums.joinToString()} 는 Core 에 정확히 하나 선언되고 Core 밖에는 선언되지 않아야 한다"
         if (outside.none { it.layer == Layer.Domain && STEP_CALL.containsMatchIn(it.code) }) {
             out += "가드: (d) Core 밖 Domain 파일 중 ConnectionCore.step( 을 부르는 파일이 없다"
+        }
+        return out
+    }
+
+    /** Core·Model 밖의 큐 기한 판정 결과 (f), Core 밖 Domain 의 큐 차례 가변 칸 (g). `파일 → 토큰`. */
+    private fun gattQueueCoreOwnership(files: List<Parsed>): List<String> = files.filter { !isGattQueueCore(it) }.flatMap { f ->
+        val body = f.code.replace(PACKAGE_LINE, "")
+        val timeout = if (f.layer == Layer.Model) emptyList() else tokensOf(body, QUEUE_TIMEOUT_TOKENS)
+        val turn = if (f.layer == Layer.Domain) {
+            tokensOf(body, QUEUE_TURN_VARS, " ") + tokensOf(body, QUEUE_TURN_COLLECTIONS)
+        } else {
+            emptyList()
+        }
+        (timeout + turn).distinct().map { "${f.path} → $it" }
+    }.sorted()
+
+    /** GATT 큐 Core 무신호 통과 방지. 각 줄은 `가드:` 로 시작한다. */
+    private fun gattQueueCoreGuard(files: List<Parsed>): List<String> {
+        val out = mutableListOf<String>()
+        val core = files.filter(::isGattQueueCore)
+        val outside = files.filter { !isGattQueueCore(it) }
+        val coreCode = core.joinToString("\n") { it.code }
+        val objectOk = core.sumOf { QUEUE_CORE_OBJECT.findAll(it.code).count() } == 1 &&
+            outside.none { QUEUE_CORE_OBJECT.containsMatchIn(it.code) }
+        val stepOk = STEP_DECL.findAll(coreCode).any { m ->
+            val (state, _, result) = m.destructured
+            val ctor = constructorOf(coreCode, result) ?: return@any false
+            val effect = Regex("\\bval\\s+\\w+\\s*:\\s*List<\\s*(\\w+)\\s*>").find(ctor)?.groupValues?.get(1)
+            Regex("\\bval\\s+\\w+\\s*:\\s*${Regex.escape(state)}\\b").containsMatchIn(ctor) && effect != null &&
+                Regex("\\bsealed\\s+(?:interface|class)\\s+${Regex.escape(effect)}\\b").containsMatchIn(coreCode)
+        }
+        if (core.isEmpty() || !objectOk || !stepOk) {
+            out += "가드: (a) GATT 큐 Core(패키지 $GATT_QUEUE_CORE)가 없거나, object GattQueueCore 가 Core 에 정확히 하나가 아니거나 Core 밖에 있거나, " +
+                "step(상태, 사건): 결과 선언이 없거나 결과 class 가 새 상태와 sealed 할 일의 List 를 갖지 않는다"
+        }
+        if (outside.none { it.layer == Layer.Domain && QUEUE_STEP_CALL.containsMatchIn(it.code) }) {
+            out += "가드: (e) Core 밖 Domain 파일 중 GattQueueCore.step( 을 부르는 파일이 없다"
         }
         return out
     }
@@ -685,6 +882,34 @@ class ArchitectureRulesTest {
         val CLOCK_PORT_USE = Regex("\\bClockPort\\b")
         const val CORE_ROOT = "$ROOT.internal.core"
         const val CONNECTION_CORE = "$ROOT.internal.core.connection"
+        const val GATT_QUEUE_CORE = "$ROOT.internal.core.gatt"
+        val QUEUE_CORE_OBJECT = Regex("\\bobject\\s+GattQueueCore\\b")
+        val QUEUE_STEP_CALL = Regex("\\bGattQueueCore\\s*\\.\\s*step\\s*\\(")
+        val QUEUE_TIMEOUT_TOKENS = listOf(
+            Regex("\\bOPERATION_TIMEOUT\\b"),
+            Regex("\\b(?:timeoutFailure|timedOut|writeTimeout|timeoutFor)\\s*\\("),
+        )
+        val QUEUE_TURN_VARS = listOf(
+            Regex(
+                "\\bvar\\s+(?:pending|waiting|current|inFlight|isPoisoned|poisoned|nextSequence|deadlineToken|platformStarted|" +
+                    "timeoutMillis|resolvedWriteType|resolvedIdentity|commandMembers)\\b",
+            ),
+            Regex("\\bvar\\s+currentGeneration(?=\\s*:\\s*Long\\s*=)"),
+            Regex("\\bvar\\s+\\w+\\s*:\\s*(?:ScheduledGattOperation|GattQueueEntry)\\b"),
+            // 셸이 든 상태 값은 이름이 state 인 하나뿐이다.
+            Regex("\\bvar\\s+(?!state\\b)\\w+\\s*:\\s*GattQueueState\\b"),
+        )
+        val QUEUE_TURN_COLLECTIONS = listOf(
+            Regex(
+                "(?<![\\w.])(?:ArrayDeque|ArrayList|LinkedList|MutableList|mutableListOf|ArrayBlockingQueue|LinkedBlockingQueue)" +
+                    "\\s*<\\s*(?:ScheduledGattOperation|GattQueueEntry)\\b",
+            ),
+            // 순서 있는 지도(값이 큐 항목)와 순번만 담은 대기열도 차례를 다시 만드는 형태다. 순서 없는 HashMap handle 표는 허용한다.
+            Regex(
+                "(?<![\\w.])(?:TreeMap|LinkedHashMap|ConcurrentSkipListMap|sortedMapOf|linkedMapOf)\\s*(?:<[^>]*)?" +
+                    "(?:ScheduledGattOperation|GattQueueEntry)\\b",
+            ),
+        )
         val CLOCK_PORT_TOKEN = listOf(Regex("\\bClockPort\\b"))
         val CORE_CONCURRENCY = listOf(
             Regex("(?<![\\w.])(?:kotlinx\\.coroutines|kotlin\\.coroutines|java\\.util\\.concurrent)(?:\\.[\\w*]+)*"),

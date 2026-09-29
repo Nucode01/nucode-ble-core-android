@@ -59,30 +59,29 @@ internal class SubscriptionCommands(
             characteristic = characteristicIdentity,
             descriptorUuid = OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID,
         )
-        val scheduled = session.gattOperationScheduler.enqueue(
-            QueuedCccdWrite(
-                generation = session.gattOperationScheduler.currentGeneration,
-                charRef = charRef,
-                enabled = true,
-                descriptorIdentity = identity,
-            ),
+        val operation = QueuedCccdWrite(
+            generation = session.gattOperationScheduler.currentGeneration,
+            charRef = charRef,
+            enabled = true,
+            descriptorIdentity = identity,
         )
-        if (recordIntent) {
-            val startGeneration = session.connectionCoordinator.generation
-            val removalMark = session.subscriptionState.removalMark(charRef)
-            scheduled.completion.invokeOnCompletion { cause ->
-                // ack 성공 뒤 시작 generation 이 더 이상 Ready 가 아니면(disconnect·정리) 의도를 되살리지 않는다.
-                // 큐에 있는 동안 unsubscribe 가 불렸으면(취소된 subscribe 를 되돌리는 경로) 그 해제가 이긴다.
-                if (cause == null && session.connectionCoordinator.readyFor(startGeneration)) {
-                    session.subscriptionState.confirmSubscribedIfNotRemoved(
-                        charRef,
-                        session.connectionCoordinator.generation,
-                        removalMark,
-                    )
+        val scheduled = executor.submit(session, operation) { queued ->
+            if (recordIntent) {
+                val startGeneration = session.connectionCoordinator.generation
+                val removalMark = session.subscriptionState.removalMark(charRef)
+                queued.completion.invokeOnCompletion { cause ->
+                    // ack 성공 뒤 시작 generation 이 더 이상 Ready 가 아니면(disconnect·정리) 의도를 되살리지 않는다.
+                    // 큐에 있는 동안 unsubscribe 가 불렸으면(취소된 subscribe 를 되돌리는 경로) 그 해제가 이긴다.
+                    if (cause == null && session.connectionCoordinator.readyFor(startGeneration)) {
+                        session.subscriptionState.confirmSubscribedIfNotRemoved(
+                            charRef,
+                            session.connectionCoordinator.generation,
+                            removalMark,
+                        )
+                    }
                 }
             }
         }
-        executor.startNextOperation(session)
         executor.awaitAfterStart(session, scheduled, ackTimeoutMillis)
     }
 
@@ -139,7 +138,8 @@ internal class SubscriptionCommands(
             characteristic = characteristicIdentity,
             descriptorUuid = OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID,
         )
-        val scheduled = session.gattOperationScheduler.enqueue(
+        val scheduled = executor.submit(
+            session,
             QueuedCccdWrite(
                 generation = session.gattOperationScheduler.currentGeneration,
                 charRef = charRef,
@@ -147,7 +147,6 @@ internal class SubscriptionCommands(
                 descriptorIdentity = identity,
             ),
         )
-        executor.startNextOperation(session)
 
         try {
             executor.awaitAfterStart(session, scheduled, ackTimeoutMillis)

@@ -234,8 +234,13 @@ class OwnershipTest {
             ),
             Row(
                 "GATT 작업 큐",
-                setOf("GattOperationEngine.kt", "OperationExecutor.kt", "OperationCallbacks.kt", "SubscriptionCommands.kt", "GattOperationScheduler.kt"),
-                setOf("enqueue", "startNext", "removeQueued", "takePendingIfMatches", "drain", "poisonCurrentGeneration", "beginNextGeneration"),
+                // 셸(GattOperationScheduler)은 Core 상태 하나와 handle 표를 들고 `apply`·`submit` 이 유일한 쓰기 문이다.
+                // 사건을 넣고 할 일을 실행하는 곳은 OperationExecutor 하나다 — 엔진·콜백·구독은 실행기를 경유한다.
+                setOf("OperationExecutor.kt", "GattOperationScheduler.kt"),
+                setOf(
+                    "apply", "submit", "handleOf", "release",
+                    "enqueue", "startNext", "removeQueued", "takePendingIfMatches", "drain", "poisonCurrentGeneration", "beginNextGeneration",
+                ),
                 Enforcement.Direct("""\w*[sS]cheduler""", emptyMap()),
             ),
             Row(
@@ -269,7 +274,6 @@ class OwnershipTest {
                 "변경 가능 generation 카운터", setOf("ConnectionCoordinator.kt"), setOf("var generation", "var currentGeneration"),
                 Enforcement.Declaration(
                     known = mapOf(
-                        "GattOperationScheduler.kt" to setOf("currentGeneration"), // 자체 카운터
                         "SubscriptionState.kt" to setOf("currentGeneration"), // 받아 쓴 사본
                     ),
                     // Scanner.scanGeneration 은 스캔 자원(Scanner 소유)의 별개 번호라 이 행에서 제외한다.

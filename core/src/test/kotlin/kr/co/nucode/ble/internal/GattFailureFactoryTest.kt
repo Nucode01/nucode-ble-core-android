@@ -15,7 +15,8 @@ import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.GattOperationKind
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.ConnectionFailures
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -139,12 +140,12 @@ class GattFailureFactoryTest {
                 "disconnectCleanupTimeout", "DISCONNECT_CLEANUP_TIMEOUT", "connection", FailurePhase.Close,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
-                to GattFailureFactory.disconnectCleanupTimeout(session),
+                to ConnectionFailures.disconnectCleanupTimeout(session.lifecycleFailureContext()),
             Shape(
                 "disconnectStartFailed", "DISCONNECT_START_FAILED", "connection", FailurePhase.Close,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
-                to GattFailureFactory.disconnectStartFailed(session),
+                to ConnectionFailures.disconnectStartFailed(session.lifecycleFailureContext()),
             Shape(
                 "duplicateCharacteristicReference", "DUPLICATE_CHARACTERISTIC_REFERENCE", "connection",
                 FailurePhase.DiscoverServices, Retryability.Never, operationKind = Check.Expect(OperationKind.Subscribe),
@@ -167,17 +168,17 @@ class GattFailureFactoryTest {
                 "lifecycleTimeout(LinkTimeout)", "LINK_TIMEOUT", "connection", FailurePhase.Link,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
-                to GattFailureFactory.lifecycleTimeout(session, TerminalCleanupReason.LinkTimeout),
+                to ConnectionFailures.lifecycleTimeout(TerminalCleanupReason.LinkTimeout, session.lifecycleFailureContext()),
             Shape(
                 "lifecycleTimeout(ServiceDiscoveryTimeout)", "SERVICE_DISCOVERY_TIMEOUT", "connection",
                 FailurePhase.DiscoverServices, Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
-                to GattFailureFactory.lifecycleTimeout(session, TerminalCleanupReason.ServiceDiscoveryTimeout),
+                to ConnectionFailures.lifecycleTimeout(TerminalCleanupReason.ServiceDiscoveryTimeout, session.lifecycleFailureContext()),
             Shape(
                 "lifecycleTimeout(ConfigurationTimeout)", "CONFIGURATION_TIMEOUT", "connection", FailurePhase.Configure,
                 Retryability.NewConnectionMayHelp, operationKind = Check.Expect(null),
             )
-                to GattFailureFactory.lifecycleTimeout(session, TerminalCleanupReason.ConfigurationTimeout),
+                to ConnectionFailures.lifecycleTimeout(TerminalCleanupReason.ConfigurationTimeout, session.lifecycleFailureContext()),
             // status-failed — 3 variants (non-zero status)
             Shape(
                 "linkStatusFailed", "LINK_FAILED", "connection", FailurePhase.Link, Retryability.Unknown,

@@ -9,10 +9,10 @@ import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.session.ConnectionCoordinator
-import kr.co.nucode.ble.internal.session.ConnectionStage
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
-import kr.co.nucode.ble.internal.session.toDisconnectReason
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.toDisconnectReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -171,18 +171,18 @@ class TerminalCauseLatchTest {
 
         assertEquals(
             DisconnectReason.Failed(timeoutCause.failure!!),
-            timeoutCause.toDisconnectReason(generationStarted = true, unattributedFailure = { unattributed }),
+            timeoutCause.toDisconnectReason(generationStarted = true, unattributedFailure = unattributed),
         )
         assertEquals(
             DisconnectReason.Requested,
-            TerminalCause(TerminalCleanupReason.UserRequested, null).toDisconnectReason(true) { unattributed },
+            TerminalCause(TerminalCleanupReason.UserRequested, null).toDisconnectReason(true, unattributed),
         )
         assertEquals(
             DisconnectReason.ClientClosed,
-            TerminalCause(TerminalCleanupReason.ClientClosed, null).toDisconnectReason(true) { unattributed },
+            TerminalCause(TerminalCleanupReason.ClientClosed, null).toDisconnectReason(true, unattributed),
         )
-        assertEquals(DisconnectReason.Failed(unattributed), platformFallback.toDisconnectReason(true) { unattributed })
-        assertEquals(DisconnectReason.Failed(unattributed), null.toDisconnectReason(true) { unattributed })
-        assertEquals(DisconnectReason.Initial, null.toDisconnectReason(false) { unattributed })
+        assertEquals(DisconnectReason.Failed(unattributed), platformFallback.toDisconnectReason(true, unattributed))
+        assertEquals(DisconnectReason.Failed(unattributed), null.toDisconnectReason(true, unattributed))
+        assertEquals(DisconnectReason.Initial, null.toDisconnectReason(false, unattributed))
     }
 }

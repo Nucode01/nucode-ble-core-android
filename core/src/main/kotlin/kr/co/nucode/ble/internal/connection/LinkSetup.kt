@@ -11,7 +11,6 @@ import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 
 /**
@@ -66,7 +65,7 @@ internal class LinkSetup(
     fun onLinkUp(session: Session, generation: Long) {
         val wiring = wiring ?: return
         if (wiring.isClosed()) return
-        if (!session.connectionCoordinator.accepts(generation, ConnectionStage.DiscoveringServices)) return
+        if (!session.connectionCoordinator.inDiscovery(generation)) return
         wiring.markWarm(session.deviceId)
         steps.discoverServices(session)
     }
@@ -75,7 +74,7 @@ internal class LinkSetup(
     fun onServicesDiscovered(session: Session, generation: Long) {
         val wiring = wiring ?: return
         if (wiring.isClosed()) return
-        if (session.connectionCoordinator.accepts(generation, ConnectionStage.Configuring)) {
+        if (session.connectionCoordinator.inConfiguring(generation)) {
             steps.publish(session)
         }
         steps.requestMtu(session, session.requestedMtu)
@@ -85,7 +84,7 @@ internal class LinkSetup(
     fun onMtuSettled(session: Session, generation: Long) {
         val wiring = wiring ?: return
         if (wiring.isClosed()) return
-        if (session.connectionCoordinator.accepts(generation, ConnectionStage.Configuring)) {
+        if (session.connectionCoordinator.inConfiguring(generation)) {
             restoreSubscriptions(session, generation, wiring)
         }
     }

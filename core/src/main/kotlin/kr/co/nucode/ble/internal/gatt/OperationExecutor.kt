@@ -29,7 +29,6 @@ import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
  * [GattOperationEngine] 의 실행 칸 — 작업 준비(target·write 타입 해석)·플랫폼 시작·ack 대기·poison·무효화를 소유한다.
@@ -126,9 +125,9 @@ internal class OperationExecutor(
         }
 
         // poison 꼬리(plan §접근·§잠재 에러) — completeCleanup이 driver.disconnect/close보다
-        // 먼저다(callback 동기 재진입 대비). 순서는 lifecycle.terminateForOperationInvalidation이 보존한다.
+        // 먼저다(callback 동기 재진입 대비). 순서는 Core 의 작업 무효화 정책이 보존한다.
         // handle 을 항상 닫으므로 복원 CCCD 도 재연결 대상이 아니다 — 모든 operation 이 suppressReconnect 다.
-        lifecycle.terminateForOperationInvalidation(session, timeoutFailure, suppressReconnect = true)
+        lifecycle.onOperationPoisoned(session, timeoutFailure)
     }
 
     /** Lifecycle 종료가 pending/queued waiter를 callback 없이 유한 종결하는 단일 경로. */
@@ -189,14 +188,9 @@ internal class OperationExecutor(
             scheduled.completion.completeExceptionally(BleException(attributedFailure))
             abortRemainingWriteChunks(session, scheduled, attributedFailure)
             if (attributedFailure.code.value == "PERMISSION_DENIED") {
-                // 권한 상실은 세션 자원 실패다 — State(beginCleanup) 와 함께 Event 로도 알린다.
+                // 권한 상실은 세션 자원 실패다 — State(정리 시작) 와 함께 Event 로도 알린다.
                 emitDiagnostic(Severity.Error, attributedFailure)
-                lifecycle.beginCleanup(
-                    session = session,
-                    reason = TerminalCleanupReason.PermissionDenied,
-                    cause = attributedFailure,
-                    suppressReconnect = true,
-                )
+                lifecycle.onOperationPermissionLost(session, attributedFailure)
                 return
             }
         }

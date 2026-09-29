@@ -11,7 +11,6 @@ import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.GattOperationScheduler
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
@@ -74,7 +73,7 @@ internal class SubscriptionCommands(
             scheduled.completion.invokeOnCompletion { cause ->
                 // ack 성공 뒤 시작 generation 이 더 이상 Ready 가 아니면(disconnect·정리) 의도를 되살리지 않는다.
                 // 큐에 있는 동안 unsubscribe 가 불렸으면(취소된 subscribe 를 되돌리는 경로) 그 해제가 이긴다.
-                if (cause == null && session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
+                if (cause == null && session.connectionCoordinator.readyFor(startGeneration)) {
                     session.subscriptionState.confirmSubscribedIfNotRemoved(
                         charRef,
                         session.connectionCoordinator.generation,
@@ -89,7 +88,7 @@ internal class SubscriptionCommands(
 
     /**
      * LinkSetup 복원 경로. [subscribe] 와 같은 FIFO·같은 실패 처리다 — timeout 으로 poison 되면
-     * [GattConnectionLifecycle.terminateForOperationInvalidation] 이 handle 을 닫고 세션을 끝낸다(재연결로 회복하지 않는다).
+     * [GattLifecycleHooks.onOperationPoisoned] 이 handle 을 닫고 세션을 끝낸다(재연결로 회복하지 않는다).
      */
     suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) =
         subscribe(deviceId, charRef, recordIntent = false)
@@ -109,12 +108,7 @@ internal class SubscriptionCommands(
         // 링크가 없으면 끄는 방향은 로컬 해제만으로 달성된다(BleRuntime.unsubscribe KDoc).
         // 서비스 탐색이 끝나기 전(Connecting·DiscoveringServices)엔 resolve 할 목록이 없다 — 켜진 CCCD 도
         // 아직 없으므로 로컬 해제로 충분하고, CHARACTERISTIC_NOT_FOUND 진단을 내면 거짓이다.
-        val stage = session.connectionCoordinator.stage
-        if (stage == ConnectionStage.Disconnected ||
-            stage == ConnectionStage.Connecting ||
-            stage == ConnectionStage.DiscoveringServices ||
-            session.gattOperationScheduler.isPoisoned
-        ) return
+        if (!session.connectionCoordinator.hasTopology || session.gattOperationScheduler.isPoisoned) return
         val characteristicIdentity = when {
             operationStarter != null -> GattCharacteristicIdentity.from(charRef)
             operationTargetResolver != null -> executor.resolveOperationTarget(session, charRef)?.identity

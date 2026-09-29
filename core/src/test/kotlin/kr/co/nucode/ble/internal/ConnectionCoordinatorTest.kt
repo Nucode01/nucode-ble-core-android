@@ -7,12 +7,12 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.session.ConnectionCoordinator
-import kr.co.nucode.ble.internal.session.ConnectionLifecycleSnapshot
-import kr.co.nucode.ble.internal.session.ConnectionStage
-import kr.co.nucode.ble.internal.session.ConnectionStageDeadline
+import kr.co.nucode.ble.internal.core.connection.ConnectionLifecycleSnapshot
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStageDeadline
 import kr.co.nucode.ble.internal.session.Session
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -211,6 +211,7 @@ class ConnectionCoordinatorTest {
                 stage = ConnectionStage.Connecting,
                 timeoutMillis = 25,
                 timeoutReason = TerminalCleanupReason.LinkTimeout,
+                id = 1,
             ),
             observed,
         )

@@ -19,6 +19,12 @@ import org.junit.Test
  * 시간 제한 블로킹 대기)를 직접 쓰지 않고 `ClockPort` 로만 쓴다. Driver·Factory 는 대상이 아니다. 무신호 가드(`가드:`)는
  * 대상 파일 존재, Ports 의 `ClockPort` 선언, Domain 의 `ClockPort` 사용, Driver 의 `ClockPort` 구현을 확인하고,
  * 가드와 위반(`파일 → 토큰`)을 한 메시지로 모아 한 번에 실패한다.
+ *
+ * R3 규칙 — 연결 Core(`internal.core.connection`)는 순수하다. Core 파일은 Model·Core 밖의 내부 패키지, 플랫폼 타입, 동시성·비동기,
+ * 시간, 입출력·비결정, 공유 가변 상태·콜백을 쓰지 않는다(순수성 여섯 갈래). Core 밖 Domain·Driver·Factory 는 연결 상태 칸을 가변으로
+ * 두지 않고(e), 공개 연결 상태 값을 만들지 않으며(f), 연결 단계·종결 원인 값을 이름으로 쓰지 않는다(g). 무신호 가드(`가드:`)는 Core 파일,
+ * `step(상태, 사건)` 선언과 반환 타입, 단계·원인 타입의 선언 위치, Core 밖의 `step` 호출을 확인하고, 가드·순수성 위반·소유 위반을
+ * 한 메시지로 모아 한 번에 실패한다. 예외 목록으로 위반을 덮지 않는다.
  */
 class ArchitectureRulesTest {
 
@@ -219,6 +225,128 @@ class ArchitectureRulesTest {
         assertEquals(emptyList<String>(), clockGuard(analyze(listOf(port, user, driver))))
     }
 
+    @Test
+    fun R3_connectionCoreIsPure() {
+        val files = analyze(productSources())
+        val guard = connectionCoreGuard(files)
+        val pure = connectionCorePurity(files)
+        val own = connectionCoreOwnership(files)
+        val msg = buildString {
+            if (guard.isNotEmpty()) append(guard.joinToString("\n")).append('\n')
+            append("순수성 위반 ${pure.size}건:")
+            if (pure.isNotEmpty()) append('\n').append(pure.joinToString("\n"))
+            append("\nCore 밖 소유 위반 ${own.size}건:")
+            if (own.isNotEmpty()) append('\n').append(own.joinToString("\n"))
+        }
+        assertTrue(msg, guard.isEmpty() && pure.isEmpty() && own.isEmpty())
+    }
+
+    @Test
+    fun connectionCoreRuleCatchesSeededViolations() {
+        val core = "package kr.co.nucode.ble.internal.core.connection\n"
+        val domain = "package kr.co.nucode.ble.internal.session\n"
+        val base = listOf(
+            Src("s/Session.kt", "${domain}class Session"),
+            Src("p/ClockPort.kt", "package kr.co.nucode.ble.internal.port\ninternal interface ClockPort"),
+            Src("m/ConnectOptions.kt", "package kr.co.nucode.ble.internal.model\nclass ConnectOptions"),
+            Src("m/BleFailure.kt", "package kr.co.nucode.ble\nclass BleFailure"),
+            Src("g/X.kt", "package kr.co.nucode.ble.internal.core.gatt\nclass X"),
+        )
+        fun pure(text: String) = connectionCorePurity(analyze(base + Src("c/K.kt", core + text)))
+        fun own(pkg: String, text: String) = connectionCoreOwnership(analyze(base + Src("o/O.kt", "package $pkg\n$text")))
+
+        // 순수성 위반 여섯 갈래
+        listOf(
+            "import kr.co.nucode.ble.internal.session.Session\nclass K" to "kr.co.nucode.ble.internal.session.Session",
+            "import kr.co.nucode.ble.internal.port.ClockPort\nclass K" to "kr.co.nucode.ble.internal.port.ClockPort",
+            "import android.os.Handler\nclass K" to "android.os.Handler",
+            "import kotlinx.coroutines.launch\nclass K" to "kotlinx.coroutines.launch",
+            "suspend fun f() {}" to "suspend",
+            "class K { val t = System.nanoTime() }" to "System.nanoTime",
+            "class K { val u = UUID.randomUUID() }" to "randomUUID",
+            "fun f() { println(1) }" to "println(",
+            "class K { var x = 1 }" to "var",
+            "fun f() { val l = mutableListOf<Int>() }" to "mutableListOf",
+            "class K(val cb: (Int) -> Unit)" to ":(Int)->",
+            "fun f() { Thread.sleep(1) }" to "Thread",
+            "import kotlin.concurrent.thread\nclass K" to "kotlin.concurrent.thread",
+        ).forEach { (text, token) ->
+            val v = pure(text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it.startsWith("c/K.kt → ") && it.contains(token) })
+        }
+
+        // 위반 아님: 허용 참조, 순수 코드, 주석·문자열
+        val okText = "import kr.co.nucode.ble.BleFailure\n" +
+            "import kr.co.nucode.ble.internal.model.ConnectOptions\n" +
+            "import kr.co.nucode.ble.internal.core.gatt.X\n" +
+            "class K { fun f(x: Int, xs: List<Int>, state: Any) = when (x) { 1 -> 1 else -> 2 }\n" +
+            "  val a = buildList { add(1) }\n  val b = xs.map { it -> it }\n  val c = state.copy(stage = s)\n" +
+            "  // var suspend System.nanoTime() mutableListOf()\n  /** var suspend System. */\n" +
+            "  val d = \"var suspend System. println(1) kotlinx.coroutines.launch\" }"
+        assertEquals(emptyList<String>(), pure(okText))
+        // Core 밖 파일의 순수성 위반 후보는 순수성 규칙의 대상이 아니다
+        assertEquals(emptyList<String>(), connectionCorePurity(analyze(base + Src("o/O.kt", "${domain}suspend fun f() { var x = 1 }"))))
+
+        // Core 밖 소유 위반
+        listOf(
+            "class A { var stage: ConnectionStage = x }" to "var stage",
+            "class A { var platformWait = false }" to "var platformWait",
+            "class A { var cur: TerminalCause? = null }" to "var cur: TerminalCause",
+            "fun f() = ConnectionState.Recovering(x)" to "ConnectionState.Recovering",
+            "fun f() = TerminalCleanupReason.UserRequested" to "TerminalCleanupReason.UserRequested",
+            "fun f() = ConnectionStage.Ready" to "ConnectionStage.Ready",
+            "fun f() = ConnectionStage.valueOf(\"Ready\")" to "ConnectionStage.valueOf",
+            "fun f() = ConnectionStage.entries" to "ConnectionStage.entries",
+            "import kr.co.nucode.ble.internal.core.connection.ConnectionStage.Ready\nfun f(s: Any) = s == Ready" to
+                "importkr.co.nucode.ble.internal.core.connection.ConnectionStage.Ready",
+            "import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason.*\nclass A" to
+                "importkr.co.nucode.ble.internal.core.connection.TerminalCleanupReason.*",
+            "class A(val c: Any) { fun f() { c.setSuppressReconnect(true) } }" to ".setSuppressReconnect(",
+            "class A(val c: Any) { fun f() { c.connectionCoordinator.setPlatformWait(true) } }" to ".setPlatformWait(",
+        ).forEach { (text, token) ->
+            val v = own(domain.removePrefix("package ").trim(), text)
+            assertTrue("$token 를 못 잡았다: $v", v.any { it == "o/O.kt → $token" })
+        }
+        listOf("Driver" to "kr.co.nucode.ble.internal.platform.android", "Factory" to "kr.co.nucode.ble.android").forEach { (name, pkg) ->
+            val v = own(pkg, "class A { var generation = 0L }")
+            assertTrue("$name 층의 var generation 을 못 잡았다: $v", v == listOf("o/O.kt → var generation"))
+        }
+        assertEquals(
+            emptyList<String>(),
+            own("kr.co.nucode.ble.internal.session", "class A { val s: ConnectionStage? = null; suspend fun f() { var x = 1 }; var state: ConnectionCoreState = z }"),
+        )
+        assertEquals(emptyList<String>(), own("kr.co.nucode.ble", "class M { val r = ConnectionState.Ready\n  val q = ConnectionStage.Ready }"))
+        assertEquals(
+            emptyList<String>(),
+            own("kr.co.nucode.ble.internal.session", "// var stage ConnectionStage.Ready ConnectionState.Recovering\nclass A { val s = \"var stage ConnectionStage.Ready\" }"),
+        )
+        assertEquals(emptyList<String>(), connectionCoreOwnership(analyze(base + Src("c/K.kt", core + "class K { var stage = 1 }"))))
+
+        // 가드
+        val stepCore = core +
+            "internal enum class ConnectionStage { Initial }\n" +
+            "internal enum class TerminalCleanupReason { UserRequested }\n" +
+            "internal data class ConnectionCoreState(val stage: ConnectionStage)\n" +
+            "internal sealed interface ConnectionEvent { object Go : ConnectionEvent }\n" +
+            "internal sealed interface ConnectionEffect { object Nothing : ConnectionEffect }\n" +
+            "internal data class ConnectionStep(val state: ConnectionCoreState, val effects: List<ConnectionEffect>)\n" +
+            "internal object ConnectionCore {\n" +
+            "    fun step(state: ConnectionCoreState, event: ConnectionEvent): ConnectionStep = ConnectionStep(state, emptyList())\n}\n"
+        val caller = Src("s/Caller.kt", "${domain}class Caller { fun f() = ConnectionCore.step(a, b) }")
+        fun guard(vararg extra: Src) = connectionCoreGuard(analyze(base + extra))
+        fun has(g: List<String>, k: String) = g.any { it.startsWith("가드:") && it.contains(k) }
+        assertEquals(emptyList<String>(), guard(Src("c/Core.kt", stepCore), caller))
+        assertTrue("빈 묶음은 (a) 를 보고해야 한다", has(connectionCoreGuard(emptyList()), "(a)"))
+        assertTrue(has(guard(caller), "(a)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("fun step(", "fun advance(")), caller), "(b)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("val effects: List<ConnectionEffect>", "val n: Int")), caller), "(b)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("sealed interface ConnectionEffect", "interface ConnectionEffect")), caller), "(b)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("s/Stage.kt", "${domain}enum class ConnectionStage { A }"), caller), "(c)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore.replace("enum class TerminalCleanupReason { UserRequested }", "class Other")), caller), "(c)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore)), "(d)"))
+        assertTrue(has(guard(Src("c/Core.kt", stepCore), Src("s/Caller.kt", "${domain}class Caller { fun f() = ConnectionCore.stepper(a) }")), "(d)"))
+    }
+
     // ---- 분석기 -------------------------------------------------------------------------------------------------
 
     private enum class Layer { Model, Ports, Domain, Driver, Factory }
@@ -377,6 +505,76 @@ class ArchitectureRulesTest {
         return out
     }
 
+    private fun isConnectionCore(f: Parsed) = f.pkg.under(CONNECTION_CORE)
+
+    private fun tokensOf(body: String, res: List<Regex>, join: String = ""): List<String> =
+        res.flatMap { re -> re.findAll(body).map { it.value.trim().replace(Regex("\\s+"), join) }.toList() }.distinct()
+
+    /** 연결 Core 파일의 순수성 위반 여섯 갈래. `파일 → 토큰` (package 줄 제외, 주석·문자열은 이미 지워진 코드). */
+    private fun connectionCorePurity(files: List<Parsed>): List<String> = files.filter(::isConnectionCore).flatMap { f ->
+        val body = f.code.replace(PACKAGE_LINE, "")
+        val internalRefs = f.refs.filter { ref ->
+            val pkg = f.resolve(ref, files) ?: ref
+            fun allowed(p: String) = p == ROOT || p.under("$ROOT.internal.model") || p.under(CORE_ROOT) ||
+                !(p.under("$ROOT.internal") || p.under("$ROOT.android"))
+            !(allowed(pkg) && allowed(ref))
+        }
+        val tokens = internalRefs + f.sdk +
+            tokensOf(body, CORE_CONCURRENCY + CLOCK_TOKENS + CLOCK_PORT_TOKEN + CORE_IO + CORE_MUTABLE)
+        tokens.distinct().map { "${f.path} → $it" }
+    }.sorted()
+
+    /** Core 밖 Domain·Driver·Factory 의 연결 상태 소유 위반 (e)(f)(g). `파일 → 토큰`. */
+    private fun connectionCoreOwnership(files: List<Parsed>): List<String> =
+        files.filter { it.layer != Layer.Model && it.layer != Layer.Ports && !isConnectionCore(it) }.flatMap { f ->
+            val body = f.code.replace(PACKAGE_LINE, "")
+            val tokens = tokensOf(body, OWNED_VARS, " ") +
+                tokensOf(body, listOf(PUBLIC_STATE_VALUE, STAGE_VALUE, ENUM_IMPORT, SHELL_SETTER_CALL))
+            tokens.distinct().map { "${f.path} → $it" }
+        }.sorted()
+
+    /** 연결 Core 무신호 통과 방지. 각 줄은 `가드:` 로 시작한다. */
+    private fun connectionCoreGuard(files: List<Parsed>): List<String> {
+        val out = mutableListOf<String>()
+        val core = files.filter(::isConnectionCore)
+        val outside = files.filter { !isConnectionCore(it) }
+        if (core.isEmpty()) out += "가드: (a) 연결 Core 파일이 없다 (패키지 $CONNECTION_CORE)"
+        val coreCode = core.joinToString("\n") { it.code }
+        val stepOk = STEP_DECL.findAll(coreCode).any { m ->
+            val (state, _, result) = m.destructured
+            val ctor = constructorOf(coreCode, result) ?: return@any false
+            val effect = Regex("\\bval\\s+\\w+\\s*:\\s*List<\\s*(\\w+)\\s*>").find(ctor)?.groupValues?.get(1)
+            Regex("\\bval\\s+\\w+\\s*:\\s*${Regex.escape(state)}\\b").containsMatchIn(ctor) && effect != null &&
+                Regex("\\bsealed\\s+(?:interface|class)\\s+${Regex.escape(effect)}\\b").containsMatchIn(coreCode)
+        }
+        if (!stepOk) {
+            out += "가드: (b) Core 에 step(상태, 사건): 결과 선언이 없거나, 결과 class 가 새 상태와 sealed 할 일의 List 를 갖지 않는다"
+        }
+        val enums = listOf("ConnectionStage", "TerminalCleanupReason")
+        val badEnums = enums.filter { name ->
+            val re = Regex("\\benum\\s+class\\s+$name\\b")
+            core.sumOf { re.findAll(it.code).count() } != 1 || outside.any { re.containsMatchIn(it.code) }
+        }
+        if (badEnums.isNotEmpty()) out += "가드: (c) ${badEnums.joinToString()} 는 Core 에 정확히 하나 선언되고 Core 밖에는 선언되지 않아야 한다"
+        if (outside.none { it.layer == Layer.Domain && STEP_CALL.containsMatchIn(it.code) }) {
+            out += "가드: (d) Core 밖 Domain 파일 중 ConnectionCore.step( 을 부르는 파일이 없다"
+        }
+        return out
+    }
+
+    /** [code] 에서 `class [name]` 의 주 생성자 괄호 안 텍스트. 없으면 null. */
+    private fun constructorOf(code: String, name: String): String? {
+        val decl = Regex("\\bclass\\s+${Regex.escape(name)}\\s*\\(").find(code) ?: return null
+        var depth = 1
+        var i = decl.range.last + 1
+        val start = i
+        while (i < code.length && depth > 0) {
+            if (code[i] == '(') depth++ else if (code[i] == ')') depth--
+            i++
+        }
+        return if (depth == 0) code.substring(start, i - 1) else null
+    }
+
     private fun constructs(code: String, name: String) = Regex("(?<!\\w)${Regex.escape(name)}\\s*\\(").containsMatchIn(code)
 
     /** `class Name` 다음 위치에서 상위 타입 목록(첫 깊이 0 `:` 뒤 ~ 본문 `{` 또는 선언 끝)의 대문자 식별자. */
@@ -485,6 +683,57 @@ class ArchitectureRulesTest {
         val IDENT_UPPER = Regex("\\b[A-Z]\\w*")
         val CLOCK_PORT_DECL = Regex("\\binterface\\s+ClockPort\\b")
         val CLOCK_PORT_USE = Regex("\\bClockPort\\b")
+        const val CORE_ROOT = "$ROOT.internal.core"
+        const val CONNECTION_CORE = "$ROOT.internal.core.connection"
+        val CLOCK_PORT_TOKEN = listOf(Regex("\\bClockPort\\b"))
+        val CORE_CONCURRENCY = listOf(
+            Regex("(?<![\\w.])(?:kotlinx\\.coroutines|kotlin\\.coroutines|java\\.util\\.concurrent)(?:\\.[\\w*]+)*"),
+            Regex("\\bsuspend\\b"),
+            Regex("(?<![\\w.])Thread\\b"),
+            Regex("(?<![\\w.])kotlin\\.concurrent(?:\\.[\\w*]+)*"),
+            Regex("@Synchronized\\b"),
+            Regex("@Volatile\\b"),
+            Regex("(?<![\\w.])synchronized\\s*\\("),
+        )
+        val CORE_IO = listOf(
+            Regex("(?<![\\w.])(?:java\\.io|java\\.nio|java\\.net|kotlin\\.io|kotlin\\.random|java\\.util\\.Random)(?:\\.[\\w*]+)*"),
+            Regex("(?<!\\w)System\\s*\\."),
+            Regex("(?<![\\w.])(?:println|print|readLine)\\s*\\("),
+            Regex("(?<![\\w.])Random\\s*[.(]"),
+            Regex("\\brandomUUID\\b"),
+            Regex("(?<![\\w.])Math\\s*\\.\\s*random\\b"),
+        )
+        val CORE_MUTABLE = listOf(
+            Regex("\\bvar\\b"),
+            Regex("\\blateinit\\b"),
+            Regex("\\bMutable[A-Z]\\w*"),
+            Regex(
+                "(?<![\\w.])(?:mutableListOf|mutableSetOf|mutableMapOf|arrayListOf|hashMapOf|hashSetOf|linkedMapOf|linkedSetOf|" +
+                    "ArrayList|HashMap|HashSet|LinkedHashMap|LinkedHashSet|ArrayDeque)\\b",
+            ),
+            Regex(":\\s*(?:suspend\\s*)?\\([^()]*\\)\\s*->"),
+        )
+        val OWNED_VARS = listOf(
+            Regex(
+                "\\bvar\\s+(?:generation|stage|terminalCause|activeDeadline|platformWait|autoConnect|suppressReconnect|" +
+                    "relinkAfterAdapter|platformHandleOpen|handleOpen|requestedMtu)\\b",
+            ),
+            Regex("\\bvar\\s+\\w+\\s*:\\s*(?:ConnectionStage|TerminalCause|TerminalCleanupReason|ConnectionStageDeadline)\\b"),
+        )
+        val PUBLIC_STATE_VALUE = Regex(
+            "(?<![\\w.])ConnectionState\\s*\\.\\s*(?:Disconnected|Connecting|DiscoveringServices|Configuring|Ready|Disconnecting|Recovering)\\b",
+        )
+        val STAGE_VALUE = Regex("(?<![\\w.])(?:ConnectionStage|TerminalCleanupReason)\\s*\\.\\s*\\w+")
+        /** 단계 값·공개 상태 값을 import 해 이름만 쓰는 형태(`import ….ConnectionStage.Ready`, `….ConnectionStage.*`). */
+        val ENUM_IMPORT = Regex(
+            "\\bimport\\s+[\\w.]*\\b(?:ConnectionStage|TerminalCleanupReason|ConnectionState)\\s*\\.\\s*[\\w*]+",
+        )
+        /** 셸의 연결 칸 쓰기 입구 — 시험 준비 전용이라 main 의 어디서도 부르지 않는다. */
+        val SHELL_SETTER_CALL = Regex(
+            "\\.\\s*set(?:PlatformWait|SuppressReconnect|AutoConnect|RelinkAfterAdapter|PlatformHandleOpen|RequestedMtu)\\s*\\(",
+        )
+        val STEP_DECL = Regex("\\bfun\\s+step\\s*\\(\\s*\\w+\\s*:\\s*(\\w+)\\s*,\\s*\\w+\\s*:\\s*(\\w+)\\s*\\)\\s*:\\s*(\\w+)")
+        val STEP_CALL = Regex("\\bConnectionCore\\s*\\.\\s*step\\s*\\(")
         val CLOCK_TOKENS = listOf(
             Regex(
                 "(?<![\\w.])(?:" +

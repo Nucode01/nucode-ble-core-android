@@ -1,7 +1,6 @@
 package kr.co.nucode.ble.internal.gatt
 
 import kr.co.nucode.ble.internal.port.GattDriverEvent
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 
 /** GATT 콜백 하나가 어느 connection generation 에 속하는지에 대한 판정. */
@@ -33,7 +32,7 @@ internal object CallbackAttribution {
         if (!event.source.matches(session.gatt)) return Attribution.Drop(DropReason.StaleHandle)
 
         val coordinator = session.connectionCoordinator
-        val ended = coordinator.stage == ConnectionStage.Disconnected
+        val ended = coordinator.isEnded
         val explicit = event.explicitGeneration()
         if (explicit != null) {
             return if (explicit == coordinator.generation && !ended) {

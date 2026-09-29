@@ -45,11 +45,11 @@ import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -203,7 +203,7 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnectionState.DiscoveringServices)
-            requestedMtu = 185
+            connectionCoordinator.setRequestedMtu(185)
         }
 
         val acc = mutableListOf<BleClientEvent>()
@@ -773,11 +773,11 @@ class BleCoreWiringTest {
         val sessionA = core.registry.getOrCreate(idA).apply {
             setStateForTest(ConnectionState.Ready)
             subscriptionState.addDesired(ref)
-            suppressReconnect = false
+            connectionCoordinator.setSuppressReconnect(false)
         }
         val sessionB = core.registry.getOrCreate(idB).apply {
             setStateForTest(ConnectionState.Ready)
-            suppressReconnect = false
+            connectionCoordinator.setSuppressReconnect(false)
         }
         val identity = GattCharacteristicIdentity.from(ref)
         val pendingA = sessionA.gattOperationScheduler.enqueue(
@@ -831,7 +831,7 @@ class BleCoreWiringTest {
         val id = testDeviceId()
         core.registry.getOrCreate(id).apply {
             setStateForTest(ConnectionState.Disconnected(BleDisconnectReason.Initial))
-            suppressReconnect = false
+            connectionCoordinator.setSuppressReconnect(false)
         }
 
         val acc = mutableListOf<BleClientEvent>()
@@ -1297,8 +1297,8 @@ class BleCoreWiringTest {
         val core = newCore(linkTimeoutMillis = 100)
         val id = testDeviceId("A3")
         val session = core.registry.getOrCreate(id).apply {
-            autoConnect = false
-            requestedMtu = 185
+            connectionCoordinator.setAutoConnect(false)
+            connectionCoordinator.setRequestedMtu(185)
         }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 
@@ -1317,8 +1317,8 @@ class BleCoreWiringTest {
         backgroundScope.launch { core.officialEvents.toList(events) }
         runCurrent()
         val session = core.registry.getOrCreate(id).apply {
-            autoConnect = false
-            requestedMtu = 185
+            connectionCoordinator.setAutoConnect(false)
+            connectionCoordinator.setRequestedMtu(185)
         }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 100) {}
 

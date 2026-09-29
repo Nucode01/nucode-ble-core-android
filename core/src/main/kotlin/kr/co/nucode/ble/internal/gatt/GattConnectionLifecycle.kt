@@ -9,29 +9,28 @@ import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSteps
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
-import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectAdmission
+import kr.co.nucode.ble.internal.core.connection.ConnectionEvent
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.StageAuthority
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
 
-/** 이 파일만 연결 단계 전이 토큰을 만든다 — lifecycle 칸(ConnectStarter·LinkCallbacks·LinkTeardown)에는 생성자로만 넘긴다. */
-private object LifecycleStageAuthority : StageAuthority()
-
-/** operation → lifecycle. */
+/**
+ * operation → lifecycle. 작업 쪽은 사실만 알린다 — 어느 종결 원인으로 끝낼지는 Core 가 고른다.
+ */
 internal interface GattLifecycleHooks {
-    fun beginCleanup(session: Session, reason: TerminalCleanupReason, cause: BleFailure?, suppressReconnect: Boolean): Boolean
-    fun terminateForOperationInvalidation(session: Session, cause: BleFailure, suppressReconnect: Boolean)
+    /** 작업 시작에서 권한 상실이 확인됐다. */
+    fun onOperationPermissionLost(session: Session, cause: BleFailure)
+
+    /** 시작된 작업이 기한 안에 끝나지 않아 scheduler 를 poison 했다. */
+    fun onOperationPoisoned(session: Session, cause: BleFailure)
 }
 
 /** lifecycle → operation. */
@@ -49,7 +48,7 @@ internal interface GattOperationHooks {
  * 이 클래스가 구현해 제공한다.
  *
  * 이 클래스는 상태 게시([publishState])와 명령(disconnect·discoverServices·requestMtu)을 갖고, 연결 시작은
- * [ConnectStarter], 플랫폼 콜백은 [LinkCallbacks], 정리·종료는 [LinkTeardown] 에 위임한다.
+ * [ConnectStarter], 플랫폼 콜백은 [LinkCallbacks], 정리·종료 할 일의 실행은 [LinkEffects] 에 위임한다.
  */
 internal class GattConnectionLifecycle(
     private val registry: SessionRegistry,
@@ -77,51 +76,34 @@ internal class GattConnectionLifecycle(
 
     override fun publish(session: Session) = publishState(session)
 
-    /** 복원이 끝난 [generation] 을 Ready 로 — generation·stage 를 다시 확인하고 전이한 뒤 게시한다. */
-    override fun completeReady(session: Session, generation: Long): Boolean {
-        val accepted = session.connectionCoordinator.transition(
-            LifecycleStageAuthority,
-            callbackGeneration = generation,
-            expectedStage = ConnectionStage.Configuring,
-            nextStage = ConnectionStage.Ready,
-            scope = scope,
-        )
-        if (!accepted) return false
-        publishState(session)
-        return true
-    }
+    /** 복원이 끝난 [generation] 을 Ready 로 — 판단(generation·단계 재확인, 전이, 게시)은 Core 가 한다. */
+    override fun completeReady(session: Session, generation: Long): Boolean =
+        effects.dispatch(session, ConnectionEvent.RestoreFinished(generation))
 
     // ── 연결 시작 · 콜백 · 정리 칸 — 본문은 각 클래스, 여기서는 위임만 ─────────────────
 
-    private val teardown = LinkTeardown(
-        registry, scope, driver, readinessTimeouts, operations, LifecycleStageAuthority, ::publishState, ::emitDiagnostic,
+    private val effects = LinkEffects(
+        registry, scope, driver, readinessTimeouts, rediscovery, operations,
+        ::publishState, ::emitDiagnostic, linkSetup,
     )
-    private val callbacks = LinkCallbacks(
-        registry, emit, scope, readinessTimeouts, operations, linkSetup, LifecycleStageAuthority,
-        ::publishState, ::emitDiagnostic, teardown,
-    )
+    private val callbacks = LinkCallbacks(registry, emit, readinessTimeouts, ::emitDiagnostic, effects)
     private val starter = ConnectStarter(
-        registry, scope, driver, readinessTimeouts, rediscovery, linkCacheWarm, operations, LifecycleStageAuthority,
-        ::publishState, ::emitDiagnostic, teardown,
+        registry, scope, driver, readinessTimeouts, rediscovery, linkCacheWarm, ::emitDiagnostic, effects,
     )
 
-    override fun beginCleanup(
-        session: Session,
-        reason: TerminalCleanupReason,
-        cause: BleFailure?,
-        suppressReconnect: Boolean,
-    ): Boolean = teardown.beginCleanup(session, reason, cause, suppressReconnect)
+    override fun onOperationPermissionLost(session: Session, cause: BleFailure) =
+        effects.operationPermissionLost(session, cause)
 
-    override fun terminateForOperationInvalidation(session: Session, cause: BleFailure, suppressReconnect: Boolean) =
-        teardown.terminateForOperationInvalidation(session, cause, suppressReconnect)
+    override fun onOperationPoisoned(session: Session, cause: BleFailure) =
+        effects.operationInvalidated(session, cause, suppressReconnect = true)
 
-    fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean = teardown.terminate(session, generation, cause)
+    fun terminate(session: Session, generation: Long, cause: TerminalCause): Boolean = effects.terminate(session, generation, cause)
 
-    fun onAdapterLost(session: Session, cause: AdapterState) = teardown.onAdapterLost(session, cause)
+    fun onAdapterLost(session: Session, cause: AdapterState) = effects.onAdapterLost(session, cause)
 
-    fun close(session: Session) = teardown.close(session)
+    fun close(session: Session) = effects.close(session)
 
-    fun failInternal(session: Session, cause: BleFailure) = teardown.failInternal(session, cause)
+    fun failInternal(session: Session, cause: BleFailure) = effects.failInternal(session, cause)
 
     internal fun handleConnectionStateChange(event: GattDriverEvent.ConnectionStateChanged) = callbacks.handleConnectionStateChange(event)
 
@@ -140,32 +122,12 @@ internal class GattConnectionLifecycle(
      * `STATE_DISCONNECTED` 가 도착한 뒤 [handleConnectionStateChange] 에서
      * [Session.suppressReconnect] == true 일 때 정리한다(plan §잠재에러 — close() 를
      * 놓치면 핸들이 누수된다). 사용자 해제는 suppressReconnect 를 세우므로 항상 닫힌다.
-     * 플랫폼 재연결 대기 중이면 [endPlatformWait] 가 대기를 끝내고 handle 을 닫는다.
+     * 플랫폼 재연결 대기 중이면 Core 가 대기를 끝내고 handle 을 닫는다. 판단은 Core(사용자 해제 사건),
+     * 실행은 [LinkEffects] 다.
      */
     fun disconnect(deviceId: PeripheralId) {
         val session = registry.get(deviceId) ?: return
-        session.relinkAfterAdapter = false
-        // 플랫폼 재연결 대기 중(이미 Disconnected)이면 사용자 해제가 대기를 끝낸다 — Disconnected(Requested).
-        val coordinator = session.connectionCoordinator
-        if (teardown.endPlatformWait(session, coordinator.generation, TerminalCause(TerminalCleanupReason.UserRequested, null))) {
-            return
-        }
-        if (coordinator.stage == ConnectionStage.Disconnected) {
-            // 이미 끝났고 대기도 없다 — 대기가 아닌 종결 generation 의 handle 은 lifecycle 이 이미 닫았다.
-            // 재구독 job 은 Disconnected 이벤트에서 이미 끊겼다.
-            session.suppressReconnect = true
-            return
-        }
-        teardown.beginCleanup(
-            session = session,
-            reason = TerminalCleanupReason.UserRequested,
-            cause = null,
-            suppressReconnect = true,
-        )
-        // review LOW-4 — connect 가 cold-cache 재발견을 기다리는 중이면 그 재발견을 지금 끝낸다. gatt 가 없어
-        // 플랫폼 콜백이 오지 않으니, 끝내지 않으면 rediscoveryMillis 까지 Disconnecting·스캔이 남는다.
-        // 재발견 resume 이 Disconnecting 을 보고 정리를 마친다(connect 의 재발견 뒤 판정).
-        if (session.gatt == null) rediscovery?.endRediscovery(deviceId, RediscoveryOutcome.NotFound)
+        effects.disconnect(session)
     }
 
     /**
@@ -192,16 +154,9 @@ internal class GattConnectionLifecycle(
             )
         }
         if (failure != null) {
-            emitDiagnostic(Severity.Error, failure)
-            teardown.beginCleanup(
-                session = session,
-                reason = if (failure.code.value == "PERMISSION_DENIED") {
-                    TerminalCleanupReason.PermissionDenied
-                } else {
-                    TerminalCleanupReason.ServiceDiscoveryStartRejected
-                },
-                cause = failure,
-                suppressReconnect = true,
+            effects.dispatch(
+                session,
+                ConnectionEvent.DiscoveryStartFailed(failure, readinessTimeouts.disconnectCleanupMillis),
             )
         }
     }
@@ -230,54 +185,14 @@ internal class GattConnectionLifecycle(
             )
         }
         if (failure != null) {
-            emitDiagnostic(Severity.Warning, failure)
-            if (failure.code.value == "PERMISSION_DENIED") {
-                teardown.beginCleanup(
-                    session = session,
-                    reason = TerminalCleanupReason.PermissionDenied,
-                    cause = failure,
-                    suppressReconnect = true,
-                )
-                return
-            }
-            val fallbackChunk = chunkSizeForMtu(DEFAULT_MTU)
-            session.mtu = DEFAULT_MTU
-            session.chunkSize = fallbackChunk
-            linkSetup()?.onMtuSettled(session, session.connectionCoordinator.generation)
+            effects.dispatch(
+                session,
+                ConnectionEvent.MtuRequestFailed(failure, readinessTimeouts.disconnectCleanupMillis),
+            )
         }
     }
-
 
     private fun emitDiagnostic(severity: Severity, failure: BleFailure) {
         emit(BleEvent.Diagnostic(severity = severity, failure = failure))
     }
-
-
-    internal companion object {
-        /**
-         * MTU 협상/요청 실패 시 폴백 값 — BLE 표준 기본 ATT_MTU.
-         * [DEFAULT_CHUNK_SIZE] 가 근거로 삼는 것과 같은 값(23)이다.
-         */
-        const val DEFAULT_MTU = 23
-    }
-}
-
-/**
- * 이번 연결의 link deadline. 명시 [ConnectOptions.timeoutMillis] 가 있으면 그 값, 없으면 autoConnect 는
- * deadline 없음(null — OS 무기한 대기가 autoConnect 의 의미, 취소는 disconnect()), 아니면 [defaultLinkMillis].
- * 중복 connect 판정([GattConnectionLifecycle.admitConnect])도 이 값으로 비교한다.
- */
-internal fun ConnectOptions.linkDeadlineMillis(defaultLinkMillis: Long): Long? =
-    timeoutMillis ?: if (autoConnect) null else defaultLinkMillis
-
-/** 이미 세션이 있을 때의 중복 connect 판정 결과([GattConnectionLifecycle.admitConnect]). */
-internal sealed interface ConnectAdmission {
-    /** 새 연결을 시작한다. */
-    data object Proceed : ConnectAdmission
-
-    /** 같은 effective options 로 이미 진행·대기 중 — 기존 연결·대기에 합류한다(no-op). */
-    data object Joined : ConnectAdmission
-
-    /** 충돌 — 호출자가 [code]·[retryability] 로 실패를 만들어 게시하고 던진다. */
-    data class Conflict(val code: String, val retryability: Retryability) : ConnectAdmission
 }

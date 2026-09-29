@@ -12,11 +12,9 @@ import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.GattOperationKind
-import kr.co.nucode.ble.internal.session.ConnectionCoordinator
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionFailures
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
  * `BleFailure` 생성 전용 층. `Session` context·operation attribution·비플랫폼 code를
@@ -199,40 +197,6 @@ internal object GattFailureFactory {
             statusCode = status,
             apiOperation = callbackKind,
         ),
-    )
-
-    /** [ConnectionCoordinator]가 `Disconnecting` 이외 stage에서 deadline을 못 지킬 때. */
-    fun lifecycleTimeout(session: Session, reason: TerminalCleanupReason): BleFailure {
-        // ConnectionCoordinator.timeoutReasonFor 는 이 세 reason 과 DisconnectCleanupTimeout 만 만들고,
-        // DisconnectCleanupTimeout 은 onLifecycleDeadline 이 disconnectCleanupTimeout 으로 먼저 가른다.
-        val (code, phase) = when (reason) {
-            TerminalCleanupReason.LinkTimeout -> "LINK_TIMEOUT" to FailurePhase.Link
-            TerminalCleanupReason.ServiceDiscoveryTimeout -> "SERVICE_DISCOVERY_TIMEOUT" to FailurePhase.DiscoverServices
-            TerminalCleanupReason.ConfigurationTimeout -> "CONFIGURATION_TIMEOUT" to FailurePhase.Configure
-            else -> error("unreachable: lifecycleTimeout($reason)")
-        }
-        return failure(
-            code = code,
-            phase = phase,
-            retryability = Retryability.NewConnectionMayHelp,
-            context = connectionContext(session),
-        )
-    }
-
-    /** `Disconnecting` stage deadline 자체가 지나면. */
-    fun disconnectCleanupTimeout(session: Session): BleFailure = failure(
-        code = "DISCONNECT_CLEANUP_TIMEOUT",
-        phase = FailurePhase.Close,
-        retryability = Retryability.NewConnectionMayHelp,
-        context = connectionContext(session),
-    )
-
-    /** `driver.disconnect()` 호출 자체가 던질 때(연결 정리 시작 실패). */
-    fun disconnectStartFailed(session: Session): BleFailure = failure(
-        code = "DISCONNECT_START_FAILED",
-        phase = FailurePhase.Close,
-        retryability = Retryability.NewConnectionMayHelp,
-        context = connectionContext(session),
     )
 
     /** service discovery 응답에 같은 `CharacteristicRef` 키가 두 번 나올 때(경고, 비치명). */

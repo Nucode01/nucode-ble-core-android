@@ -25,7 +25,8 @@ import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.ConnectAdmission
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
 
 /**
  * JVM unit tests cannot construct a usable platform GATT service graph. This package-internal

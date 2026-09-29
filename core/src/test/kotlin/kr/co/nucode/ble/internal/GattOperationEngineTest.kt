@@ -12,7 +12,6 @@ import kr.co.nucode.ble.internal.gatt.GattLifecycleHooks
 import kr.co.nucode.ble.internal.gatt.GattOperationEngine
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,25 +28,15 @@ class GattOperationEngineTest {
         val registry = SessionRegistry(TestClock)
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
         val session = registry.getOrCreate(deviceId).apply { setStateForTest(ConnectionState.Ready) }
-        val beginCleanupCalls = mutableListOf<Triple<TerminalCleanupReason, String?, Boolean>>()
-        var terminateForOperationInvalidationCalled = false
+        val permissionLostCauses = mutableListOf<String?>()
+        var poisonedCalled = false
         val hooks = object : GattLifecycleHooks {
-            override fun beginCleanup(
-                session: Session,
-                reason: TerminalCleanupReason,
-                cause: BleFailure?,
-                suppressReconnect: Boolean,
-            ): Boolean {
-                beginCleanupCalls += Triple(reason, cause?.code?.value, suppressReconnect)
-                return false
+            override fun onOperationPermissionLost(session: Session, cause: BleFailure) {
+                permissionLostCauses += cause.code.value
             }
 
-            override fun terminateForOperationInvalidation(
-                session: Session,
-                cause: BleFailure,
-                suppressReconnect: Boolean,
-            ) {
-                terminateForOperationInvalidationCalled = true
+            override fun onOperationPoisoned(session: Session, cause: BleFailure) {
+                poisonedCalled = true
             }
         }
         val engine = GattOperationEngine(
@@ -69,12 +58,8 @@ class GattOperationEngineTest {
 
         assertTrue(failure is BleException)
         assertEquals("PERMISSION_DENIED", (failure as BleException).failure.code.value)
-        assertEquals(1, beginCleanupCalls.size)
-        val (reason, causeCode, suppressReconnect) = beginCleanupCalls.single()
-        assertEquals(TerminalCleanupReason.PermissionDenied, reason)
-        assertEquals("PERMISSION_DENIED", causeCode)
-        assertTrue(suppressReconnect)
-        assertFalse(terminateForOperationInvalidationCalled)
+        assertEquals(listOf<String?>("PERMISSION_DENIED"), permissionLostCauses)
+        assertFalse(poisonedCalled)
     }
 
     private class FakeGattDriver : NoopGattDriver()

@@ -1,9 +1,5 @@
 package kr.co.nucode.ble.internal.gatt
 
-import kr.co.nucode.ble.internal.port.GattDriverEvent
-import kotlinx.coroutines.plus
-import kr.co.nucode.ble.internal.session.SessionOwner
-import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicProperty
@@ -12,46 +8,39 @@ import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.ServiceRef
 import kr.co.nucode.ble.Severity
-import kr.co.nucode.ble.internal.connection.LinkSetup
+import kr.co.nucode.ble.internal.core.connection.ConnectionEvent
+import kr.co.nucode.ble.internal.core.connection.LinkFact
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.StageAuthority
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
 
 /**
- * [GattConnectionLifecycle] 의 플랫폼 콜백 칸 — 연결 상태·서비스 탐색·MTU 콜백을 귀속 판정 뒤 Session 갱신·emit 으로 바꾼다.
- * 정리·종결은 [LinkTeardown] 에 맡긴다.
+ * [GattConnectionLifecycle] 의 플랫폼 콜백 칸 — 연결 상태·서비스 탐색·MTU 콜백을 귀속 판정 뒤
+ * 플랫폼 사실(실패 값·링크 사실)로 바꿔 Core 사건으로 넣는다. 어느 단계로 가고 어느 원인을 고정하는지는 Core
+ * ([kr.co.nucode.ble.internal.core.connection.ConnectionLink])가 정하고, 할 일의 실행은 [LinkEffects] 가 한다.
+ * 서비스 목록 조립·[mapProperties] 는 플랫폼 사실 변환이라 여기에 남는다.
  */
 internal class LinkCallbacks(
     private val registry: SessionRegistry,
     private val emit: (BleEvent) -> Unit,
-    private val scope: CoroutineScope,
     private val readinessTimeouts: ConnectionReadinessTimeouts,
-    private val operations: GattOperationHooks,
-    private val linkSetup: () -> LinkSetup?,
-    private val authority: StageAuthority,
-    private val publishState: (Session) -> Unit,
     private val emitDiagnostic: (Severity, BleFailure) -> Unit,
-    private val teardown: LinkTeardown,
+    private val effects: LinkEffects,
 ) {
 
     /**
      * 플랫폼 재연결 대기 중인 handle 에 OS 가 다시 붙였을 때(Bootstrap) 새 generation 을 연다.
-     * 플랫폼 재연결 대기([Session.awaitingPlatformRelink])가 아닌 세션이면 열지 않는다 — 귀속 판정과 같은 술어다.
+     * 플랫폼 재연결 대기가 아닌 세션이면 Core 가 거절하고 열지 않는다 — 귀속 판정과 같은 술어다.
      */
-    fun beginPlatformRelinkLifecycle(session: Session): Long? {
-        if (!session.awaitingPlatformRelink) return null
-        // 대기는 새 generation 시작과 함께 끝난다 — 이 generation 이 Ready 전에 실패하면 첫 연결 실패와 같은
-        // 규칙으로 handle 을 닫고 Disconnected(Failed) 로 끝난다(대기로 돌아가지 않는다, review H3 결정 A).
-        var generation = 0L
-        session.endPlatformWait { generation = session.connectionCoordinator.beginPlatformRelink(authority, scope) }
-        return generation
-    }
+    fun beginPlatformRelinkLifecycle(session: Session): Long? =
+        if (effects.dispatch(session, ConnectionEvent.PlatformRelinkUp)) {
+            session.connectionCoordinator.generation
+        } else {
+            null
+        }
 
     // ── 콜백 → Session 갱신 + emit ──────────────────────────────────────────
 
@@ -77,116 +66,34 @@ internal class LinkCallbacks(
             }
         }
 
-    /**
-     * 성공 link callback은 current source/generation/Connecting을 확인한 뒤
-     * DiscoveringServices로 전이한다.
-     */
+    /** 링크 상태 콜백 → 링크 사실(성공 status 면 실패 없음)을 Core 사건으로 넣는다. */
     internal fun handleConnectionStateChange(event: GattDriverEvent.ConnectionStateChanged) {
-        val deviceId = event.deviceId
         val status = event.status
-        val newState = event.newState
-        val session = registry.get(deviceId) ?: return
+        val session = registry.get(event.deviceId) ?: return
+        val callbackGeneration = attributedGeneration(session, event) ?: return
 
-        run {
-            val timeouts = readinessTimeouts
-            val coordinator = session.connectionCoordinator
-            val callbackGeneration = attributedGeneration(session, event) ?: return
-
-            val cause = status.takeIf { it != GattStatus.SUCCESS }?.let {
-                GattFailureFactory.linkStatusFailed(session, it)
-            }
-            if (status != GattStatus.SUCCESS) {
-                emitDiagnostic(Severity.Error, requireNotNull(cause))
-                // STATE_DISCONNECTED만 어느 active stage에서든 terminal fact다. 그 밖의
-                // failure callback은 link attempt의 결과일 때만 lifecycle failure다. 같은
-                // generation이어도 readiness가 진행된 뒤 늦게 온 non-terminal callback은
-                // 현재 stage와 deadline을 되돌리거나 끝내면 안 된다.
-                if (
-                    newState != LinkState.DISCONNECTED &&
-                    !coordinator.accepts(callbackGeneration, ConnectionStage.Connecting)
-                ) {
-                    return
-                }
-                val preReadyFailure = coordinator.stage != ConnectionStage.Ready &&
-                    coordinator.stage != ConnectionStage.Disconnecting
-                // Ready 전 실패는 첫 연결이든 플랫폼 재연결 generation 이든 handle 을 닫는다(review H3 결정 A).
-                // status 0 인 Ready 전 해제도 같은 규칙이다 — 아래 성공 status 의 STATE_DISCONNECTED 가지(MED-2).
-                val suppressReconnect = preReadyFailure
-                val failureReason = if (preReadyFailure) {
-                    TerminalCleanupReason.LinkStatusFailure
-                } else {
-                    TerminalCleanupReason.PlatformDisconnected
-                }
-                // 먼저 고정된 원인(예: 사용자 해제)이 있으면 이 실패는 Diagnostic 으로만 남는다.
-                coordinator.latchIfAbsent(authority, callbackGeneration, TerminalCause(failureReason, cause))
-                if (suppressReconnect) session.suppressReconnect = true
-                if (newState == LinkState.DISCONNECTED) {
-                    teardown.completeLifecycleCleanup(
-                        session = session,
-                        generation = callbackGeneration,
-                        fallback = TerminalCause(failureReason, cause),
-                        status = status,
-                    )
-                } else {
-                    teardown.beginCleanup(
-                        session = session,
-                        reason = failureReason,
-                        cause = cause,
-                        suppressReconnect = suppressReconnect,
-                    )
-                }
-                return
-            }
-
-            when (newState) {
-                LinkState.CONNECTED -> {
-                    val accepted = coordinator.transition(
-                        authority,
-                        callbackGeneration = callbackGeneration,
-                        expectedStage = ConnectionStage.Connecting,
-                        nextStage = ConnectionStage.DiscoveringServices,
-                        scope = scope + SessionOwner(deviceId),
-                        timeoutMillis = timeouts.discoveryMillis,
-                        onTimeout = { teardown.onLifecycleDeadline(deviceId, it) },
-                    )
-                    if (!accepted) return
-                    operations.beginGenerationIfPoisoned(session)
-                    publishState(session)
-                    linkSetup()?.onLinkUp(session, callbackGeneration)
-                }
-
-                LinkState.DISCONNECTED -> {
-                    // status 0 이어도 Ready 전(Connecting..Configuring) 해제는 링크 실패다 — OS 대기로 돌아가지 않고
-                    // handle 을 닫는다(결정 A, MED-2). 원인은 원인 없는 해제 매핑(LINK_FAILED)이 채운다.
-                    // Disconnecting 은 사용자 해제 경로라 제외한다.
-                    val stage = coordinator.stage
-                    if (
-                        callbackGeneration == coordinator.generation &&
-                        stage != ConnectionStage.Ready &&
-                        stage != ConnectionStage.Disconnecting &&
-                        stage != ConnectionStage.Disconnected
-                    ) {
-                        session.suppressReconnect = true
-                    }
-                    // 고정된 원인을 지우지 않는다 — beginCleanup 이 고정한 원인이 fallback 을 이긴다.
-                    teardown.completeLifecycleCleanup(
-                        session = session,
-                        generation = callbackGeneration,
-                        fallback = TerminalCause(TerminalCleanupReason.PlatformDisconnected, null),
-                        status = status,
-                    )
-                }
-
-                LinkState.CONNECTING -> {
-                    if (!coordinator.accepts(callbackGeneration, ConnectionStage.Connecting)) return
-                }
-
-                LinkState.DISCONNECTING -> {
-                    if (!coordinator.accepts(callbackGeneration, ConnectionStage.Disconnecting)) return
-                }
-            }
-            return
+        val failure = status.takeIf { it != GattStatus.SUCCESS }?.let {
+            GattFailureFactory.linkStatusFailed(session, it)
         }
+        effects.dispatch(
+            session,
+            ConnectionEvent.LinkStateChanged(
+                generation = callbackGeneration,
+                link = linkFactOf(event.newState),
+                status = status,
+                failure = failure,
+                discoveryMillis = readinessTimeouts.discoveryMillis,
+                disconnectCleanupMillis = readinessTimeouts.disconnectCleanupMillis,
+            ),
+        )
+    }
+
+    private fun linkFactOf(newState: Int): LinkFact = when (newState) {
+        LinkState.CONNECTED -> LinkFact.Up
+        LinkState.DISCONNECTED -> LinkFact.Down
+        LinkState.CONNECTING -> LinkFact.Connecting
+        LinkState.DISCONNECTING -> LinkFact.Disconnecting
+        else -> LinkFact.Unknown
     }
 
     /** 서비스 탐색 결과 → Session topology/target snapshot 교체 + ServicesDiscovered emit. */
@@ -202,32 +109,16 @@ internal class LinkCallbacks(
             event.services.isEmpty() -> GattFailureFactory.emptyServiceDiscovery(session)
             else -> null
         }
-        if (discoveryFailure != null) {
-            if (
-                !session.connectionCoordinator.accepts(
-                    callbackGeneration,
-                    ConnectionStage.DiscoveringServices,
-                )
-            ) return
-            emitDiagnostic(Severity.Error, discoveryFailure)
-            teardown.beginCleanup(
-                session = session,
-                reason = TerminalCleanupReason.ServiceDiscoveryStatusFailure,
-                cause = discoveryFailure,
-                suppressReconnect = true,
-            )
-            return
-        }
-        val accepted = session.connectionCoordinator.transition(
-            authority,
-            callbackGeneration = callbackGeneration,
-            expectedStage = ConnectionStage.DiscoveringServices,
-            nextStage = ConnectionStage.Configuring,
-            scope = scope + SessionOwner(deviceId),
-            timeoutMillis = readinessTimeouts.configurationMillis,
-            onTimeout = { teardown.onLifecycleDeadline(deviceId, it) },
+        val accepted = effects.dispatch(
+            session,
+            ConnectionEvent.ServicesDiscovered(
+                generation = callbackGeneration,
+                failure = discoveryFailure,
+                configurationMillis = readinessTimeouts.configurationMillis,
+                disconnectCleanupMillis = readinessTimeouts.disconnectCleanupMillis,
+            ),
         )
-        if (!accepted) return
+        if (discoveryFailure != null || !accepted) return
 
         val discoveredMap = mutableMapOf<CharacteristicRef, PlatformCharacteristic>()
         val seen = mutableSetOf<CharacteristicRef>()
@@ -259,7 +150,7 @@ internal class LinkCallbacks(
 
         session.replaceDiscoveredTopology(services, discoveredMap)
         emit(BleEvent.ServicesDiscovered(deviceId, services))
-        linkSetup()?.onServicesDiscovered(session, callbackGeneration)
+        effects.servicesPublished(session, callbackGeneration)
     }
 
     /**
@@ -284,25 +175,17 @@ internal class LinkCallbacks(
         // belongs to LinkSetup/completeReady because it must wait for subscription restore, but stale MTU
         // callbacks must still be discarded at the bridge boundary.
         val callbackGeneration = attributedGeneration(session, event) ?: return
-        if (!session.connectionCoordinator.accepts(callbackGeneration, ConnectionStage.Configuring)) return
-
-        if (status != GattStatus.SUCCESS) {
-            emitDiagnostic(
-                Severity.Warning,
-                GattFailureFactory.mtuStatusFailed(session, status),
-            )
-            val fallbackChunk = chunkSizeForMtu(GattConnectionLifecycle.DEFAULT_MTU)
-            session.mtu = GattConnectionLifecycle.DEFAULT_MTU
-            session.chunkSize = fallbackChunk
-            linkSetup()?.onMtuSettled(session, callbackGeneration)
-            return
-        }
-
-        val chunkSize = chunkSizeForMtu(mtu)
-        session.mtu = mtu
-        session.chunkSize = chunkSize
-        linkSetup()?.onMtuSettled(session, callbackGeneration)
-        // Ready 전이·게시는 LinkSetup 의 구독 복원 뒤 completeReady 가 한다.
+        effects.dispatch(
+            session,
+            ConnectionEvent.MtuSettled(
+                generation = callbackGeneration,
+                mtu = mtu,
+                failure = status.takeIf { it != GattStatus.SUCCESS }?.let {
+                    GattFailureFactory.mtuStatusFailed(session, it)
+                },
+            ),
+        )
+        // Ready 전이·게시는 LinkSetup 의 구독 복원 뒤 RestoreFinished 사건이 한다.
     }
 
     /**

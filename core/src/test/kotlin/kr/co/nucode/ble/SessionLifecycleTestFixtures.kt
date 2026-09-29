@@ -3,10 +3,10 @@ package kr.co.nucode.ble
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kr.co.nucode.ble.internal.TestStageAuthority
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 
 private val lifecycleFixtureScope = CoroutineScope(Dispatchers.Unconfined)
 

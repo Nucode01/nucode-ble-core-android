@@ -38,11 +38,11 @@ import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -233,7 +233,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            requestedMtu = 185
+            connectionCoordinator.setRequestedMtu(185)
         }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
@@ -334,9 +334,9 @@ class GattLifecycleCharacterizationTest {
         val registry = SessionRegistry(TestClock)
         // 플랫폼 재연결 대기 — autoConnect handle 이 열린 채 generation 1 이 끝났다.
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            autoConnect = true
-            platformHandleOpen = true
-            requestedMtu = 185
+            connectionCoordinator.setAutoConnect(true)
+            connectionCoordinator.setPlatformHandleOpen(true)
+            connectionCoordinator.setRequestedMtu(185)
         }
         val ended = session.connectionCoordinator.beginConnection(TestStageAuthority, this, null) {}
         session.beginPlatformWait {
@@ -394,7 +394,7 @@ class GattLifecycleCharacterizationTest {
     fun `started operation timeout terminalizes lifecycle before the next attempt and caller cancellation only detaches the caller`() = runTest {
         val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            suppressReconnect = false
+            connectionCoordinator.setSuppressReconnect(false)
         }
         val firstGeneration = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 40) {}
         session.connectionCoordinator.transition(
@@ -591,7 +591,7 @@ class GattLifecycleCharacterizationTest {
     fun `same-generation late non-terminal failures cannot tear down readiness stages`() = runTest {
         val registry = SessionRegistry(TestClock)
         val session = registry.getOrCreate(DEVICE_ID).apply {
-            suppressReconnect = false
+            connectionCoordinator.setSuppressReconnect(false)
         }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 40) {}
         session.connectionCoordinator.transition(
@@ -755,7 +755,7 @@ class GattLifecycleCharacterizationTest {
         val driver = FakeGattDriver(this)
         val core = newCore(driver)
         val session = core.registry.getOrCreate(DEVICE_ID).apply {
-            suppressReconnect = true
+            connectionCoordinator.setSuppressReconnect(true)
         }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
@@ -928,7 +928,7 @@ class GattLifecycleCharacterizationTest {
         driver: FakeGattDriver,
     ): Pair<Session, List<Pair<Int?, Int?>>> {
         val core = newCore(driver)
-        val session = core.registry.getOrCreate(DEVICE_ID).apply { requestedMtu = 185 }
+        val session = core.registry.getOrCreate(DEVICE_ID).apply { connectionCoordinator.setRequestedMtu(185) }
         val generation = session.connectionCoordinator.beginConnection(TestStageAuthority, this, 15_000) {}
         val observed = mutableListOf<BleClientEvent>()
         val mtuAtReady = mutableListOf<Pair<Int?, Int?>>()

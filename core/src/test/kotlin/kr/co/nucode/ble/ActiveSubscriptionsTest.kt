@@ -28,7 +28,7 @@ import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

@@ -41,7 +41,7 @@ internal object FailureCatalog {
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("connect command driver start", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), LinkTeardown.kt:onAdapterLost, LinkTeardown.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -80,7 +80,7 @@ internal object FailureCatalog {
         FailureSpec(
             "CONFIGURATION_TIMEOUT",
             listOf(
-                Route("link lifecycle (configuration deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
+                Route("link lifecycle (configuration deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ConnectionCleanup.kt:lifecycleDeadline"),
             ),
         ),
         FailureSpec(
@@ -98,14 +98,14 @@ internal object FailureCatalog {
         FailureSpec(
             "DISCONNECT_CLEANUP_TIMEOUT",
             listOf(
-                Route("link lifecycle (disconnect cleanup deadline)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkTeardown.kt:onLifecycleDeadline — completeLifecycleCleanup 로 Disconnected 도달 후 정보"),
+                Route("link lifecycle (disconnect cleanup deadline)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ConnectionCleanup.kt:lifecycleDeadline — completeLifecycleCleanup 로 Disconnected 도달 후 정보"),
             ),
         ),
         FailureSpec(
             "DISCONNECT_START_FAILED",
             listOf(
-                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:disconnect, LinkTeardown.kt:beginCleanup, LinkTeardown.kt:endPlatformWait(OS 대기 취소 — 사용자 해제·close·어댑터 꺼짐)"),
-                Route("internal cleanup (timeout/discovery/link/permission)", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkTeardown.kt:beginCleanup"),
+                Route("disconnect command", TriggerKind.AsyncInfo, setOf(Channel.Event), "ConnectionCleanup.kt:disconnectRequested, ConnectionCleanup.kt:beginCleanup, ConnectionCleanup.kt:endPlatformWait(OS 대기 취소 — 사용자 해제·close·어댑터 꺼짐)"),
+                Route("internal cleanup (timeout/discovery/link/permission)", TriggerKind.AsyncInfo, setOf(Channel.Event), "ConnectionCleanup.kt:beginCleanup"),
             ),
         ),
         FailureSpec(
@@ -153,7 +153,7 @@ internal object FailureCatalog {
             "INTERNAL_TRANSPORT_ERROR",
             listOf(
                 Route("subscription restore (non-BleException)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "RuntimeCommands.kt:failureFromInternalException, LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만)"),
-                Route("core scope uncaught exception (session-owned)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:onUncaughtCoreException, LinkTeardown.kt:failInternal(SessionOwner 컨텍스트로 귀속 — 그 세션만 종결·handle close)"),
+                Route("core scope uncaught exception (session-owned)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "BleRuntime.kt:onUncaughtCoreException, ConnectionCleanup.kt:internalFailure(SessionOwner 컨텍스트로 귀속 — 그 세션만 종결·handle close)"),
                 Route("core scope uncaught exception (unattributed)", TriggerKind.AsyncInfo, setOf(Channel.Event), "BleRuntime.kt:onUncaughtCoreException(귀속 불명 — Diagnostic 만)"),
             ),
         ),
@@ -161,7 +161,7 @@ internal object FailureCatalog {
             "LINK_FAILED",
             listOf(
                 Route("link lifecycle (link status callback)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange"),
-                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange, LinkTeardown.kt:finalizeTerminalCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다)"),
+                Route("unattributed platform disconnect (status 0)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange, ConnectionCleanup.kt:finalizeCause(unattributedLinkDisconnect + emitDiagnostic; Event 는 항상 나간다)"),
                 Route("late non-terminal link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:handleConnectionStateChange"),
                 Route("ended-generation link status callback", TriggerKind.AsyncInfo, setOf(Channel.Event), "LinkCallbacks.kt:attributedGeneration(CallbackAttribution Drop \"ended generation\" + 비성공 status 일 때만 Warning Diagnostic, 성공 status 는 조용히 버림)"),
             ),
@@ -176,7 +176,7 @@ internal object FailureCatalog {
         FailureSpec(
             "LINK_TIMEOUT",
             listOf(
-                Route("link lifecycle (link deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
+                Route("link lifecycle (link deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ConnectionCleanup.kt:lifecycleDeadline"),
             ),
         ),
         FailureSpec(
@@ -203,9 +203,9 @@ internal object FailureCatalog {
         FailureSpec(
             "OPERATION_TIMEOUT",
             listOf(
-                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:armDeadline, OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
+                Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:armDeadline, OperationExecutor.kt:poisonStartedOperation, ConnectionCleanup.kt:operationInvalidated"),
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, OperationExecutor.kt:poisonStartedOperation"),
-                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, LinkTeardown.kt:terminateForOperationInvalidation"),
+                Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:poisonStartedOperation, ConnectionCleanup.kt:operationInvalidated"),
             ),
         ),
         FailureSpec(
@@ -227,12 +227,12 @@ internal object FailureCatalog {
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
-                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, LinkTeardown.kt:beginCleanup"),
+                Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, ConnectionCleanup.kt:beginCleanup"),
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "OperationExecutor.kt:startNextOperation(emitDiagnostic + beginCleanup)"),
                 Route("link lifecycle (discovery/MTU start)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattConnectionLifecycle.kt:discoverServices, GattConnectionLifecycle.kt:requestMtu"),
                 Route("connect rediscovery scan (fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "Scanner.kt:rediscover ← AndroidScanner.kt:start(startScan 의 SecurityException → PERMISSION_DENIED) → Unavailable, ConnectStarter.kt:connect"),
-                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), LinkTeardown.kt:onAdapterLost, LinkTeardown.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
+                Route("adapter off sweep", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "AdapterMonitor.kt:updateAdapterState(스윕 판정), ConnectionCleanup.kt:adapterLost, ConnectionCleanup.kt:endPlatformWait(플랫폼 재연결 대기 중 세션도 종료)"),
             ),
         ),
         FailureSpec(
@@ -291,7 +291,7 @@ internal object FailureCatalog {
         FailureSpec(
             "SERVICE_DISCOVERY_TIMEOUT",
             listOf(
-                Route("link lifecycle (discovery deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkTeardown.kt:onLifecycleDeadline"),
+                Route("link lifecycle (discovery deadline)", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "ConnectionCleanup.kt:lifecycleDeadline"),
             ),
         ),
         FailureSpec(

@@ -57,18 +57,17 @@ class GattConnectionLifecycleTest {
     }
 
     /**
-     * 보장: 토큰 없이는 ConnectionCoordinator 전이 API 가 컴파일되지 않는다. 이 가드는 main 에서 식별자
-     * `StageAuthority` 가 나오는 코드 줄을 허용 목록으로 고정한다 — 정의(abstract class)·전이 API 파라미터
-     * (`authority: StageAuthority`)·lifecycle 의 import 와 file-private object 하나. 그래서 하위 타입 선언은 형태
-     * (보조 생성자 `super()`·공백·줄바꿈·주석·typealias)와 무관하게, 토큰을 상위 타입으로 내보내는 선언도 막힌다.
+     * 보장: 연결 단계 전이 기본 동작(`Direct.*` 사건) 입구는 시험의 상태 준비만 부른다. main 은 정책 사건을
+     * `ConnectionCoordinator.dispatch` 로 Core 에 넣을 뿐이다. 이 가드는 main 에서 식별자 `StageAuthority` 가 나오는
+     * 코드 줄을 허용 목록으로 고정한다 — ConnectionCoordinator.kt 의 정의(abstract class)와 전이 API 파라미터
+     * (`authority: StageAuthority`)뿐이고, 다른 main 파일에는 하위 타입 선언은 물론 import·참조도 없다.
+     * 그래서 하위 타입 선언은 형태(보조 생성자 `super()`·공백·줄바꿈·주석·typealias)와 무관하게, 토큰을 상위 타입으로
+     * 내보내는 선언도 막힌다.
      * 한계: 주석으로 시작하는 줄(KDoc 본문·줄 주석·블록 주석 시작)은 보지 않는다.
      */
     @Test
-    fun `StageAuthority 는 정의·전이 파라미터·lifecycle 토큰에만 나온다`() {
+    fun `main 에 StageAuthority 하위 타입이 없다`() {
         val coordinator = "src/main/kotlin/kr/co/nucode/ble/internal/session/ConnectionCoordinator.kt"
-        val lifecycle = "src/main/kotlin/kr/co/nucode/ble/internal/gatt/GattConnectionLifecycle.kt"
-        val lifecycleParts = listOf("ConnectStarter.kt", "LinkCallbacks.kt", "LinkTeardown.kt")
-            .map { "src/main/kotlin/kr/co/nucode/ble/internal/gatt/$it" }
         val identifier = Regex("""\bStageAuthority\b""")
         val uses = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
@@ -81,34 +80,28 @@ class GattConnectionLifecycleTest {
             }
             .toList()
         val unexpected = uses.filterNot { (path, _, code) ->
-            when (path) {
-                coordinator -> code == "internal abstract class StageAuthority protected constructor()" ||
+            path == coordinator && (
+                code == "internal abstract class StageAuthority protected constructor()" ||
                     !identifier.containsMatchIn(code.replace("authority: StageAuthority", ""))
-                lifecycle -> code == "import kr.co.nucode.ble.internal.session.StageAuthority" ||
-                    code == "private object LifecycleStageAuthority : StageAuthority()"
-                // lifecycle 에서 나뉜 칸 — 토큰은 생성자 주입으로만 받는다.
-                in lifecycleParts -> code == "import kr.co.nucode.ble.internal.session.StageAuthority" ||
-                    code == "private val authority: StageAuthority,"
-                else -> false
-            }
+                )
         }
         assertEquals(unexpected.joinToString("\n") { "${it.first}:${it.second}: ${it.third}" }, emptyList<Any>(), unexpected)
-        assertEquals(1, uses.count { it.third == "private object LifecycleStageAuthority : StageAuthority()" })
+        assertEquals(1, uses.count { it.third == "internal abstract class StageAuthority protected constructor()" })
     }
 
     /**
      * 중복 connect 판정 코드("CONNECTION_OPTIONS_CONFLICT"/"CONNECT_DURING_DISCONNECT") 문자열 리터럴은 main 에서
-     * ConnectStarter.kt(admitConnect, lifecycle 의 연결 시작 칸) 에만 있다 — FailureCatalog.kt 등록 항목과 BleFailure.kt 의 FailureCode 공개 상수는 예외.
+     * ConnectionStart.kt(Core 의 연결 시작 정책 `ConnectionStart.admit`) 에만 있다 — FailureCatalog.kt 등록 항목과 BleFailure.kt 의 FailureCode 공개 상수는 예외.
      */
     @Test
-    fun `중복 connect 판정 코드는 ConnectStarter 에만 있다`() {
+    fun `중복 connect 판정 코드는 Core 연결 시작 정책에만 있다`() {
         val literal = Regex("\"(CONNECTION_OPTIONS_CONFLICT|CONNECT_DURING_DISCONNECT)\"")
         val offenders = File("src/main/kotlin").walkTopDown()
             .filter { it.isFile && it.extension == "kt" && it.name != "FailureCatalog.kt" && it.name != "BleFailure.kt" }
             .filter { literal.containsMatchIn(it.readText()) }
             .map { it.invariantSeparatorsPath }
             .toList()
-        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/gatt/ConnectStarter.kt"), offenders)
+        assertEquals(listOf("src/main/kotlin/kr/co/nucode/ble/internal/core/connection/ConnectionStart.kt"), offenders)
     }
 
     /** plan link-setup 불변식 ② — `ConnStateChanged` 는 GattConnectionLifecycle.publishState 한 곳에서만 만든다. */

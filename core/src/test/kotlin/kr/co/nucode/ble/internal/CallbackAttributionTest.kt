@@ -12,10 +12,10 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.gatt.Attribution
 import kr.co.nucode.ble.internal.gatt.DropReason
 import kr.co.nucode.ble.internal.gatt.CallbackAttribution
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
-import kr.co.nucode.ble.internal.session.TerminalCause
-import kr.co.nucode.ble.internal.session.TerminalCleanupReason
+import kr.co.nucode.ble.internal.core.connection.TerminalCause
+import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -184,8 +184,12 @@ class CallbackAttributionTest {
 
     @Test
     fun `lifecycle 은 null generation 을 현재 generation 으로 추정하지 않는다`() {
-        val source = listOf("GattConnectionLifecycle.kt", "ConnectStarter.kt", "LinkCallbacks.kt", "LinkTeardown.kt")
-            .joinToString("\n") { File("src/main/kotlin/kr/co/nucode/ble/internal/gatt/$it").readText() }
+        val lifecycle = listOf("GattConnectionLifecycle.kt", "ConnectStarter.kt", "LinkCallbacks.kt", "LinkEffects.kt")
+            .map { File("src/main/kotlin/kr/co/nucode/ble/internal/gatt/$it") }
+        // 연결 정책 판단은 Core 로 옮겨졌다 — 거기서도 null generation 을 현재 generation 으로 추정하지 않는다.
+        val core = File("src/main/kotlin/kr/co/nucode/ble/internal/core/connection").listFiles { f -> f.extension == "kt" }.orEmpty().toList()
+        assertFalse("Core 연결 파일이 없다", core.isEmpty())
+        val source = (lifecycle + core).joinToString("\n") { it.readText() }
         assertFalse(source.contains("connectionGeneration ?:"))
     }
 }

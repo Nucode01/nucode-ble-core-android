@@ -10,7 +10,7 @@
 판정. `BluetoothGattCallback`·`ScanCallback` 을 상속하는 코드는 전부 여기다.
 
 **orchestration** — 연결 단계, 작업 순서, 취소·정리 정책. `internal/` 루트와 기능별 하위 패키지(`session/`·`connection/`·`gatt/`·`scan/`)에 남는다.
-`GattBridge`(+ `GattConnectionLifecycle` → `ConnectStarter`·`LinkCallbacks`·`LinkTeardown`, `GattOperationEngine` → `OperationExecutor`·`OperationCallbacks`·`SubscriptionCommands`), `BleRuntime`, `Session`, `OperationQueue`, `Scanner`.
+`GattBridge`(+ `GattConnectionLifecycle` → `ConnectStarter`·`LinkCallbacks`·`LinkEffects`, `GattOperationEngine` → `OperationExecutor`·`OperationCallbacks`·`SubscriptionCommands`), `BleRuntime`, `Session`, `OperationQueue`, `Scanner`.
 
 ## 이 규칙이 뜻하지 않는 것
 

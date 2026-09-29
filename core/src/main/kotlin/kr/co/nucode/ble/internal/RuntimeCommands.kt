@@ -1,7 +1,7 @@
 package kr.co.nucode.ble.internal
 
 import kr.co.nucode.ble.*
-import kr.co.nucode.ble.internal.gatt.ConnectAdmission
+import kr.co.nucode.ble.internal.core.connection.ConnectAdmission
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
 import kr.co.nucode.ble.internal.gatt.OperationQueue
@@ -10,7 +10,6 @@ import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.model.WriteResult
 import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.scan.Scanner
-import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 import kotlin.coroutines.CoroutineContext
@@ -312,7 +311,7 @@ internal class RuntimeCommands(
             val startGeneration = session.connectionCoordinator.generation
             gattBridge.subscribe(deviceId, charRef)
             // ack 뒤 재개 전에 사용자 disconnect(clearDesired)·정리가 시작됐으면 던진다.
-            if (!session.connectionCoordinator.accepts(startGeneration, ConnectionStage.Ready)) {
+            if (!session.connectionCoordinator.readyFor(startGeneration)) {
                 throw BleException(GattFailureFactory.operationInvalidated(session))
             }
         }

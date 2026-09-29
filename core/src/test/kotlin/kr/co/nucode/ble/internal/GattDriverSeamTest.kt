@@ -51,7 +51,7 @@ import kr.co.nucode.ble.internal.platform.android.characteristicReadEvent
 import kr.co.nucode.ble.internal.platform.android.characteristicWriteEvent
 import kr.co.nucode.ble.internal.platform.android.descriptorWriteEvent
 import kr.co.nucode.ble.internal.platform.android.identityIndexOrNull
-import kr.co.nucode.ble.internal.session.ConnectionStage
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry

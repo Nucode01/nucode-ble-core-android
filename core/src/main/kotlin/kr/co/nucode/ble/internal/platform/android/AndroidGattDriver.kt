@@ -1,5 +1,8 @@
 package kr.co.nucode.ble.internal.platform.android
 
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.GattDriverEvent
+import kr.co.nucode.ble.internal.port.TargetResolution
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
@@ -7,7 +10,7 @@ import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.os.Build
 import java.util.UUID
-import kotlinx.coroutines.CoroutineScope
+import kr.co.nucode.ble.internal.port.CoreMailbox
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
@@ -20,9 +23,6 @@ import kr.co.nucode.ble.FailureContext
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.Retryability
-import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
-import kr.co.nucode.ble.internal.gatt.TargetResolution
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
@@ -32,13 +32,13 @@ import kr.co.nucode.ble.internal.model.PlatformDescriptor
 internal class AndroidGattDriver(
     private val context: Context?,
     private val adapter: () -> BluetoothAdapter?,
-    private val scope: CoroutineScope,
+    private val mailbox: CoreMailbox,
 ) : GattDriver {
     /** 운영 경로 — context 는 [central] 의 것, 어댑터는 매 호출 시 [central] 에서 다시 얻는다. */
-    constructor(central: AndroidCentral?, scope: CoroutineScope) :
-        this(central?.context, { central?.adapter() }, scope)
+    constructor(central: AndroidCentral?, mailbox: CoreMailbox) :
+        this(central?.context, { central?.adapter() }, mailbox)
 
-    private val callbackRouter = AndroidGattCallbackRouter(scope)
+    private val callbackRouter = AndroidGattCallbackRouter(mailbox)
 
     override fun setEventSink(sink: (GattDriverEvent) -> Unit) {
         callbackRouter.setEventSink(sink)

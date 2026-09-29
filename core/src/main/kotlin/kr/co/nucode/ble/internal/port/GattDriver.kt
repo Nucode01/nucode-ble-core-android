@@ -1,4 +1,4 @@
-package kr.co.nucode.ble.internal.gatt
+package kr.co.nucode.ble.internal.port
 
 import java.util.UUID
 import kr.co.nucode.ble.CharacteristicRef
@@ -8,12 +8,11 @@ import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
-import kr.co.nucode.ble.internal.session.Session
 
 /**
  * Android GATT command/callback boundary.
  *
- * [GattBridge] owns lifecycle interpretation and [Session] updates. Implementations only start
+ * `GattBridge` owns lifecycle interpretation and `Session` updates. Implementations only start
  * platform commands and forward callback facts. A test driver may return `null` from [connect]
  * after a successful synthetic start; the production driver either returns a real handle or
  * throws.
@@ -81,12 +80,24 @@ internal interface GattDriver {
     ): TargetResolution
 }
 
+/** driver 가 판정한 operation target 해석 결과. */
+internal sealed interface TargetResolution {
+    /** 현재 handle 의 서비스 그래프에서 같은 객체를 찾았다. */
+    data class Resolved(val propertyMask: Int, val cccdDescriptor: PlatformDescriptor?) : TargetResolution
+
+    /** 해석할 handle 이 없다. */
+    data object NotConnected : TargetResolution
+
+    /** handle 의 서비스 그래프에 해당 characteristic 이 (같은 객체로) 없다. */
+    data object NotFound : TargetResolution
+}
+
 /** Callback origin guard. Production matches platform handle identity; fakes choose current/stale. */
 internal fun interface GattCallbackSource {
     fun matches(currentGatt: GattHandle?): Boolean
 }
 
-/** Raw service snapshot. Mapping to public models remains in [GattBridge]. */
+/** Raw service snapshot. Mapping to public models remains in `GattBridge`. */
 internal data class GattServiceSnapshot(
     val serviceUuid: UUID,
     val characteristics: List<GattCharacteristicSnapshot>,

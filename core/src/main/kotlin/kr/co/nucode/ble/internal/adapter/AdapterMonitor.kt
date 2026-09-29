@@ -1,6 +1,6 @@
 package kr.co.nucode.ble.internal.adapter
 
-import android.os.Build
+import kr.co.nucode.ble.internal.port.AdapterSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,45 +13,6 @@ import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.FailurePhase
-import kr.co.nucode.ble.internal.model.AdapterSource
-import kr.co.nucode.ble.internal.platform.android.AndroidCentral
-import kr.co.nucode.ble.internal.platform.android.AndroidPermissionState
-
-/**
- * D7(M-8+#16) 권한 판정 순수 함수 — `sdkInt`/매니페스트 선언 셋/런타임 grant 조회를 인자로
- * 받는다. `Build.VERSION.SDK_INT` 를 직접 참조하지 않는 이유는 테스트 JVM 에서 그 값이
- * 항상 0 이라 버전 매트릭스(31+/29~30/24~28)를 단위 테스트로 돌릴 수 없기 때문이다 —
- * AdapterMonitor 멤버가 아니라 파일 최상위 `internal` 함수로 둬 인스턴스 없이 테스트한다.
- *
- * 판정 순서(plan task 7 §구현②):
- * 1) 버전별 필요 권한 중 [declared] 에 없는 것이 있으면 → `Unauthorized(canRequest = false)`
- *    — 매니페스트 미선언. 요청 API 를 불러도 소용없다(앱 빌드 결함).
- * 2) 전부 선언은 됐는데 런타임 권한이 미허용이면 → `Unauthorized(canRequest = true)`.
- * 3) 전부 충족되면 → `null`(허용됨 — `Unauthorized` 아님. 어댑터 on/off 판정은 호출부 몫).
- *
- * pre-31 의 `BLUETOOTH`/`BLUETOOTH_ADMIN` 은 선언 여부만 본다 — 설치 시 부여되는 일반
- * 권한이라 grant 검사가 무의미하다(review #2 근거와 동일선상). 위치 권한은 선언+허용을
- * 모두 본다 — N~P 는 FINE/COARSE 어느 한쪽만 선언·허용돼도 충족된다(OR).
- *
- * [targetSdkInt] < 31 인 앱은 Android 12+ 기기에서도 legacy 권한 셋(BLUETOOTH/ADMIN+위치)으로
- * 합법 동작한다 — 그 조합을 SCAN/CONNECT 미선언 = "앱 빌드 결함(canRequest=false)" 으로
- * 오판하지 않도록 legacy 매트릭스로 내려보낸다(review L).
- *
- * ★ 알려진 한계(실기기 후 재검토): 31+ 에서 `BLUETOOTH_SCAN` 을 `neverForLocation` 없이
- * 선언한 앱은 스캔 결과 수신에 위치 권한도 필요하다 — 이 매트릭스는 그 플래그를 읽지
- * 않으므로(PackageInfo.requestedPermissionsFlags) 해당 조합을 통과로 오판할 수 있다.
- */
-internal fun evaluatePermissionState(
-    sdkInt: Int,
-    declared: Set<String>,
-    isGranted: (String) -> Boolean,
-    targetSdkInt: Int = sdkInt,
-): AdapterState.Unauthorized? = AndroidPermissionState.evaluate(
-    sdkInt = sdkInt,
-    targetSdkInt = targetSdkInt,
-    declared = declared,
-    isGranted = isGranted,
-)
 
 /**
  * 어댑터/권한 상태의 유일한 소유자(plan runtime-split) — 상태 계산·브로드캐스트 리시버·단일 쓰기 지점
@@ -64,7 +25,6 @@ internal fun evaluatePermissionState(
 internal class AdapterMonitor(
     private val scope: CoroutineScope,
     private val adapterSource: AdapterSource,
-    private val central: AndroidCentral?,
     private val adapterStateProbe: (() -> AdapterState)?,
     private val onAdapterLost: (AdapterState) -> Unit,
     private val onAdapterReturned: () -> Unit,
@@ -77,24 +37,17 @@ internal class AdapterMonitor(
 
     /**
      * 어댑터 검사가 권한 검사보다 먼저다(plan task 7 §테스트) — 내부 테스트 생성자
-     * (`adapter = { null }`)는 [central] 도 null 이라 권한 판정 경로를 타면 항상 빈 선언
+     * (`adapter = { null }`)는 권한 조회도 빈 선언 집합이라 권한 판정 경로를 타면 항상 빈 선언
      * 집합으로 `Unauthorized(false)` 가 나오는데, 이 순서 덕분에 그 경로 자체를 안 타고
      * `Unsupported` 로 먼저 끝난다 — `BleCoreWiringTest` 56개가 이 순서에 기대고 있다.
      *
-     * 권한 판정 자체(D7/M-8+#16, BLE 스캔 결과 배달 조건 — review #2)는 [central] 이
-     * 있으면 [AndroidCentral.permissionState] 로, 없으면(테스트 생성자 경로) 이 파일 최상위
-     * [evaluatePermissionState] 에 빈 선언 집합/미허용을 직접 채워 위임한다 — 둘 다 최종
-     * 판정 로직은 [AndroidPermissionState.evaluate] 로 수렴한다.
+     * 권한 판정 자체(D7/M-8+#16, BLE 스캔 결과 배달 조건 — review #2)는
+     * [AdapterSource.permissionState] 포트가 맡는다 — 구현(platform)이 드라이버 유무에 따라 고른다.
      */
     private fun computeAdapterState(): AdapterState {
         adapterStateProbe?.let { return it() }
         val adapterInstance = adapterSource.current() ?: return AdapterState.Unsupported
-        val unauthorized = if (central != null) {
-            central.permissionState()
-        } else {
-            // 테스트 생성자 경로(Context 없음): 선언 집합이 비어 있고 grant 조회가 불가한 현재 동작과 동치.
-            evaluatePermissionState(sdkInt = Build.VERSION.SDK_INT, declared = emptySet(), isGranted = { false })
-        }
+        val unauthorized = adapterSource.permissionState()
         unauthorized?.let { return it }
         return if (adapterInstance.isEnabled()) AdapterState.Ready else AdapterState.PoweredOff
     }

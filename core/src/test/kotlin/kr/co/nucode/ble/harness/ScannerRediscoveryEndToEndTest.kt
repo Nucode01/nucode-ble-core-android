@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.internal.port.PlatformScanSpec
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleException
 import kotlinx.coroutines.async
@@ -19,7 +20,6 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
 import kr.co.nucode.ble.ScanResult
 import kr.co.nucode.ble.ScanState
-import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.model.ScanObservation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

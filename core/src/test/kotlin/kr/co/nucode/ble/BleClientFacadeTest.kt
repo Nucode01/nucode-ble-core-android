@@ -1,5 +1,7 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
@@ -14,8 +16,6 @@ import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.DefaultBleSession
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.model.BleEvent
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity

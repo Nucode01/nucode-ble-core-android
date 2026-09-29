@@ -3,6 +3,7 @@ package kr.co.nucode.ble.internal
 import java.lang.reflect.Modifier
 import kr.co.nucode.ble.internal.adapter.AdapterMonitor
 import kr.co.nucode.ble.internal.platform.android.AndroidCentral
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,7 +39,14 @@ class AndroidCentralContractTest {
         assertFalse("legacy BleRuntime.declaredPermissions field remains", "declaredPermissions" in fields)
         assertFalse("legacy BleRuntime.permissionState() remains", "permissionState" in methods)
         assertFalse("legacy BleRuntime.appContext field remains", "appContext" in fields)
-        assertTrue("BleRuntime delegates through a single AndroidCentral handle", "central" in fields)
+        assertFalse("BleRuntime must not hold a platform central", "central" in fields)
+        // 플랫폼 central 은 Factory 조립이 하나만 만들어 Driver 셋에 나눠 준다(런타임은 포트만 받는다).
+        val assembly = java.io.File("src/main/kotlin/kr/co/nucode/ble/android/AndroidRuntimeAssembly.kt").readText()
+        assertEquals(
+            "Factory assembly must create exactly one AndroidCentral",
+            1,
+            Regex("""(?<![\w.])AndroidCentral\(""").findAll(assembly).count(),
+        )
         // 어댑터 상태 조립은 오케스트레이션 소유자 AdapterMonitor 에 있다(plan runtime-split task 2) — 플랫폼 어댑터
         // (AndroidCentral)나 런타임에 두 번째 계산이 생기지 않는다.
         assertFalse("adapter-state composition moved out of BleRuntime", "computeAdapterState" in methods)

@@ -15,7 +15,8 @@
 ## 이 규칙이 뜻하지 않는 것
 
 - **orchestration 의 Android 의존은 `android.bluetooth` 밖의 것만 남아 있다.** `AdapterMonitor`(`internal/adapter/`)는
-  Context 없는 테스트 생성자 경로에서 `Build.VERSION.SDK_INT` 를 읽고, `BleRuntime` 은 `Context` 로 `AndroidCentral` 을 만든다.
+  Context 없는 테스트 생성자 경로에서 `Build.VERSION.SDK_INT` 를 읽고, `BleRuntime` 은 `Context`·`AndroidCentral`·Driver 를 알지 못하고 포트(`GattDriver`·`PlatformScanPort`·`AdapterSource`)만 받는다.
+  구체 Driver 는 Factory 조립(`kr.co.nucode.ble.android.androidRuntime`)이 `Context` 로 `AndroidCentral` 하나를 만들어 나눠 주며 만드는 유일한 곳이다.
   어댑터 on/off 브로드캐스트 리시버는 `AndroidAdapterSource` 가 소유한다.
 - **`android.bluetooth` 의존은 플랫폼 어댑터 패키지에만 있다.** 이 패키지와 공개 `kr.co.nucode.ble.android` 밖에는 `android.bluetooth` import 가 없다(`PackageStructureFitnessTest` 가 강제). GATT 포트(`GattDriver`)는
   불투명 핸들 `GattHandle`·`PlatformCharacteristic`·`PlatformDescriptor`(`internal/model/`)만 주고받고, 상태·쓰기 상수는

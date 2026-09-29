@@ -1,20 +1,18 @@
 package kr.co.nucode.ble.internal.platform.android
 
-import kr.co.nucode.ble.internal.session.SessionOwner
+import kr.co.nucode.ble.internal.port.toIdentity
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriverEvent
+import kr.co.nucode.ble.internal.port.GattServiceSnapshot
+import kr.co.nucode.ble.internal.port.CoreMailbox
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.os.Build
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
-import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
-import kr.co.nucode.ble.internal.gatt.toIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 
 internal fun characteristicChangedEvent(
@@ -68,9 +66,9 @@ internal fun descriptorWriteEvent(
     characteristic?.toIdentity()?.let { GattDescriptorIdentity(it, descriptorUuid) },
 )
 
-/** Converts Android callbacks to driver facts and serializes delivery onto the core scope. */
+/** Converts Android callbacks to driver facts and serializes delivery through the core mailbox. */
 internal class AndroidGattCallbackRouter(
-    private val scope: CoroutineScope,
+    private val mailbox: CoreMailbox,
 ) {
     private var eventSink: (GattDriverEvent) -> Unit = {}
 
@@ -78,9 +76,9 @@ internal class AndroidGattCallbackRouter(
         eventSink = sink
     }
 
-    /** Shared scope hop used by every callback and kept internal for deterministic tests. */
+    /** Shared mailbox hop used by every callback and kept internal for deterministic tests. */
     internal fun forward(event: GattDriverEvent) {
-        scope.launch(SessionOwner(event.deviceId)) { eventSink(event) }
+        mailbox.post(event.deviceId) { eventSink(event) }
     }
 
     internal val callback: BluetoothGattCallback = object : BluetoothGattCallback() {

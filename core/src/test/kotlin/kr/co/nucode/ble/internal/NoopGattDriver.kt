@@ -1,13 +1,13 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.GattDriverEvent
+import kr.co.nucode.ble.internal.port.TargetResolution
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
 import kr.co.nucode.ble.CharacteristicRef
-import kr.co.nucode.ble.internal.gatt.TargetResolution
 
 /**
  * 테스트 전용 무동작 [GattDriver] 기반 클래스.

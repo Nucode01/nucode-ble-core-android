@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope

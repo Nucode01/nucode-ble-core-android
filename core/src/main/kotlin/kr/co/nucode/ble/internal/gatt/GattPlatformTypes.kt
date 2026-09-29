@@ -1,18 +1,9 @@
 package kr.co.nucode.ble.internal.gatt
 
-import kr.co.nucode.ble.internal.model.PlatformDescriptor
+/** 러너 소스(ContractScenarioTest)가 옛 위치 `internal.gatt` 에서 import 하므로 포트로 옮긴 두 스냅샷 이름을 별칭으로 남긴다. */
+internal typealias GattServiceSnapshot = kr.co.nucode.ble.internal.port.GattServiceSnapshot
 
-/** driver 가 판정한 operation target 해석 결과. */
-internal sealed interface TargetResolution {
-    /** 현재 handle 의 서비스 그래프에서 같은 객체를 찾았다. */
-    data class Resolved(val propertyMask: Int, val cccdDescriptor: PlatformDescriptor?) : TargetResolution
-
-    /** 해석할 handle 이 없다. */
-    data object NotConnected : TargetResolution
-
-    /** handle 의 서비스 그래프에 해당 characteristic 이 (같은 객체로) 없다. */
-    data object NotFound : TargetResolution
-}
+internal typealias GattCharacteristicSnapshot = kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
 
 /** GATT status 값. Android `BluetoothGatt.GATT_*` 와 같은 값이다. */
 internal object GattStatus {

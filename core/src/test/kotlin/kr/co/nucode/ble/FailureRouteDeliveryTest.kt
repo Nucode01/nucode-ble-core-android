@@ -1,5 +1,10 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.CoreMailbox
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -19,10 +24,6 @@ import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
@@ -181,7 +182,7 @@ class FailureRouteDeliveryTest {
 
     @Test
     fun `connect driver start ADAPTER_UNAVAILABLE throws and terminalizes state`() = runTest {
-        val f = fixture(gattDriver = AndroidGattDriver(android.content.ContextWrapper(null), { null }, backgroundScope))
+        val f = fixture(gattDriver = AndroidGattDriver(android.content.ContextWrapper(null), { null }, CoreMailbox { _, block -> backgroundScope.launch { block() } }))
 
         val thrown = f.connectThrown()
 
@@ -191,7 +192,7 @@ class FailureRouteDeliveryTest {
 
     @Test
     fun `connect driver start BLE_UNSUPPORTED throws and terminalizes state`() = runTest {
-        val f = fixture(gattDriver = AndroidGattDriver(null, { null }, backgroundScope))
+        val f = fixture(gattDriver = AndroidGattDriver(null, { null }, CoreMailbox { _, block -> backgroundScope.launch { block() } }))
 
         val thrown = f.connectThrown()
 

@@ -1,5 +1,9 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import android.Manifest
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -33,13 +37,9 @@ import kr.co.nucode.ble.internal.model.GattOperationKind
 import kr.co.nucode.ble.internal.model.WriteResult
 import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.charRef
-import kr.co.nucode.ble.internal.adapter.evaluatePermissionState
+import kr.co.nucode.ble.internal.platform.android.evaluatePermissionState
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.scan.Scanner
@@ -644,7 +644,7 @@ class BleCoreWiringTest {
             driver = kr.co.nucode.ble.internal.platform.android.AndroidGattDriver(
                 android.content.ContextWrapper(null),
                 { null },
-                bridgeScope,
+                kr.co.nucode.ble.internal.port.CoreMailbox { _, block -> bridgeScope.launch { block() } },
             ),
             ackTimeoutMillis = 5_000,
         )

@@ -49,6 +49,23 @@ class CoreScopeExceptionTest {
     }
 
     @Test
+    fun `mailbox post 안의 예외는 그 기기 세션만 INTERNAL_TRANSPORT_ERROR 로 끝낸다`() = runTest {
+        val h = harness()
+        h.connectToReady(a)
+        h.connectToReady(b)
+        assertEquals(0, h.fake.calls.count { it == "close" })
+
+        h.core.mailbox.post(a) { error("boom") }
+        h.advancePastAllDeadlines()
+
+        assertEquals(h.states(a).toString(), "INTERNAL_TRANSPORT_ERROR", failedCode(h.states(a).last()))
+        assertEquals(h.fake.calls.toString(), 1, h.fake.calls.count { it == "close" })
+        assertEquals(ConnectionState.Ready, h.session(b).connectionState.value)
+        assertTrue(h.internalDiagnostics().toString(), h.internalDiagnostics().isNotEmpty())
+        h.close()
+    }
+
+    @Test
     fun `귀속 불명 예외는 Diagnostic 만 내고 어떤 세션도 끝내지 않는다`() = runTest {
         val h = harness()
         h.connectToReady(a)

@@ -1,5 +1,11 @@
 package kr.co.nucode.ble.internal
 
+import kotlinx.coroutines.launch
+import kr.co.nucode.ble.internal.port.CoreMailbox
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattServiceSnapshot
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.model.GattOperation
@@ -35,12 +41,8 @@ import kr.co.nucode.ble.PlatformDetail
 import kr.co.nucode.ble.Retryability
 import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.gatt.GattBridge
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.OperationExecutor
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
-import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.internal.gatt.GattWriteCommandFailure
 import kr.co.nucode.ble.internal.gatt.OperationQueue
 import kr.co.nucode.ble.internal.platform.android.AndroidGattCallbackRouter
@@ -1388,7 +1390,7 @@ class GattDriverSeamTest {
     @Test
     fun `Android callback router forwards callbacks through the supplied core scope`() = runTest {
         val deviceId = PeripheralId("AA:BB:CC:DD:EE:FF")
-        val router = AndroidGattCallbackRouter(scope = this)
+        val router = AndroidGattCallbackRouter(mailbox = CoreMailbox { _, block -> launch { block() } })
         var delivered = false
         router.setEventSink { delivered = true }
 

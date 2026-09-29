@@ -1,5 +1,8 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -14,9 +17,6 @@ import kr.co.nucode.ble.internal.DefaultBleClient
 import kr.co.nucode.ble.internal.NoopGattDriver
 import kr.co.nucode.ble.internal.TestStageAuthority
 import kr.co.nucode.ble.internal.model.BleEvent
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

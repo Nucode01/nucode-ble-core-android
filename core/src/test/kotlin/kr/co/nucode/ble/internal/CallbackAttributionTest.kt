@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothProfile
 import java.io.File
@@ -10,8 +12,6 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.gatt.Attribution
 import kr.co.nucode.ble.internal.gatt.DropReason
 import kr.co.nucode.ble.internal.gatt.CallbackAttribution
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.session.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.TerminalCause

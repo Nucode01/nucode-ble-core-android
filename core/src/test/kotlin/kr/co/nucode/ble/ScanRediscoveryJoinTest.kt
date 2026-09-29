@@ -1,5 +1,6 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.PlatformScanSpec
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -13,7 +14,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.harness.RecordingScanPort
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.model.BleEvent
-import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.Scanner

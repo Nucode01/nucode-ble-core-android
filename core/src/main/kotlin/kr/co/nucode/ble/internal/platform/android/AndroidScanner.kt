@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.platform.android
 
+import kr.co.nucode.ble.internal.port.PlatformScanPort
+import kr.co.nucode.ble.internal.port.PlatformScanSpec
 import android.annotation.SuppressLint
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -15,8 +17,6 @@ import kr.co.nucode.ble.BleScanMode
 import kr.co.nucode.ble.BleServiceDataFilter
 import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.PeripheralId
-import kr.co.nucode.ble.internal.scan.PlatformScanPort
-import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.model.ScanObservation
 
 /**

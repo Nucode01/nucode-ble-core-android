@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.scan
 
+import kr.co.nucode.ble.internal.port.PlatformScanPort
+import kr.co.nucode.ble.internal.port.PlatformScanSpec
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
@@ -58,7 +60,7 @@ internal class Scanner(
     /** 단조 시계(ms) — 기본 [startLedger] 의 시작 한도 창 계산용. 테스트는 가상 시간을 넣는다. */
     now: () -> Long = { System.nanoTime() / 1_000_000 },
     /**
-     * 성공한 플랫폼 시작 기록. 기본값은 이 Scanner 전용(테스트 격리) — 운영 생성자 `BleRuntime(context, config)` 만
+     * 성공한 플랫폼 시작 기록. 기본값은 이 Scanner 전용(테스트 격리) — Factory 조립(`androidRuntime`)만
      * 프로세스 공유 기록(시계 elapsedRealtime)을 넘긴다(한도는 앱 단위).
      */
     private val startLedger: ScanStartLedger = ScanStartLedger(now),

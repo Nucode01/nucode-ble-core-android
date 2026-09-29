@@ -1,9 +1,15 @@
 package kr.co.nucode.ble.harness
 
+import kr.co.nucode.ble.internal.port.GattCallbackSource
+import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
+import kr.co.nucode.ble.internal.port.GattDriverEvent
+import kr.co.nucode.ble.internal.port.GattServiceSnapshot
+import kr.co.nucode.ble.internal.port.PlatformScanPort
+import kr.co.nucode.ble.internal.port.PlatformScanSpec
+import kr.co.nucode.ble.internal.port.TargetResolution
+import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.scan.PlatformScanPort
-import kr.co.nucode.ble.internal.scan.PlatformScanSpec
 import kr.co.nucode.ble.internal.model.ScanObservation
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -23,17 +29,11 @@ import kr.co.nucode.ble.FailureMapper
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.BleRuntime
-import kr.co.nucode.ble.internal.gatt.GattCallbackSource
-import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
-import kr.co.nucode.ble.internal.gatt.GattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriverEvent
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
-import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
-import kr.co.nucode.ble.internal.gatt.TargetResolution
 
 /**
  * Android 처럼 행동하는 단일 fake 플랫폼(plan platform-harness v1 목표 1).

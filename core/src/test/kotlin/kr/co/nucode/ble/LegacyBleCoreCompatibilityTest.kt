@@ -18,7 +18,11 @@ class LegacyBleCoreCompatibilityTest {
         ).readText()
 
         assertFalse(Regex("\\b(class|interface|object)\\s+BleCore\\b").containsMatchIn(sources))
-        assertTrue(factory.contains("DefaultBleClient(BleRuntime(context, config))"))
+        assertTrue(factory.contains("DefaultBleClient(androidRuntime(context, config))"))
+        val assembly = java.io.File(
+            "src/main/kotlin/kr/co/nucode/ble/android/AndroidRuntimeAssembly.kt",
+        ).readText()
+        assertEquals(1, Regex("""(?<![\w.])BleRuntime\(""").findAll(assembly).count())
     }
 
     @Test
@@ -40,7 +44,7 @@ class LegacyBleCoreCompatibilityTest {
             "src/main/kotlin/kr/co/nucode/ble/android/AndroidBleClientFactory.kt",
         ).readText()
         assertTrue(factorySource.contains("public fun create(context: Context"))
-        assertTrue(factorySource.contains("DefaultBleClient(BleRuntime(context, config))"))
+        assertTrue(factorySource.contains("DefaultBleClient(androidRuntime(context, config))"))
     }
 
     @Test

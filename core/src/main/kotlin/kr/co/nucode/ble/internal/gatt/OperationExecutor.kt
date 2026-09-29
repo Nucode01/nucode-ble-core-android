@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kr.co.nucode.ble.internal.port.TargetResolution
+import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.session.SessionOwner
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope

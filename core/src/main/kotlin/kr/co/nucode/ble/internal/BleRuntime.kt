@@ -1,10 +1,11 @@
 package kr.co.nucode.ble.internal
 
+import kr.co.nucode.ble.internal.port.CoreMailbox
+import kr.co.nucode.ble.internal.port.GattDriver
+import kr.co.nucode.ble.internal.port.PlatformScanPort
 import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.model.WriteResult
 import kr.co.nucode.ble.internal.model.ConnectOptions
-import android.content.Context
-import android.os.SystemClock
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
@@ -19,7 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.*
 import kr.co.nucode.ble.internal.adapter.AdapterMonitor
-import kr.co.nucode.ble.internal.platform.android.AndroidAdapterSource
+import kr.co.nucode.ble.internal.port.AdapterSource
 import kr.co.nucode.ble.internal.connection.LinkCacheWarmth
 import kr.co.nucode.ble.internal.connection.LinkSetup
 import kr.co.nucode.ble.internal.connection.LinkSetupWiring
@@ -28,14 +29,9 @@ import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.DiagnosticObservation
 import kr.co.nucode.ble.internal.event.ClientEventBus
 import kr.co.nucode.ble.internal.gatt.GattBridge
-import kr.co.nucode.ble.internal.gatt.GattDriver
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
-import kr.co.nucode.ble.internal.platform.android.AndroidCentral
-import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
-import kr.co.nucode.ble.internal.platform.android.AndroidScanner
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
-import kr.co.nucode.ble.internal.scan.PlatformScanPort
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 import kr.co.nucode.ble.internal.scan.Scanner
@@ -45,95 +41,38 @@ import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
 
 /**
- * 코어 진입점. 유일한 공개 진입점이다(설계 §3 규칙 4 — facade/Manager/Impl 겹 금지).
- *
- * private 주 생성자 + provider 주입(plan §접근 ①) 구조다 — 플랫폼 [Context]/어댑터
- * 를 직접 들고 있는 대신 [central] 만 플랫폼 구현에 넘기고, 플랫폼 구현이 매 호출 시 다시 얻는다. 공개 생성자와
- * 내부 테스트 생성자가 이 주 생성자로 수렴한다(plan task 5 §작업①).
- *
- * [central] 은 프로덕션 생성자가 applicationContext 로 만든다 — Activity 를 잡으면 코어가
- * 소유하는 [coreScope](규칙 6, 수집자 0 이어도 계속 돈다)가 Activity 보다 오래 살아
- * 라이브러리가 누수를 만든다. 내부 테스트 생성자 경로에서는 null 이다.
- */
-/**
  * The one live BLE runtime.  It owns the dispatcher, registry, scanner and all
  * platform workers; compatibility APIs must delegate to this object rather
  * than becoming a second owner.
+ *
+ * 코어 진입점. 유일한 공개 진입점이다(설계 §3 규칙 4 — facade/Manager/Impl 겹 금지).
+ * 플랫폼 구현(Driver)은 포트로만 받는다 — 만드는 곳은 Factory 조립
+ * (`kr.co.nucode.ble.android.androidRuntime`) 하나이고, 시험은 시험 소스의 `BleRuntime(...)` 함수가 만든다.
+ * 이 파일은 `android.*` 와 `platform.android` 를 참조하지 않는다.
  */
-internal class BleRuntime private constructor(
-    private val central: AndroidCentral?,
+internal class BleRuntime internal constructor(
     config: BleConfig,
-    private val registerAdapterReceiver: Boolean,
-    private val gattDriverFactory: ((CoroutineScope) -> GattDriver)?,
-    private val gattOperationTargetResolver: GattOperationTargetResolver?,
-    private val rediscoveryOverride: PeripheralRediscovery?,
-    /** 플랫폼 스캔 문 seam — null 이면 운영 [kr.co.nucode.ble.internal.platform.android.AndroidScanner]. */
-    private val scanPortOverride: PlatformScanPort?,
-    /** 테스트 opt-in — true 면 central 없이도 재발견을 실제 [scanner] 소비자로 배선한다(e2e 하네스용). */
-    private val scannerRediscovery: Boolean = false,
+    /** Driver 콜백 입구([mailbox])를 받아 GATT 포트 구현을 만든다 — 만드는 곳은 Factory 조립뿐이다. */
+    gattDriverFactory: (CoreMailbox) -> GattDriver,
+    private val scanPort: PlatformScanPort,
+    private val adapterSource: AdapterSource,
+    /** 플랫폼 스캔 시작 기록 — null 이면 [scanner] 전용 기록(테스트 격리). Factory 조립만 프로세스 공유 기록을 넘긴다(Android 시작 한도는 앱 단위). */
+    private val scanStartLedger: ScanStartLedger?,
+    /** true 면 재발견을 실제 [scanner] 소비자로 배선한다(운영 조립과 e2e 하네스). false 면 [rediscoveryOverride] 만. */
+    private val scannerRediscovery: Boolean,
+    private val gattOperationTargetResolver: GattOperationTargetResolver? = null,
+    private val rediscoveryOverride: PeripheralRediscovery? = null,
     /**
      * plan G task 1(G1) 어댑터 상태 probe seam — 있으면 AdapterMonitor 의 상태 계산이 실제
-     * 어댑터/권한 판정을 완전히 건너뛰고 이 람다 값을 그대로 쓴다. 프로덕션 생성자는
+     * 어댑터/권한 판정을 완전히 건너뛰고 이 람다 값을 그대로 쓴다. 운영 조립은
      * 이 파라미터를 절대 전달하지 않는다(항상 null) — 전달하면 권한 판정(D7)을 우회해
-     * 실제 기기에서 미허용 상태를 Ready 로 오판할 수 있다. 테스트 생성자만
-     * `adapterState` 이름으로 받아 여기로 넘긴다.
+     * 실제 기기에서 미허용 상태를 Ready 로 오판할 수 있다.
      */
     private val adapterStateProbe: (() -> AdapterState)? = null,
-    /**
-     * 플랫폼 스캔 시작 기록 — null 이면 [scanner] 전용 기록(테스트 격리). 운영 생성자만 프로세스 공유
-     * [processScanStartLedger] 를 넘긴다(Android 시작 한도는 앱 단위, plan scan-start-budget v2 목표 4).
-     */
-    private val scanStartLedger: ScanStartLedger? = null,
 ) {
 
     /** 테스트 전용 관측 지점 — 소유는 [RuntimeCloser.closeFailure]. */
     internal val closeFailure: Throwable? get() = closer.closeFailure
-
-    constructor(context: Context, config: BleConfig = BleConfig()) : this(
-        central = AndroidCentral(context.applicationContext),
-        config = config,
-        registerAdapterReceiver = true,
-        gattDriverFactory = null,
-        gattOperationTargetResolver = null,
-        rediscoveryOverride = null,
-        scanPortOverride = null,
-        scanStartLedger = processScanStartLedger,
-    )
-
-    /**
-     * 테스트 전용 seam(plan task 5 §작업①, plan v2 변경 사항). 플랫폼 `Context` 없이
-     * 배선 로직([linkSetup] 분기 · [emit] 발행 · [droppedEventCount])만
-     * 검증한다 — task 6 이 이 생성자로 `BleCoreWiringTest` 를 만든다.
-     *
-     * [central] 이 null 이라 AdapterMonitor 의 상태 계산은 항상 `evaluatePermissionState` 의
-     * 빈 선언 집합 경로를 타 `Unauthorized(canRequest = false)` 가 나오고, 브로드캐스트
-     * 리시버는 등록하지 않는다. (다만 그 계산이 어댑터 null 을 먼저 걸러 이
-     * 경로 자체를 안 탄다 — 아래 참고.) production `AndroidGattDriver.connect()` 는 null
-     * context 를 만나면 typed adapter failure로 즉시 막는다(GattBridge KDoc, plan task 5
-     * §작업① 선택 (a)) — [gattDriver]와 [gattOperationTargetResolver]를 함께 주입하면
-     * Android GATT 객체 없이도 공개 read/write/subscribe의 driver start 경계를
-     * 검증할 수 있다. 둘 다 생략한 기본 production 조립은 실제 Android target resolution을
-     * 유지한다.
-     */
-    constructor(
-        config: BleConfig,
-        gattDriver: GattDriver? = null,
-        gattOperationTargetResolver: GattOperationTargetResolver? = null,
-        rediscovery: PeripheralRediscovery? = null,
-        adapterState: (() -> AdapterState)? = null,
-        scanPort: PlatformScanPort? = null,
-        scannerRediscovery: Boolean = false,
-    ) : this(
-        central = null,
-        config = config,
-        registerAdapterReceiver = false,
-        gattDriverFactory = gattDriver?.let { driver -> { _: CoroutineScope -> driver } },
-        gattOperationTargetResolver = gattOperationTargetResolver,
-        rediscoveryOverride = rediscovery,
-        scanPortOverride = scanPort,
-        scannerRediscovery = scannerRediscovery,
-        adapterStateProbe = adapterState,
-    )
 
     // ── 배선 ① coreScope — 규칙 6: 구독이 아니라 이 스코프가 동작을 구동한다 ──────────
 
@@ -196,6 +135,11 @@ internal class BleRuntime private constructor(
     /** 테스트 seam — 세션 귀속 컨텍스트([deviceId] 가 null 이면 귀속 없음)로 코어 스코프에 코루틴을 띄운다. */
     internal fun launchOwned(deviceId: PeripheralId?, block: suspend () -> Unit) {
         coreScope.launch(deviceId?.let { SessionOwner(it) } ?: kotlin.coroutines.EmptyCoroutineContext) { block() }
+    }
+
+    /** Driver 콜백 입구 — 세션 귀속 코루틴 하나로 코어 스코프에 넣는다(예외 귀속·홉 순서는 [launchOwned] 와 같은 길). */
+    internal val mailbox: CoreMailbox = CoreMailbox { deviceId, block ->
+        coreScope.launch(SessionOwner(deviceId)) { block() }
     }
 
     /**
@@ -287,17 +231,16 @@ internal class BleRuntime private constructor(
         emit = ::emit,
         scope = coreScope,
         emitObservation = ::emitScanObservation,
-        port = scanPortOverride ?: AndroidScanner(central),
+        port = scanPort,
         startLedger = scanStartLedger ?: ScanStartLedger { System.nanoTime() / 1_000_000 },
     )
-    private val gattDriver = gattDriverFactory?.invoke(coreScope)
-        ?: AndroidGattDriver(central, coreScope)
+    private val gattDriver = gattDriverFactory(mailbox)
     /**
-     * 재발견은 [scanner] 의 소비자다(plan scan-owner D2) — 플랫폼 스캔 문은 하나. 테스트 생성자는 주입값만
-     * (없으면 재발견 없음), `scannerRediscovery = true` 면 실제 [scanner] 를 쓴다.
+     * 재발견은 [scanner] 의 소비자다(plan scan-owner D2) — 플랫폼 스캔 문은 하나. `rediscoveryOverride` 가 있으면 그것,
+     * 없으면 `scannerRediscovery = true` 일 때만 실제 [scanner] 를 쓴다.
      */
     private val rediscovery: PeripheralRediscovery? = rediscoveryOverride
-        ?: scanner.takeIf { central != null || scannerRediscovery }
+        ?: scanner.takeIf { scannerRediscovery }
     private val gattBridge = GattBridge(
         registry = registry,
         emit = ::emit,
@@ -361,8 +304,7 @@ internal class BleRuntime private constructor(
 
     private val adapterMonitor: AdapterMonitor = AdapterMonitor(
         scope = coreScope,
-        adapterSource = AndroidAdapterSource(central, registerAdapterReceiver),
-        central = central,
+        adapterSource = adapterSource,
         adapterStateProbe = adapterStateProbe,
         onAdapterLost = adapterReaction::onAdapterLost,
         onAdapterReturned = adapterReaction::onAdapterReturned,
@@ -425,9 +367,3 @@ internal class BleRuntime private constructor(
     /** 닫기 게이트를 세우고 정리를 예약한다 — 의미는 [RuntimeCloser.close]. */
     fun close() = closer.close()
 }
-
-/**
- * 프로세스 공유 스캔 시작 기록 — 운영 생성자 `BleRuntime(context, config)` 만 쓴다. 시계는
- * `SystemClock.elapsedRealtime()`: deep sleep 에도 진행한다(nanoTime 은 멈춰 창이 늘어나 false throttle).
- */
-private val processScanStartLedger = ScanStartLedger { SystemClock.elapsedRealtime() }

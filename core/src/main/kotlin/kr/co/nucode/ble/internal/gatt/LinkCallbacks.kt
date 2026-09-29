@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kotlinx.coroutines.plus
 import kr.co.nucode.ble.internal.session.SessionOwner
 import kotlinx.coroutines.CoroutineScope

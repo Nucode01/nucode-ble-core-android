@@ -1,5 +1,7 @@
 package kr.co.nucode.ble.internal.gatt
 
+import kr.co.nucode.ble.internal.port.toIdentity
+import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kotlinx.coroutines.CompletableDeferred
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.Severity

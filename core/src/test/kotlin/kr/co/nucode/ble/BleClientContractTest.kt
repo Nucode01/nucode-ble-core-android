@@ -33,7 +33,7 @@ class BleClientContractTest {
     fun `official facade converges on one internal runtime truth`() {
         val runtimeSource = source("internal/BleRuntime.kt")
         val clientSource = source("internal/DefaultBleClient.kt")
-        assertTrue(runtimeSource.contains("internal class BleRuntime private constructor"))
+        assertTrue(runtimeSource.contains("internal class BleRuntime internal constructor"))
         assertFalse("runtime must not retain an official facade", runtimeSource.contains("DefaultBleClient"))
         assertTrue(clientSource.contains("private val runtime: BleRuntime"))
     }

@@ -1,5 +1,6 @@
 package kr.co.nucode.ble
 
+import kr.co.nucode.ble.internal.port.GattDriver
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -12,7 +13,6 @@ import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.NoopGattDriver
-import kr.co.nucode.ble.internal.gatt.GattDriver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

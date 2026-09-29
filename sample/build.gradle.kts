@@ -4,6 +4,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// 계약 시나리오 폴더(루트 저장소 contract/). core/build.gradle.kts 와 같은 규칙이다.
+val bleContractDir: File = providers.gradleProperty("bleContractDir")
+    .map { rootProject.file(it) }
+    .getOrElse(rootProject.file("../contract"))
+
 android {
     namespace = "kr.co.nucode.ble.sample"
     compileSdk = 36
@@ -42,7 +47,9 @@ android {
     }
 
     sourceSets["main"].java.srcDirs("src/main/kotlin")
-    sourceSets["androidTest"].java.srcDirs("src/androidTest/kotlin")
+    // contract-runner 는 core 단위 테스트와 같은 러너 소스다. 시나리오 파일은 test APK 의 assets 로 싣는다.
+    sourceSets["androidTest"].java.srcDirs("src/androidTest/kotlin", rootProject.file("contract-runner/src/kotlin"))
+    sourceSets["androidTest"].assets.srcDirs(bleContractDir)
 }
 
 dependencies {

@@ -16,6 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 계약 시나리오(루트 저장소 contract/). 읽기 전용 배포 키로 받는다.
+      - uses: actions/checkout@v4
+        with:
+          repository: pdev-jay/nucode-ble-core
+          ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
+          path: .contract-root
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -23,9 +30,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 단위 테스트(공개 API 덤프 대조·가이드 예시 동기화 포함) + R8 켠 sample release 빌드
+      # 단위 테스트(공개 API 덤프 대조·가이드 예시 동기화·계약 시나리오 sim 포함) + R8 켠 sample release 빌드
       - name: Test and build
-        run: ./gradlew --no-daemon test :sample:assembleRelease
+        run: ./gradlew --no-daemon test :sample:assembleRelease -PbleContractDir=.contract-root/contract
 
       - name: Upload test reports
         if: failure()

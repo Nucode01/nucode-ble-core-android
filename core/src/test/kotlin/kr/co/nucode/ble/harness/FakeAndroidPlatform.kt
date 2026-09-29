@@ -79,6 +79,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(가정): read/write 는 status 0 ack 한 번. read 값은 [readValue].
     var onRead: CallbackVariant = CallbackVariant.Arrive()
     var readValue: ByteArray = byteArrayOf(1)
+
+    /** read 가 시작될 때 read 콜백보다 먼저 부른다(기기가 응답 전에 알림을 보내는 경우). 인자는 읽는 ref. */
+    var beforeRead: ((CharacteristicRef?) -> Unit)? = null
     var onWrite: CallbackVariant = CallbackVariant.Arrive()
 
     /** 명령 시작 반환값(Android 의 boolean 반환). false 면 콜백도 내지 않는다. */
@@ -95,6 +98,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     /** 모든 driver 호출 기록 — "connect", "disconnect", "close", "discover", "mtu", "descriptor", "read", "write". */
     val calls: MutableList<String> = mutableListOf()
+
+    /** connect 호출마다 받은 autoConnect 값. */
+    val connectAutoConnect: MutableList<Boolean> = mutableListOf()
 
     /** CCCD write 기록 — (ref, 켜기 여부). 값이 전부 0 이면 끄기다. */
     val cccdWrites: MutableList<Pair<CharacteristicRef?, Boolean>> = mutableListOf()
@@ -221,6 +227,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(코드 주석 GattDriver): 테스트 driver 는 시작 성공 후 null 핸들을 돌려줄 수 있다.
     override fun connect(deviceId: PeripheralId, autoConnect: Boolean): GattHandle? {
         calls += "connect"
+        connectAutoConnect += autoConnect
         connectThrows?.let { throw it }
         // 근거(production): connectGatt 는 호출마다 새 BluetoothGatt 를 만든다 — 이전(닫히지 않은) handle 의 콜백은 출처가 달라진다.
         epoch++
@@ -301,6 +308,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     ): Boolean {
         calls += "read"
         if (!readStarts) return false
+        beforeRead?.invoke(characteristicRefs[characteristic])
         val snapshot = characteristicRefs[characteristic]?.let(::snapshotOf)
         val value = readValue
         val source = sourceAt(epoch)
@@ -343,6 +351,12 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     fun emitConnectionState(deviceId: PeripheralId, newState: Int, status: Int, fromEpoch: Long = epoch) {
         val source = sourceAt(fromEpoch)
         post(0) { connectionEvent(deviceId, source, status, newState) }
+    }
+
+    /** OS 자동 재연결(autoConnect handle)을 흉내 낸다: [delayMillis] 뒤 현재 handle 에 status 0 STATE_CONNECTED. */
+    fun platformRelink(deviceId: PeripheralId, delayMillis: Long) {
+        val source = sourceAt(epoch)
+        post(delayMillis) { connectionEvent(deviceId, source, 0, BluetoothProfile.STATE_CONNECTED) }
     }
 
     fun emitNotification(deviceId: PeripheralId, ref: CharacteristicRef, bytes: ByteArray) {

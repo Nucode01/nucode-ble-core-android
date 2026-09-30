@@ -20,6 +20,8 @@ internal object ConnectionLink {
         ConnectionStep(next.state, listOf(diag) + next.effects, next.accepted)
 
     fun linkStateChanged(state: ConnectionCoreState, event: ConnectionEvent.LinkStateChanged): ConnectionStep {
+        // 정착 창 동안 같은 generation 의 링크 콜백은 이미 반영한 유실의 반복이다.
+        if (state.pendingLoss != null && event.generation == state.generation) return ConnectionCore.rejected(state)
         val failure = event.failure
         if (failure != null) return linkStatusFailed(state, event, failure)
         return when (event.link) {
@@ -51,6 +53,9 @@ internal object ConnectionLink {
             TerminalCleanupReason.PlatformDisconnected
         }
         val cause = TerminalCause(reason, failure)
+        if (event.link == LinkFact.Down && settlesLinkLoss(state, event.generation)) {
+            return withDiagnostic(diag, beginPendingLoss(state, cause, event.status))
+        }
         // 먼저 고정된 원인(예: 사용자 해제)이 있으면 이 실패는 진단으로만 남는다.
         val latched = ConnectionCore.step(state, ConnectionEvent.Direct.LatchIfAbsent(event.generation, cause)).state
         val marked = if (preReadyFailure) latched.copy(suppressReconnect = true) else latched
@@ -95,11 +100,54 @@ internal object ConnectionLink {
             stage != ConnectionStage.Disconnecting &&
             stage != ConnectionStage.Disconnected
         val marked = if (preReady) state.copy(suppressReconnect = true) else state
+        if (settlesLinkLoss(state, event.generation)) {
+            return beginPendingLoss(state, TerminalCause(TerminalCleanupReason.PlatformDisconnected, null), event.status)
+        }
         return ConnectionCleanup.cleanupCompleted(
             marked,
             event.generation,
             TerminalCause(TerminalCleanupReason.PlatformDisconnected, null),
             event.status,
+        )
+    }
+
+    /**
+     * Ready 의 링크 유실이 끝(Disconnected)으로 이어지는가 — 플랫폼 재연결 대기(Recovering)로 가지 않고 원인도 아직 없다.
+     * 그러면 원인 확정을 정착 창만큼 미룬다(contract/states.md §3).
+     */
+    private fun settlesLinkLoss(state: ConnectionCoreState, generation: Long): Boolean {
+        if (generation != state.generation || state.stage != ConnectionStage.Ready) return false
+        if (state.terminalCause != null || state.pendingLoss != null) return false
+        val keepsForPlatformWait = state.autoConnect && !state.suppressReconnect && state.platformHandleOpen
+        return !keepsForPlatformWait
+    }
+
+    /**
+     * 정착 창을 연다: 단계는 게시하지 않고(Ready 그대로) 링크에 딸린 작업·링크 파라미터를 거둔 뒤 창 기한을 건다.
+     * 창 안의 어댑터 이탈은 [ConnectionCleanup.adapterLost], 창 만료는 [ConnectionCleanup.lifecycleDeadline] 이 확정한다.
+     */
+    private fun beginPendingLoss(state: ConnectionCoreState, cause: TerminalCause, status: Int): ConnectionStep {
+        val seq = state.deadlineSeq + 1
+        val deadline = ConnectionStageDeadline(
+            generation = state.generation,
+            stage = state.stage,
+            timeoutMillis = ConnectionCore.ADAPTER_SETTLE_MILLIS,
+            timeoutReason = TerminalCleanupReason.PlatformDisconnected,
+            id = seq,
+        )
+        val next = state.copy(
+            pendingLoss = PendingLinkLoss(state.generation, cause, status),
+            deadline = deadline,
+            deadlineSeq = seq,
+        )
+        return ConnectionCore.accepted(
+            next,
+            listOf(
+                ConnectionEffect.CancelDeadline,
+                ConnectionEffect.InvalidateOperations,
+                ConnectionEffect.ClearLinkParameters,
+                ConnectionEffect.ArmDeadline(deadline),
+            ),
         )
     }
 

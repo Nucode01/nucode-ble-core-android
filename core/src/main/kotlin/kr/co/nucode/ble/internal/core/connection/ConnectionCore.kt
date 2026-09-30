@@ -36,6 +36,8 @@ internal data class ConnectionCoreState(
     /** connect() 시점에 요청한 MTU. */
     val requestedMtu: Int = 247,
     val failureSessionId: String? = null,
+    /** 원인 확정을 기다리는 Ready 링크 유실(§3 어댑터 정착 창). 있으면 링크는 없고 GATT 작업을 받지 않는다. */
+    val pendingLoss: PendingLinkLoss? = null,
 )
 
 /** Runtime 이 Core 에 넣는 사건. */
@@ -289,6 +291,12 @@ internal data class ConnectionStep(
 )
 
 internal object ConnectionCore {
+    /**
+     * 어댑터 정착 창(contract/states.md §3). 링크 해제 콜백이 어댑터 이탈 알림보다 먼저 올 수 있어 Ready 링크 유실의 원인 확정을
+     * 이만큼 미룬다. iPhone XR 실측(2026-09-30): 해제 콜백 뒤 어댑터 알림까지 61~727ms.
+     */
+    const val ADAPTER_SETTLE_MILLIS = 1000L
+
     /** [PLATFORM_WAIT_SUPERSEDERS] — 사용자 해제, client close, adapter off 스윕, 권한 상실, 세션 내부 실패(작업 무효화). */
     private val PLATFORM_WAIT_SUPERSEDERS = setOf(
         TerminalCleanupReason.UserRequested,
@@ -421,7 +429,8 @@ internal object ConnectionCore {
     fun isEnded(state: ConnectionCoreState): Boolean = state.stage == ConnectionStage.Disconnected
 
     /** 공개 GATT 작업 접수는 Ready 에서만 허용된다(§5). */
-    fun admitsPublicGattOperation(state: ConnectionCoreState): Boolean = state.stage == ConnectionStage.Ready
+    fun admitsPublicGattOperation(state: ConnectionCoreState): Boolean =
+        state.stage == ConnectionStage.Ready && state.pendingLoss == null
 
     /** 서비스 목록이 있을 수 있는 단계인가 — 탐색 전(Disconnected·Connecting·DiscoveringServices)엔 없다. */
     fun hasTopology(state: ConnectionCoreState): Boolean = when (state.stage) {
@@ -459,7 +468,7 @@ internal object ConnectionCore {
         }
         check(state.generation != Long.MAX_VALUE) { "connection generation이 소진됐다" }
 
-        val next = state.copy(generation = state.generation + 1, terminalCause = null)
+        val next = state.copy(generation = state.generation + 1, terminalCause = null, pendingLoss = null)
         return enterStage(next, ConnectionStage.Connecting, linkTimeoutMillis)
     }
 
@@ -488,7 +497,7 @@ internal object ConnectionCore {
         check(ConnectionStage.Disconnecting in allowedSuccessors(state.stage)) {
             "현재 stage에서는 cleanup을 시작할 수 없다: ${state.stage}"
         }
-        val latched = state.copy(terminalCause = state.terminalCause ?: event.cause)
+        val latched = state.copy(terminalCause = state.terminalCause ?: event.cause, pendingLoss = null)
         return enterStage(latched, ConnectionStage.Disconnecting, event.disconnectCleanupTimeoutMillis)
     }
 
@@ -504,6 +513,7 @@ internal object ConnectionCore {
             stage = ConnectionStage.Disconnected,
             terminalCause = state.terminalCause ?: event.fallback,
             deadline = null,
+            pendingLoss = null,
         )
         return accepted(next, listOf(ConnectionEffect.CancelDeadline, ConnectionEffect.StageChanged(next.stage)))
     }

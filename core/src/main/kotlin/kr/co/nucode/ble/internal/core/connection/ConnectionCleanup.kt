@@ -26,6 +26,11 @@ internal object ConnectionCleanup {
         if (deadline.generation != state.generation || deadline.stage != state.stage) {
             return ConnectionCore.rejected(state)
         }
+        val loss = state.pendingLoss
+        if (loss != null && loss.generation == deadline.generation) {
+            // 정착 창 안에 어댑터 이탈이 없었다 — 미뤄 둔 링크 유실 원인으로 끝낸다(§3).
+            return cleanupCompleted(state.copy(pendingLoss = null), loss.generation, loss.cause, loss.status)
+        }
         if (deadline.stage == ConnectionStage.Disconnecting) {
             // 콜백 없이 기한으로 끝난다 — 시작 때 고정된 원인이 그대로 공개 이유가 된다.
             val completed = cleanupCompleted(
@@ -198,6 +203,12 @@ internal object ConnectionCleanup {
     fun disconnectRequested(state: ConnectionCoreState, event: ConnectionEvent.DisconnectRequested): ConnectionStep {
         val base = state.copy(relinkAfterAdapter = false)
         val cause = TerminalCause(TerminalCleanupReason.UserRequested, null)
+        if (base.pendingLoss != null) {
+            // 정착 창 동안(링크는 이미 없다): Disconnecting 을 게시하고 해제 콜백을 기다리지 않고 사용자 해제로 끝낸다.
+            val begun = beginCleanup(base, cause, suppressReconnect = true, event.disconnectCleanupMillis)
+            val completed = cleanupCompleted(begun.state, begun.state.generation, cause, status = 0)
+            return ConnectionStep(completed.state, begun.effects + completed.effects, begun.accepted)
+        }
         // 플랫폼 재연결 대기 중(이미 Disconnected)이면 사용자 해제가 대기를 끝낸다 — Disconnected(Requested).
         val waited = endPlatformWait(base, base.generation, cause)
         if (waited.accepted) return waited
@@ -253,6 +264,7 @@ internal object ConnectionCleanup {
         if (state.stage == ConnectionStage.Disconnected && !ConnectionCore.awaitingPlatformRelink(state)) {
             return ConnectionCore.rejected(state)
         }
+        // 정착 창 안의 어댑터 이탈은 미뤄 둔 링크 유실보다 앞선 원인이다(§3) — 창을 닫고 어댑터 원인으로 끝낸다.
         val failure = FailureMapper.fromAdapterState(adapter).copy(context = context(state))
         val reason = if (adapter is AdapterState.Unauthorized) {
             TerminalCleanupReason.PermissionDenied

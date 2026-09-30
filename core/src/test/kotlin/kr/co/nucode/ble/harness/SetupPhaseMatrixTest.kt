@@ -8,6 +8,7 @@ import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.AdapterState
@@ -21,6 +22,7 @@ import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ServiceRef
+import kr.co.nucode.ble.internal.core.connection.ConnectionCore
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -105,12 +107,18 @@ class SetupPhaseMatrixTest {
             Mode.Fresh -> {
                 h.fake.linkLoss(id, 8)
                 runCurrent()
+                // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+                advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
+                runCurrent()
                 if (h.session(id).connectionState.value !is ConnectionState.Disconnected) fail("전제 실패: 링크 끊김 뒤 Disconnected 아님 ${h.states(id)}")
                 phase.hold(h.fake)
                 h.connect(id, manual)
             }
             Mode.Relink -> {
                 h.fake.linkLoss(id, 8)
+                runCurrent()
+                // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+                advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
                 runCurrent()
                 if (h.session(id).connectionState.value !is ConnectionState.Recovering) fail("전제 실패: 링크 끊김 뒤 Recovering 아님 ${h.states(id)}")
                 phase.hold(h.fake)

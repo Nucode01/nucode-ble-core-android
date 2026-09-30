@@ -45,6 +45,16 @@ internal data class TerminalCause(
     val failure: BleFailure?,
 )
 
+/**
+ * 원인 확정을 기다리는 Ready 링크 유실(contract/states.md §3 어댑터 정착 창). 창 안에 어댑터가 Ready 를 벗어나면
+ * 어댑터 원인으로, 창이 지나면 [cause]·[status] 로 끝낸다. 있는 동안 단계는 게시하지 않은 채 그대로다.
+ */
+internal data class PendingLinkLoss(
+    val generation: Long,
+    val cause: TerminalCause,
+    val status: Int,
+)
+
 /** 현재 stage에 귀속된 deadline. 이전 generation/stage timeout과의 구분은 [id]로 한다. */
 internal data class ConnectionStageDeadline(
     val generation: Long,

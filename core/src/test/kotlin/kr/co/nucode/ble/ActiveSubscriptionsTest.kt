@@ -28,6 +28,7 @@ import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.core.connection.ConnectionCore
 import kr.co.nucode.ble.internal.core.connection.ConnectionStage
 import kr.co.nucode.ble.internal.session.Session
 import org.junit.Assert.assertEquals
@@ -69,6 +70,12 @@ class ActiveSubscriptionsTest {
         f.driver.emitLinkLoss(f.deviceId, f.session.connectionCoordinator.generation)
         runCurrent()
 
+        // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+
+        advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
+
+        runCurrent()
+
         assertTrue(f.session.connectionState.value !is ConnectionState.Ready)
         assertEquals(emptySet<CharacteristicRef>(), f.bleSession.activeSubscriptions.value)
         assertEquals(setOf(f.ref), f.intent())
@@ -97,6 +104,9 @@ class ActiveSubscriptionsTest {
         f.bleSession.disconnect()
         runCurrent()
         f.driver.emitLinkLoss(f.deviceId, f.session.connectionCoordinator.generation)
+        runCurrent()
+        // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+        advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
         runCurrent()
         assertTrue(f.bleSession.connectionState.value is ConnectionState.Disconnected)
         val before = f.driver.descriptorWrites
@@ -172,6 +182,9 @@ class ActiveSubscriptionsTest {
         f.subscribe(this, f.ref)
         f.driver.emitLinkLoss(f.deviceId, f.session.connectionCoordinator.generation)
         runCurrent()
+        // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+        advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
+        runCurrent()
         f.assertInvariant()
 
         f.reachConfiguring(this)
@@ -203,6 +216,9 @@ class ActiveSubscriptionsTest {
         f.connectToReady(this)
         f.subscribe(this, f.ref)
         f.driver.emitLinkLoss(f.deviceId, f.session.connectionCoordinator.generation)
+        runCurrent()
+        // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+        advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
         runCurrent()
         f.assertInvariant()
 
@@ -384,6 +400,9 @@ class ActiveSubscriptionsTest {
             connectToReady(scope)
             subscribe(scope, ref)
             driver.emitLinkLoss(deviceId, session.connectionCoordinator.generation)
+            scope.runCurrent()
+            // Ready 링크 유실은 어댑터 정착 창(states.md §3)이 지난 뒤 Disconnected 로 확정된다.
+            scope.advanceTimeBy(ConnectionCore.ADAPTER_SETTLE_MILLIS)
             scope.runCurrent()
             reachConfiguring(scope)
             assertEquals(emptySet<CharacteristicRef>(), bleSession.activeSubscriptions.value)

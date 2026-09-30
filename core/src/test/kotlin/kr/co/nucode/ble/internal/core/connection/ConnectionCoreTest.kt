@@ -930,7 +930,12 @@ class ConnectionCoreTest {
             .apply(Direct.SetSuppressReconnect(true))
             .apply(Direct.SetPlatformHandleOpen(true))
 
-        val step = ready.linkStep(LinkFact.Down, status = 8, failure = failure("LINK_FAILED"))
+        // 어댑터 정착 창(states.md §3): 곧바로 끝내지 않고 창이 지난 뒤 LINK_FAILED 로 확정한다.
+        val pending = ready.linkStep(LinkFact.Down, status = 8, failure = failure("LINK_FAILED"))
+        assertEquals(ConnectionState.Ready, pending.state.shown())
+        assertTrue(pending.effects.none { it is StageChanged })
+
+        val step = pending.state.expire()
 
         assertEquals("LINK_FAILED", step.state.failedCode())
         assertFalse(step.state.platformWait)
@@ -1278,5 +1283,141 @@ class ConnectionCoreTest {
         val published = ConnectionCore.step(ended, ConnectionEvent.ConnectCallFailed(failure("GATT_START_REJECTED")))
         assertEquals(ended.terminalCause, published.state.terminalCause)
         assertEquals(listOf<ConnectionEffect>(ConnectionEffect.Announce), published.effects)
+    }
+
+    // ── 어댑터 정착 창 (states.md §3) ──────────────────────────────────────────
+
+    private fun ConnectionCoreState.linkLost(status: Int = 8, failure: BleFailure? = failure("LINK_FAILED")) =
+        linkStep(LinkFact.Down, status, failure)
+
+    private fun ConnectionCoreState.adapterLost(adapter: AdapterState = AdapterState.PoweredOff) =
+        ConnectionCore.step(this, ConnectionEvent.AdapterLost(adapter))
+
+    /** Ready 에서 링크를 잃으면 Recovering 으로 가지 않는 세션: autoReconnect 아님, 또는 handle 을 남기지 않는 autoConnect. */
+    private fun ConnectionCoreState.manualReady() = ready().apply(Direct.SetPlatformHandleOpen(true))
+
+    private fun ConnectionCoreState.autoNoWaitReady() = ready()
+        .apply(Direct.SetAutoConnect(true))
+        .apply(Direct.SetSuppressReconnect(true))
+        .apply(Direct.SetPlatformHandleOpen(true))
+
+    @Test
+    fun `S01_Ready 링크 유실은 게시 없이 창을 열고 창 안의 어댑터 이탈이 ADAPTER_UNAVAILABLE 로 끝낸다`() {
+        val lost = ConnectionCoreState(failureSessionId = "s-1").manualReady().linkLost()
+
+        assertTrue(lost.accepted)
+        assertEquals(ConnectionState.Ready, lost.state.shown())
+        assertTrue(lost.effects.none { it is StageChanged || it is ConnectionEffect.Announce })
+        assertTrue(ConnectionEffect.InvalidateOperations in lost.effects)
+        val armed = lost.effects.filterIsInstance<ArmDeadline>().single().deadline
+        assertEquals(ConnectionCore.ADAPTER_SETTLE_MILLIS, armed.timeoutMillis)
+        assertFalse(ConnectionCore.admitsPublicGattOperation(lost.state))
+
+        val off = lost.state.adapterLost()
+        assertEquals("ADAPTER_UNAVAILABLE", off.state.failedCode())
+        assertNull(off.state.pendingLoss)
+        assertNull(off.state.deadline)
+        assertFalse(off.state.relinkAfterAdapter)
+        assertTrue(CancelDeadline in off.effects)
+    }
+
+    @Test
+    fun `S02_handle 을 남기지 않는 autoConnect 도 창 안의 어댑터 이탈이면 복귀 재연결을 건다`() {
+        val lost = ConnectionCoreState().autoNoWaitReady().linkLost()
+        assertEquals(ConnectionState.Ready, lost.state.shown())
+
+        val off = lost.state.adapterLost()
+        assertEquals("ADAPTER_UNAVAILABLE", off.state.failedCode())
+        assertTrue(off.state.relinkAfterAdapter)
+    }
+
+    @Test
+    fun `S03_플랫폼 재연결 대기(Recovering)는 창을 두지 않고 어댑터 이탈이 대기를 끝낸다`() {
+        val recovering = ConnectionCoreState().autoReady().linkLost()
+        assertEquals("LINK_FAILED", recovering.state.lastFailureCode())
+        assertNull(recovering.state.pendingLoss)
+
+        val off = recovering.state.adapterLost()
+        assertEquals("ADAPTER_UNAVAILABLE", off.state.failedCode())
+        assertTrue(off.state.relinkAfterAdapter)
+    }
+
+    @Test
+    fun `S04_창이 지나면 지금처럼 LINK_FAILED 이고 늦은 어댑터 이탈은 원인을 바꾸지 않는다`() {
+        listOf(
+            ConnectionCoreState().manualReady() to false,
+            ConnectionCoreState().autoNoWaitReady() to false,
+        ).forEach { (ready, _) ->
+            val elapsed = ready.linkLost().state.expire()
+            assertEquals("LINK_FAILED", elapsed.state.failedCode())
+            assertNull(elapsed.state.pendingLoss)
+            assertTrue(elapsed.effects.diagnostics().isEmpty())
+            val late = elapsed.state.adapterLost()
+            assertFalse(late.accepted)
+            assertEquals("LINK_FAILED", late.state.failedCode())
+            assertFalse(late.state.relinkAfterAdapter)
+        }
+        // 성공 status 의 해제도 같다(원인 없는 LINK_FAILED)
+        val silent = ConnectionCoreState().manualReady().linkLost(status = 0, failure = null)
+        assertEquals(ConnectionState.Ready, silent.state.shown())
+        assertEquals("LINK_FAILED", silent.state.expire().state.failedCode())
+    }
+
+    @Test
+    fun `S05_어댑터 이탈이 먼저 오면 뒤늦은 링크 해제는 원인을 바꾸지 않는다`() {
+        val off = ConnectionCoreState().manualReady().adapterLost()
+        assertEquals("ADAPTER_UNAVAILABLE", off.state.failedCode())
+
+        val late = off.state.linkLost()
+        assertEquals("ADAPTER_UNAVAILABLE", late.state.failedCode())
+        assertNull(late.state.pendingLoss)
+    }
+
+    @Test
+    fun `S06_창 안의 권한 상실은 PERMISSION_DENIED 로 끝낸다`() {
+        val denied = ConnectionCoreState().manualReady().linkLost().state
+            .adapterLost(AdapterState.Unauthorized(canRequest = false))
+        assertEquals("PERMISSION_DENIED", denied.state.failedCode())
+    }
+
+    @Test
+    fun `S07_창 동안 disconnect 는 Disconnecting 을 거쳐 해제 콜백 없이 Requested 로 끝나고 창 기한은 무시된다`() {
+        val lost = ConnectionCoreState().manualReady().linkLost().state
+        val staleDeadline = requireNotNull(lost.deadline)
+
+        val step = ConnectionCore.step(lost, ConnectionEvent.DisconnectRequested(hasHandle = true, cleanupMillis))
+
+        assertEquals(
+            listOf(ConnectionStage.Disconnecting, ConnectionStage.Disconnected),
+            step.effects.filterIsInstance<StageChanged>().map { it.stage },
+        )
+        assertEquals(ConnectionState.Disconnected(BleDisconnectReason.Requested), step.state.shown())
+        assertNull(step.state.pendingLoss)
+        assertFalse(ConnectionCore.step(step.state, LifecycleDeadline(staleDeadline, cleanupMillis)).accepted)
+    }
+
+    @Test
+    fun `S08_창 동안 close 는 ClientClosed 로 끝내고 같은 generation 의 링크 콜백은 되풀이로 무시한다`() {
+        val lost = ConnectionCoreState().manualReady().linkLost().state
+        assertFalse(lost.linkLost().accepted)
+
+        val closed = ConnectionCore.step(lost, ConnectionEvent.CloseRequested)
+        assertEquals(ConnectionState.Disconnected(BleDisconnectReason.ClientClosed), closed.state.shown())
+        assertNull(closed.state.pendingLoss)
+    }
+
+    @Test
+    fun `S09_Ready 전 단계의 링크 실패에는 창이 없다`() {
+        val configuring = ConnectionCoreState().connecting().linkUp().discovered().state
+        val step = configuring.linkLost()
+        assertEquals("LINK_FAILED", step.state.failedCode())
+        assertNull(step.state.pendingLoss)
+    }
+
+    @Test
+    fun `S10_창이 닫힌 뒤 새 연결은 창을 물려받지 않는다`() {
+        val elapsed = ConnectionCoreState().manualReady().linkLost().state.expire().state
+        val next = elapsed.connecting()
+        assertNull(next.pendingLoss)
     }
 }

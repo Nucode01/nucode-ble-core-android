@@ -82,8 +82,8 @@ suspend fun startScanPolitely(client: BleClient, request: ScanRequest) {
 | `SERVICE_DISCOVERY_TIMEOUT` | 서비스 탐색 시간 초과 | NewConnectionMayHelp | 상태 + 이벤트 |
 | `CONFIGURATION_FAILED` | MTU 협상 실패 — 기본 MTU 로 계속 진행 | Unknown (GATT status 5 · 8 · 15 면 AfterEnvironmentChange) | 이벤트 |
 | `CONFIGURATION_TIMEOUT` | 설정 단계 시간 초과 | NewConnectionMayHelp | 상태 + 이벤트 |
-| `NOT_READY` | 세션이 `Ready` 가 아닐 때 read/write/subscribe | NewConnectionMayHelp | 던짐 |
-| `NOT_CONNECTED` | 작업 시작 시점에 연결이 없음 | NewConnectionMayHelp | 던짐 / 상태 + 이벤트(구독 복원) |
+| `NOT_READY` | 세션이 `Ready` 가 아닐 때 read/write/subscribe(단계 무관, 링크 유실 직후 1000ms 포함). 블루투스가 꺼져 있으면 이 코드가 아니라 `ADAPTER_UNAVAILABLE` | NewConnectionMayHelp | 던짐 |
+| `NOT_CONNECTED` | 받아들인 작업이 시작하려는 순간 연결이 없음(명령 진입 검사에서는 나지 않음) | NewConnectionMayHelp | 던짐 / 상태 + 이벤트(구독 복원) |
 | `CHARACTERISTIC_NOT_FOUND` | 탐색 결과에 없는 참조, 또는 CCCD 없는 캐릭터리스틱 구독 | Never | 던짐 / 이벤트(구독 해제) / 상태 + `SubscriptionRestoreFailed`(구독 복원, 구독 의도에서 빠짐) |
 | `GATT_OPERATION_START_FAILED` | Android 가 GATT 작업 시작을 거절 | Unknown | 던짐 / 이벤트(구독 해제 · MTU 요청 시작) / 상태 + 이벤트(구독 복원) |
 | `GATT_STATUS_FAILED` | 기기가 오류 status 로 응답. 인증 · 암호화 부족(status 5 · 8 · 15)이면 AfterEnvironmentChange | Unknown / AfterEnvironmentChange | 던짐 / 이벤트(구독 해제) / 상태 + 이벤트(구독 복원) |

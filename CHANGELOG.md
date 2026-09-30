@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased (0.2.2)
+
+공개 API 와 동작은 0.2.1 과 같다. GATT 명령 진입 검사 순서를 두 플랫폼 공통 계약으로 적었고(contract/states.md §5 명령 진입 검사 순서),
+iOS 가 이 순서로 맞춰졌다.
+
+### Documentation
+
+- read·write·subscribe 는 닫힘 `CLIENT_CLOSED` → 어댑터(`ADAPTER_UNAVAILABLE`·`PERMISSION_DENIED`·`BLE_UNSUPPORTED`, `Unknown` 은 최대 2000ms 대기)
+  → `UNKNOWN_DEVICE` → 세션이 `Ready` 아님 `NOT_READY`(단계 무관, 링크 유실 뒤 1000ms 창 포함) → `CHARACTERISTIC_NOT_FOUND`(큐가 작업을 시작할 때) 순서다.
+  `NOT_CONNECTED` 는 받아들인 작업이 시작하려는 순간 연결이 없을 때만 난다. 가이드(`troubleshooting.md`, `recipes/errors-diagnostics.md`)를 이 순서로 고쳤다.
+  iOS 는 0.2.2 에서 `NOT_CONNECTED` 대신 이 코드들을 낸다(iOS CHANGELOG 의 BREAKING) — 두 플랫폼을 함께 쓰는 앱은 같은 분기로 처리할 수 있다.
+
+### Internal
+
+- `GattAdmissionOrderTest`: 진입 검사 순서 표 시험(세션 단계 × 어댑터 상태 × read·write·subscribe, unsubscribe 는 닫힘만).
+- `sample` 실기기 점검표 항목 2 는 꺼진 채 read 도 `ADAPTER_UNAVAILABLE` 만 통과로 본다.
+
 ## 0.2.1 (2026-09-30)
 
 공개 API 는 0.2.0 과 같다(`core/api/ble-core.api` 동일). 내부 구조를 순수 상태 기계 코어로 옮기고 실기기 수동 시험에서 찾은 결함을 고쳤다.

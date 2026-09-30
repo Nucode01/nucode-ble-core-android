@@ -29,6 +29,9 @@
 
 **Q. 연결은 됐는데 `NOT_READY` 가 납니다.**
 `connectionState` 가 `Ready` 가 되기 전에 호출했습니다. `Configuring`(MTU 협상 · 구독 복원) 중에도 `NOT_READY` 입니다.
+세션이 `Ready` 가 아니면 단계와 무관하게 `NOT_READY` 입니다: `Recovering`, `Disconnected`, 링크가 끊긴 직후 원인을 확정하는 1000ms
+(이때 `connectionState` 는 아직 `Ready` 로 보입니다) 모두 같습니다. 블루투스가 꺼져 있으면 세션보다 어댑터를 먼저 보므로 `NOT_READY` 가 아니라
+`ADAPTER_UNAVAILABLE` 입니다(검사 순서: `CLIENT_CLOSED` → 어댑터 → `NOT_READY` → `CHARACTERISTIC_NOT_FOUND`).
 
 **Q. 블루투스를 껐다 켰더니 스캔 결과가 안 옵니다.**
 블루투스가 꺼지면 스캔은 `Idle(SCAN_STOPPED_BY_ADAPTER)` 로 멈추고 자동으로 다시 시작하지 않습니다. `startScan()` 을 다시 부르세요.

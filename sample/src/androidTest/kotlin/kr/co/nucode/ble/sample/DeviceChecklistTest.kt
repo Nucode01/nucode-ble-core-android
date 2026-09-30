@@ -64,7 +64,7 @@ class DeviceChecklistTest {
         report(verdict)
     }
 
-    /** 2. 꺼진 채 read·connect. connect 는 ADAPTER_UNAVAILABLE, read 는 값을 기록(계약 미지정), 연결 상태 그대로. */
+    /** 2. 꺼진 채 read·connect. 둘 다 ADAPTER_UNAVAILABLE(read 는 contract/states.md §5 명령 진입 검사 순서: 어댑터를 세션보다 먼저 본다), 연결 상태 그대로. */
     @Test(timeout = 180_000)
     fun item2_commandsWhileOff() = checklist("2") {
         val (client, session) = readySubscribed(autoReconnect = true) ?: return@checklist
@@ -286,7 +286,7 @@ class DeviceChecklistTest {
         }
     }
 
-    /** 2 의 판정(OffCommandsDetector 대응). read 코드는 계약 미지정이라 기록하고 NOT_CONNECTED·NOT_READY·ADAPTER_UNAVAILABLE 이면 통과. */
+    /** 2 의 판정(OffCommandsDetector 대응). connect·read 모두 ADAPTER_UNAVAILABLE 이어야 통과(states.md §5 명령 진입 검사 순서). */
     private suspend fun DeviceChecklist.commandsWhileOff(client: BleClient, session: BleSession): Verdict {
         val at = now()
         val read = call("read probe.value while off") { session.read(PROBE_VALUE) }
@@ -299,7 +299,7 @@ class DeviceChecklistTest {
         val info = "read $read, connect $connect, 상태 $state"
         return when {
             connect != "ADAPTER_UNAVAILABLE" -> Verdict.fail("connect $connect(기대 ADAPTER_UNAVAILABLE); $info")
-            read !in READ_CODES_WHILE_OFF -> Verdict.fail("read $read(기대 ${READ_CODES_WHILE_OFF.joinToString("|")}); $info")
+            read != "ADAPTER_UNAVAILABLE" -> Verdict.fail("read $read(기대 ADAPTER_UNAVAILABLE); $info")
             changed.isNotEmpty() -> Verdict.fail("명령 뒤 상태 전이 ${changed.joinToString(",")}; $info")
             state != OFF_FINAL -> Verdict.fail("명령 뒤 상태 $state")
             else -> Verdict.pass("$info 그대로")
@@ -336,7 +336,6 @@ class DeviceChecklistTest {
 
     private companion object {
         val RECONNECT_PATH = listOf("Connecting", "DiscoveringServices", "Configuring", "Ready")
-        val READ_CODES_WHILE_OFF = setOf("NOT_CONNECTED", "NOT_READY", "ADAPTER_UNAVAILABLE")
         const val RECONNECT_TIMEOUT_MILLIS = 30_000L
         const val NOTIFICATION_TIMEOUT_MILLIS = 60_000L
         const val NO_RECONNECT_WINDOW_MILLIS = 30_000L

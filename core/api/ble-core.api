@@ -1,4 +1,4 @@
-# nucode BLE Core 0.2.0 Kotlin-public API (JVM member signatures)
+# nucode BLE Core 0.2.1 Kotlin-public API (JVM member signatures)
 CONSTRUCTOR public kr.co.nucode.ble.AdapterState$Unauthorized(boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.AdvertisementData(java.lang.String,java.util.Set<kr.co.nucode.ble.BleUuid>,java.util.Map<java.lang.Integer, byte[]>,java.util.Map<kr.co.nucode.ble.BleUuid, byte[]>,java.lang.Integer,java.lang.Boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleChunking$Fixed(int) throws=

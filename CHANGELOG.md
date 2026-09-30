@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 (2026-09-30)
+
+공개 API 는 0.2.0 과 같다(`core/api/ble-core.api` 동일). 내부 구조를 순수 상태 기계 코어로 옮기고 실기기 수동 시험에서 찾은 결함을 고쳤다.
+계약 시나리오 36개(sim), 실기기 두 대 기록 비교 23개 일치, iPhone XR 수동 시험 체크리스트 9개(블루투스 끄고 켜기·비행기 모드·재부팅 포함)를 자동 실행으로 확인했다.
+Android 실기기의 블루투스 끄고 켜기 순서는 측정하지 않았다.
+
+### Fixes
+
+- Ready 이후 링크가 끊긴 직후 블루투스가 꺼지면 `Disconnected(Failed(LINK_FAILED))` 로 끝나던 문제를 고쳤다. 링크 유실 뒤 1000ms 안에 어댑터가 꺼지면 `ADAPTER_UNAVAILABLE` 로 끝나고 autoReconnect 세션은 어댑터가 돌아올 때 한 번 다시 연결한다. 이 1000ms 동안 공개 상태는 바뀌지 않고, 새 GATT 작업은 `NOT_READY` 로 거절되며, 진짜 링크 실패는 최대 1000ms 늦게 알려진다.
+
+### Internal
+
+- 연결 상태 전이, GATT 큐 규칙, 스캔 수명, 어댑터 판정을 순수 Core(`internal/core`)로 옮기고 런타임은 사건을 넣고 할 일을 실행하는 껍데기로 줄였다. 플랫폼 인터페이스를 `internal/port` 로 분리하고 구체 드라이버 생성은 `android/` 조립 계층에서만 한다. 시간은 `ClockPort` 로만 쓴다. 이 구조는 `ArchitectureRulesTest` 가 지킨다.
+
 ## 0.2.0 (2026-09-30)
 
 Slice 7 public API cleanup과 이후 내부 정리·결함 수정, 두 플랫폼 공통 계약(nucode-ble-core contract/)에 맞춘 동작 정렬.

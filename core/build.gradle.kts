@@ -10,7 +10,7 @@ plugins {
 // `ble:1.2.+` 로 해석하는 소비자가 API 가 전혀 다른 구현을 조용히 받는다.
 val sdkGroupId = "kr.co.nucode"
 val sdkArtifactId = "ble-core"
-val sdkVersion = "0.2.0"
+val sdkVersion = "0.2.1"
 
 kotlin {
     explicitApi()

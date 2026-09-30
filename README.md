@@ -12,7 +12,7 @@
 
 > **Slice 7 API cleanup:** public 진입점은 `BleClient`/`BleSession`이며 Android 생성 경계는
 > `AndroidBleClientFactory`다. deprecated `BleCore`는 0.2.0에서 제거됐다. migration은
-> [0.2.0 changelog](CHANGELOG.md#020-unreleased), Kotlin-public 선언의 고정 JVM member signature는
+> [0.2.0 changelog](CHANGELOG.md#020-2026-09-30), Kotlin-public 선언의 고정 JVM member signature는
 > [public API dump](core/api/ble-core.api)를 본다. Slice 8 실기기 검증은 Pixel 5a/Android 14와
 > nRF52840 통합 테스트 firmware 조합에서 부분 통과했으며 결과는
 > [실기기 검증 기록](docs/v1/android-real-device-results.md)을 본다.
@@ -85,7 +85,7 @@ git       아직 init 안 함
 ### 배포
 
 ```
-좌표      kr.co.nucode:ble-core:0.2.0 (unreleased, local build only)
+좌표      kr.co.nucode:ble-core:0.2.1 (local build only)
           ★ 기존 kr.co.nucode:ble (1.0.0~1.2.5) 와 의도적으로 다른 artifactId
             설계 §0 비목표 "마이그레이션이 아니라 대체다" — 병존하려면 좌표가 달라야 한다
 발행 대상  mavenLocal() 하나. 이 머신에서만 해석된다
@@ -100,7 +100,7 @@ api 스코프 kotlinx-coroutines 는 api 로 선언한다
 ```
 nucode_ble_core/
   core/                      라이브러리 모듈  (namespace kr.co.nucode.ble)
-    api/ble-core.api         0.2.0 Kotlin-public API의 JVM member signature 기준
+    api/ble-core.api         0.2.x Kotlin-public API의 JVM member signature 기준
     src/main/kotlin/kr/co/nucode/ble/
     src/test/kotlin/kr/co/nucode/ble/
     src/main/AndroidManifest.xml    권한 선언 없음 — uses-feature 만 (앱이 권한을 선언한다)

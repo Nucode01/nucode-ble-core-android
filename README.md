@@ -88,7 +88,7 @@ git       아직 init 안 함
 ### 배포
 
 ```
-좌표      kr.co.nucode:ble-core:0.2.1 (local build only)
+좌표      kr.co.nucode:ble-core:0.2.2 (local build only)
           ★ 기존 kr.co.nucode:ble (1.0.0~1.2.5) 와 의도적으로 다른 artifactId
             설계 §0 비목표 "마이그레이션이 아니라 대체다" — 병존하려면 좌표가 달라야 한다
 발행 대상  mavenLocal() 하나. 이 머신에서만 해석된다

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.2.2)
+## 0.2.2 (2026-10-01)
 
 공개 API 와 동작은 0.2.1 과 같다. GATT 명령 진입 검사 순서를 두 플랫폼 공통 계약으로 적었고(contract/states.md §5 명령 진입 검사 순서),
 iOS 가 이 순서로 맞춰졌다.
@@ -11,6 +11,7 @@ iOS 가 이 순서로 맞춰졌다.
   → `UNKNOWN_DEVICE` → 세션이 `Ready` 아님 `NOT_READY`(단계 무관, 링크 유실 뒤 1000ms 창 포함) → `CHARACTERISTIC_NOT_FOUND`(큐가 작업을 시작할 때) 순서다.
   `NOT_CONNECTED` 는 받아들인 작업이 시작하려는 순간 연결이 없을 때만 난다. 가이드(`troubleshooting.md`, `recipes/errors-diagnostics.md`)를 이 순서로 고쳤다.
   iOS 는 0.2.2 에서 `NOT_CONNECTED` 대신 이 코드들을 낸다(iOS CHANGELOG 의 BREAKING) — 두 플랫폼을 함께 쓰는 앱은 같은 분기로 처리할 수 있다.
+- 가이드 제목을 0.2.x 로 고치고 README 맨 위에 가이드 입구를 둔다.
 
 ### Internal
 

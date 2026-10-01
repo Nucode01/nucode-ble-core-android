@@ -2,6 +2,9 @@
 
 사내 Android · iOS · Flutter 앱이 공유하는 BLE 라이브러리의 **Kotlin 구현.** central 전용.
 
+> **라이브러리를 쓰려면 [개발자 가이드](guide/README.md)부터 보세요.** 설치 · 스캔 · 연결 · 읽기/쓰기/구독 · 실패 처리 · 화면 연동을 예시 코드와 함께 다룹니다.
+> 이 README 는 저장소 개발 기록입니다.
+
 > **문서 상태:** 이 README와 기존 설계 문서는 2026-08 시점의 현재 구현 스냅샷과
 > 역사적 결정 근거를 기록한다. 향후 동작과 API의 **목표 v1 설계 정본**은
 > [docs/v1/README.md](https://github.com/pdev-jay/nucode-ble-core/blob/main/docs/v1/README.md)다. 목표 v1은 아직 구현 완료 상태를 뜻하지 않는다.

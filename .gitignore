@@ -63,7 +63,7 @@ GEMINI.md
 .github/prompts/
 
 # LLM 용 로컬 API 요약 (공유하지 않음)
-guide/llms.md
+guide/llms-android.md
 
 # CI 가 계약 시나리오를 받으려고 체크아웃하는 루트 저장소
 /.contract-root/

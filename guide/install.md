@@ -17,7 +17,7 @@
 // settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
-        mavenLocal() // 0.2.2 은 로컬 Maven 에만 있습니다
+        mavenLocal() // 0.2.2 는 로컬 Maven 에만 있습니다
         google()
         mavenCentral()
     }

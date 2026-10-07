@@ -20,7 +20,7 @@
 > nRF52840 통합 테스트 firmware 조합에서 부분 통과했으며 결과는
 > [실기기 검증 기록](docs/v1/android-real-device-results.md)을 본다.
 
-Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소로 둔다 (아직 없음 — 이 구현 다음).
+Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소(`pdev-jay/nucode-ble-core-ios`)로 있다. 두 구현이 지키는 공통 계약은 루트 저장소의 `../contract/`다.
 
 ---
 
@@ -49,7 +49,23 @@ Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소로 둔다 (�
 
 ---
 
-## 현재 상태
+## 현재 상태 (2026-10-07)
+
+| 항목 | 상태 |
+|---|---|
+| 버전 | 0.2.2 (태그 `0.2.0` · `0.2.1` · `0.2.2`). 변경 내용은 [CHANGELOG](CHANGELOG.md) |
+| 배포 | 로컬 Maven 전용 `kr.co.nucode:ble-core:0.2.2` — `./gradlew :core:publishReleasePublicationToMavenLocal`. 원격 저장소 없음(이 명령을 실행한 컴퓨터에서만 받는다) |
+| 사용법 | [개발자 가이드](guide/README.md) |
+| 구조 | 순수 상태 기계 Core(`internal/core`) · Runtime · Port · Platform 드라이버 · Factory(`AndroidBleClientFactory`). 규칙은 `ArchitectureRulesTest` 가 강제 |
+| iOS | `../ios/` — 같은 계약, 0.2.2 태그. main 은 0.3.0(`BLEClient` protocol 전환, 미릴리스) |
+| 검증 | 단위 시험 · 계약 시나리오 sim · 실기기 계약 23개 두 플랫폼 기록 비교 일치(`../lab/run.sh`) · 수동 점검표 자동 실행(`../lab/checklist-android.sh`). Pixel 5a / Android 14 + nRF52840 시험 펌웨어 한 조합 |
+| 알려진 문제 | 실기기 첫 연결 실패율 약 6%(조사 보류) |
+
+아래 "2026-08 시점 기록"부터 "구현하며 정해서 여기 채울 것"까지는 당시 상태와 판단의 기록이다. 지금 상태는 위 표가 맞다.
+
+---
+
+## 2026-08 시점 기록 — 당시 상태
 
 ```
 스캐폴딩   완료
@@ -214,7 +230,7 @@ Pixel 5a/Android 14와 nRF52840 통합 테스트 firmware 조합에서는 위 �
 
 ---
 
-## 다음 작업
+## 2026-08 시점 기록 — 당시 다음 작업
 
 ```
 0  Gradle 스캐폴딩            [완료]

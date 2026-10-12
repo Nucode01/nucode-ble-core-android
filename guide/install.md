@@ -8,7 +8,7 @@
 ./gradlew :core:publishReleasePublicationToMavenLocal
 ```
 
-`~/.m2/repository/kr/co/nucode/ble-core/0.2.2/` 에 aar · sources.jar · pom · module 이 생깁니다.
+`~/.m2/repository/kr/co/nucode/ble-core/0.3.0/` 에 aar · sources.jar · pom · module 이 생깁니다.
 원격 저장소가 아직 없어서 **이 명령을 실행한 컴퓨터에서만** 받을 수 있습니다. 다른 개발자나 CI 는 각자 배포해야 합니다.
 
 ## 2.2 앱에 추가하기
@@ -17,7 +17,7 @@
 // settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
-        mavenLocal() // 0.2.2 는 로컬 Maven 에만 있습니다
+        mavenLocal() // 0.3.0 은 로컬 Maven 에만 있습니다
         google()
         mavenCentral()
     }
@@ -27,7 +27,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("kr.co.nucode:ble-core:0.2.2")
+    implementation("kr.co.nucode:ble-core:0.3.0")
 }
 ```
 

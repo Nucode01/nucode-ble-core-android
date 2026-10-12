@@ -2,7 +2,9 @@ package kr.co.nucode.ble.harness
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.contract.ContractFiles
+import kr.co.nucode.ble.contract.ContractLog
 import kr.co.nucode.ble.contract.ContractLoader
 import kr.co.nucode.ble.contract.ScenarioEngine
 import kr.co.nucode.ble.contract.ScenarioReport
@@ -117,6 +119,41 @@ class ContractEngineTest {
     fun `services 레인은 연결 전 빈 집합 다음에 기기 정의의 기호를 남긴다`() {
         val report = run("[$connectToReady]", """{ "services": ["{}", "{nus.rx,nus.tx,probe.control,probe.value}"] }""")
         assertTrue(report.toString(), report.passed)
+    }
+
+    private val probeProperties = "{nus.rx=write+writeWithoutResponse,nus.tx=notify,probe.control=read+write,probe.value=notify+read}"
+
+    @Test
+    fun `properties 레인은 expect 에 있을 때만 기록하고 연결 전 빈 집합 다음에 기기 정의의 어휘를 남긴다`() {
+        val plain = run("[$connectToReady]", """{ "services": ["*"] }""")
+        assertFalse(plain.toString(), plain.toString().contains("|properties|"))
+        val report = run("[$connectToReady]", """{ "properties": ["{}", "$probeProperties"] }""")
+        assertTrue(report.toString(), report.passed)
+        val wrong = run("[$connectToReady]", """{ "properties": ["{}", "{nus.rx=write}"] }""")
+        assertFalse(wrong.toString(), wrong.passed)
+    }
+
+    @Test
+    fun `properties 줄은 services 다음 peer 앞에 낸다`() {
+        val report = run(
+            """[$connectToReady, $nusPattern, { "device": "rxCheck" }]""",
+            """{ "peer": ["*"], "properties": ["*"], "services": ["*"] }""",
+        )
+        val lanes = report.lines().map { it.split('|')[3] }
+        assertTrue(report.toString(), lanes.lastIndexOf("services") < lanes.indexOf("properties"))
+        assertTrue(report.toString(), lanes.lastIndexOf("properties") < lanes.indexOf("peer"))
+    }
+
+    @Test
+    fun `properties 어휘 변환은 기기 정의 어휘를 이름순으로 잇는다`() {
+        val cases = listOf(
+            emptyMap<String, Set<CharacteristicProperty>>() to "{}",
+            mapOf("a" to emptySet<CharacteristicProperty>()) to "{a=}",
+            mapOf("a" to setOf(CharacteristicProperty.WriteWithResponse)) to "{a=write}",
+            mapOf("a" to CharacteristicProperty.entries.toSet()) to "{a=indicate+notify+read+write+writeWithoutResponse}",
+            mapOf("b" to setOf(CharacteristicProperty.Notify), "a" to setOf(CharacteristicProperty.Read)) to "{a=read,b=notify}",
+        )
+        for ((input, expected) in cases) assertEquals(input.toString(), expected, ContractLog.renderProperties(input))
     }
 
     @Test

@@ -66,7 +66,7 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 | compileSdk (라이브러리 빌드) | 36 |
 | 의존성 | `kotlinx-coroutines-android` 1.9.0 (`api` 로 전달되므로 앱에서 따로 선언하지 않아도 됩니다) |
 | 라이브러리 빌드 도구 | AGP 8.13.2 · Kotlin 2.0.21 · JVM 11 |
-| 좌표 | `kr.co.nucode:ble-core:0.2.2` — 기존 `kr.co.nucode:ble`(1.x)와 **다른** artifactId 입니다 |
+| 좌표 | `kr.co.nucode:ble-core:0.3.0` — 기존 `kr.co.nucode:ble`(1.x)와 **다른** artifactId 입니다 |
 
 ## 3. 5분 빠른 시작
 

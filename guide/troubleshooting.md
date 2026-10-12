@@ -91,7 +91,7 @@ OS 가 기기를 다시 찾을 때까지 기한 없이 기다립니다. 기기�
 
 ### 배포 · 난독화
 
-- **배포:** `./gradlew :core:publishReleasePublicationToMavenLocal` → `~/.m2/repository/kr/co/nucode/ble-core/0.2.2/`. 원격 저장소는 아직 없습니다(이 명령을 실행한 컴퓨터에서만 받습니다). 릴리스 태그는 `0.2.0` · `0.2.1` · `0.2.2` 입니다.
+- **배포:** `./gradlew :core:publishReleasePublicationToMavenLocal` → `~/.m2/repository/kr/co/nucode/ble-core/0.3.0/`. 원격 저장소는 아직 없습니다(이 명령을 실행한 컴퓨터에서만 받습니다). 릴리스 태그는 `0.2.0` · `0.2.1` · `0.2.2` · `0.3.0` 입니다.
 - **라이브러리는 난독화하지 않습니다.** `isMinifyEnabled = false`, `consumer-rules.pro` 는 비어 있고 sources.jar 를 함께 배포합니다. 난독화는 앱의 R8 에 맡깁니다.
 - **앱 R8 호환은 빌드 단계만 확인했습니다.** sample release 를 `isMinifyEnabled = true`(`proguard-android-optimize.txt`)로 빌드해 R8 경고 · 누락 클래스 없이 통과했고, core 클래스가 난독화됐습니다. core 에 리플렉션 · 직렬화 · ServiceLoader 가 없어 keep 규칙이 필요 없었습니다.
 - **검증 필요:** 난독화된 release APK 의 **런타임** 동작(스캔 · 연결 · read/write · 구독)은 아직 확인하지 않았습니다. R8 을 켠 앱은 release 빌드로 실기기에서 한 번 확인하세요.

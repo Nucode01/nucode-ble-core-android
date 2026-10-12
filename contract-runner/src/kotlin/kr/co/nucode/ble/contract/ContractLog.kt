@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleDisconnectReason
+import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ScanState
 
@@ -69,6 +70,20 @@ internal class ContractLog(private val enabled: Set<String> = emptySet()) {
             ConnectionState.Ready -> "Ready"
             ConnectionState.Disconnecting -> "Disconnecting"
             is ConnectionState.Recovering -> "Recovering(${state.lastFailure.code.value})"
+        }
+
+        /** properties 레인 한 줄: 기호 이름순 `이름=속성+속성`, 속성은 기기 정의 어휘로 이름순(README §기록). */
+        fun renderProperties(byName: Map<String, Set<CharacteristicProperty>>): String =
+            byName.toSortedMap().entries.joinToString(",", "{", "}") { (name, properties) ->
+                "$name=" + properties.map(::vocabulary).sorted().joinToString("+")
+            }
+
+        private fun vocabulary(property: CharacteristicProperty): String = when (property) {
+            CharacteristicProperty.Read -> "read"
+            CharacteristicProperty.WriteWithResponse -> "write"
+            CharacteristicProperty.WriteWithoutResponse -> "writeWithoutResponse"
+            CharacteristicProperty.Notify -> "notify"
+            CharacteristicProperty.Indicate -> "indicate"
         }
 
         private fun render(reason: BleDisconnectReason): String = when (reason) {

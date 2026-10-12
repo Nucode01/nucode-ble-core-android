@@ -53,8 +53,8 @@ Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소(`pdev-jay/nuc
 
 | 항목 | 상태 |
 |---|---|
-| 버전 | 0.2.2 (태그 `0.2.0` · `0.2.1` · `0.2.2`). 변경 내용은 [CHANGELOG](CHANGELOG.md) |
-| 배포 | 로컬 Maven 전용 `kr.co.nucode:ble-core:0.2.2` — `./gradlew :core:publishReleasePublicationToMavenLocal`. 원격 저장소 없음(이 명령을 실행한 컴퓨터에서만 받는다) |
+| 버전 | 0.3.0 (태그 `0.2.0` · `0.2.1` · `0.2.2` · `0.3.0`). 변경 내용은 [CHANGELOG](CHANGELOG.md) |
+| 배포 | 로컬 Maven 전용 `kr.co.nucode:ble-core:0.3.0` — `./gradlew :core:publishReleasePublicationToMavenLocal`. 원격 저장소 없음(이 명령을 실행한 컴퓨터에서만 받는다) |
 | 사용법 | [개발자 가이드](guide/README.md) |
 | 구조 | 순수 상태 기계 Core(`internal/core`) · Runtime · Port · Platform 드라이버 · Factory(`AndroidBleClientFactory`). 규칙은 `ArchitectureRulesTest` 가 강제 |
 | iOS | `../ios/` — 같은 계약, 0.2.2 태그. main 은 0.3.0(`BLEClient` protocol 전환, 미릴리스) |
@@ -104,7 +104,7 @@ git       아직 init 안 함
 ### 배포
 
 ```
-좌표      kr.co.nucode:ble-core:0.2.2 (local build only)
+좌표      kr.co.nucode:ble-core:0.3.0 (local build only)
           ★ 기존 kr.co.nucode:ble (1.0.0~1.2.5) 와 의도적으로 다른 artifactId
             설계 §0 비목표 "마이그레이션이 아니라 대체다" — 병존하려면 좌표가 달라야 한다
 발행 대상  mavenLocal() 하나. 이 머신에서만 해석된다

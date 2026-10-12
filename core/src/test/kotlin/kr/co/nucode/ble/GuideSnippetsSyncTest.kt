@@ -9,7 +9,7 @@ import org.junit.Test
  *
  * 예시 블록마다 `GuideSnippets.kt`·`GuideUiSnippets.kt` 의 `// region guide:<이름>` 본문 하나와 같아야 하고,
  * 쓰이지 않는 region 도 없어야 한다. Gradle 스크립트 블록(`// settings.gradle.kts`, `// app/build.gradle.kts`)은
- * 컴파일 대상이 아니라 제외한다. 로컬 전용 `guide/llms.md` 는 git 에 없어 검사하지 않는다.
+ * 컴파일 대상이 아니라 제외한다. 로컬 전용 `guide/llms-android.md` 는 git 에 없어 검사하지 않는다.
  */
 class GuideSnippetsSyncTest {
 
@@ -38,7 +38,7 @@ class GuideSnippetsSyncTest {
     }
 
     private fun guideDocs(): List<File> =
-        GUIDE_DIR.walkTopDown().filter { it.isFile && it.extension == "md" && it.name != "llms.md" }.toList()
+        GUIDE_DIR.walkTopDown().filter { it.isFile && it.extension == "md" && it.name != "llms-android.md" }.toList()
 
     private companion object {
         val GUIDE_DIR = File("../guide")

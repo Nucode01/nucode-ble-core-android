@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 (2026-10-12)
+
+공개 API 변경 없음. 계약 러너 `properties` 레인.
+
+root·iOS 와 같은 계약 버전(0.3.0)으로 함께 태그한다. 공개 API 와 동작은 0.2.2 와 같다(`core/api/ble-core.api` 는 머리 주석의 버전만 바뀐다).
+
+### Internal
+
+- 계약 러너: 확장 값 레인 `properties`(CANDIDATE-30). `expect` 에 있을 때만 기록하고 `services` 다음, `peer` 앞에 낸다.
+  `services` 와 같은 원천(session 서비스 목록)에서 기기 정의 characteristic 마다 properties 를 기기 정의 어휘(`WriteWithResponse` 는 `write`)로 남긴다.
+  `await ... is` 대상이 아니다. 새 draft 시나리오 `services-expose-properties` 가 sim 에서 통과한다.
+- `GuideSnippetsSyncTest`: 로컬 전용 문서 이름 `llms-android.md` 를 검사에서 뺀다(이전 이름 `llms.md`).
+
 ## 0.2.2 (2026-10-01)
 
 공개 API 와 동작은 0.2.1 과 같다. GATT 명령 진입 검사 순서를 두 플랫폼 공통 계약으로 적었고(contract/states.md §5 명령 진입 검사 순서),

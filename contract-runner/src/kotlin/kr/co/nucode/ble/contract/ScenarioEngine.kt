@@ -255,6 +255,18 @@ internal class ScenarioEngine(
                 }
             }
         }
+        if (log.records(Lanes.PROPERTIES)) {
+            // services 와 같은 원천·같은 characteristic 을 고른다. 같은 characteristic 이 두 번 나오면 첫 항목을 쓴다.
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                session.services.collect { list ->
+                    val present = list.flatMap { it.characteristics }.reversed().associateBy { it.ref }
+                    val byName = profile.characteristics.values.mapNotNull { spec ->
+                        present[spec.ref]?.let { spec.symbol to it.properties }
+                    }.toMap()
+                    log.add(Lanes.PROPERTIES, ContractLog.renderProperties(byName))
+                }
+            }
+        }
         // 상태는 합쳐지는 StateFlow 가 아니라 전이마다 하나씩 나오는 공식 이벤트로 남긴다(README §기록).
         jobs += launch(start = CoroutineStart.UNDISPATCHED) {
             target.client.events.filterIsInstance<OfficialBleClientEvent.Connection>().collect {

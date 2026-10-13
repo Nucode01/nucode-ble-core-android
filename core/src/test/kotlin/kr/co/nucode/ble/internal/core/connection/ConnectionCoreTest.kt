@@ -678,7 +678,7 @@ class ConnectionCoreTest {
         status: Int = 0,
         failure: BleFailure? = null,
         generation: Long = this.generation,
-    ) = ConnectionEvent.LinkStateChanged(generation, fact, status, failure, 100, cleanupMillis)
+    ) = ConnectionEvent.LinkStateChanged(generation, fact, status, failure, 100, cleanupMillis, atMillis = 0)
 
     private fun ConnectionCoreState.linkStep(fact: LinkFact, status: Int = 0, failure: BleFailure? = null) =
         ConnectionCore.step(this, linkEvent(fact, status, failure))
@@ -988,7 +988,7 @@ class ConnectionCoreTest {
     private fun ConnectionCoreState.begin(
         options: ConnectOptions = ConnectOptions(autoConnect = false),
         rediscover: Boolean = false,
-    ) = ConnectionCore.step(this, ConnectionEvent.BeginConnect(options, linkMillis, rediscover))
+    ) = ConnectionCore.step(this, ConnectionEvent.BeginConnect(options, linkMillis, rediscover, atMillis = 0))
 
     private fun ConnectionCoreState.admit(options: ConnectOptions): ConnectAdmission {
         val step = ConnectionCore.step(this, ConnectionEvent.ConnectRequested(options, linkMillis))
@@ -1017,7 +1017,7 @@ class ConnectionCoreTest {
             ),
             began.effects,
         )
-        val started = ConnectionCore.step(began.state, ConnectionEvent.LinkStarted).state
+        val started = ConnectionCore.step(began.state, ConnectionEvent.LinkStarted(atMillis = 0)).state
         val up = ConnectionCore.step(started, started.linkEvent(LinkFact.Up))
         assertEquals(ConnectionState.DiscoveringServices, up.state.shown())
         assertTrue(ConnectionEffect.LinkUp(started.generation) in up.effects)
@@ -1079,7 +1079,7 @@ class ConnectionCoreTest {
         val lost = ConnectionCore.step(ConnectionCoreState().autoReady(), ConnectionEvent.AdapterLost(AdapterState.PoweredOff)).state
         assertTrue(lost.relinkAfterAdapter)
 
-        val returned = ConnectionCore.step(lost, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false))
+        val returned = ConnectionCore.step(lost, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false, atMillis = 0))
 
         assertTrue(returned.accepted)
         assertEquals(lost.generation + 1, returned.state.generation)
@@ -1090,7 +1090,7 @@ class ConnectionCoreTest {
         assertEquals(1, returned.effects.count { it == StageChanged(ConnectionStage.Connecting) })
         assertEquals(ConnectionEffect.ConnectLink(autoConnect = true), returned.effects.last())
         // 두 번째 복귀 관측은 아무 것도 하지 않는다.
-        val again = ConnectionCore.step(returned.state, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false))
+        val again = ConnectionCore.step(returned.state, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false, atMillis = 0))
         assertFalse(again.accepted)
         assertSame(returned.state, again.state)
         assertTrue(again.effects.isEmpty())
@@ -1106,11 +1106,11 @@ class ConnectionCoreTest {
         val lost = ConnectionCore.step(ConnectionCoreState().autoReady(), ConnectionEvent.AdapterLost(AdapterState.PoweredOff)).state
 
         listOf(plain, userEnded).forEach { state ->
-            val step = ConnectionCore.step(state, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false))
+            val step = ConnectionCore.step(state, ConnectionEvent.AdapterReturned(true, linkMillis, rediscover = false, atMillis = 0))
             assertFalse(step.accepted)
             assertTrue(step.effects.isEmpty())
         }
-        val off = ConnectionCore.step(lost, ConnectionEvent.AdapterReturned(false, linkMillis, rediscover = false))
+        val off = ConnectionCore.step(lost, ConnectionEvent.AdapterReturned(false, linkMillis, rediscover = false, atMillis = 0))
         assertFalse(off.accepted)
         assertSame(lost, off.state)
         assertTrue(off.effects.isEmpty())
@@ -1262,12 +1262,15 @@ class ConnectionCoreTest {
     }
 
     @Test
-    fun `C20_시작 성공은 handle 열림만 세우고 시작 실패로 던지는 호출은 종결을 게시한다`() {
+    fun `C20_시작 성공은 handle 열림과 요청 시각만 세우고 시작 실패로 던지는 호출은 종결을 게시한다`() {
         val began = ConnectionCoreState().begin().state
 
-        val started = ConnectionCore.step(began, ConnectionEvent.LinkStarted)
+        val started = ConnectionCore.step(began, ConnectionEvent.LinkStarted(atMillis = 7))
         assertTrue(started.state.platformHandleOpen)
-        assertEquals(began.copy(platformHandleOpen = true), started.state)
+        assertEquals(
+            began.copy(platformHandleOpen = true, linkAttempt = began.linkAttempt?.copy(requestedAtMillis = 7)),
+            started.state,
+        )
         assertTrue(started.effects.isEmpty())
 
         // 아직 열려 있으면 종결 API 가 원인을 고정하고 게시한다.

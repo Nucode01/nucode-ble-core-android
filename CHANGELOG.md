@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+공개 API 변경 없음. 동작 변경: Android 첫 직접 연결의 빠른 GATT status 133 을 라이브러리가 다시 건다(contract/states.md §2, 2026-10-13).
+
+### Behavior
+
+- `autoReconnect = false` 연결이 `Connecting`(링크 전)에서 연결 요청 뒤 5000ms 안에 status 133 을 받으면 handle 을 닫고 같은
+  generation·같은 link deadline 안에서 다시 연결한다. 재시도는 최대 2회(시도 3번)이고 옵션이 아니다(기본 켜짐).
+  - 공개 상태는 `Connecting` 하나다. 시도마다 그 133 을 `Diagnostic(Warning, LINK_FAILED)` 로 낸다.
+  - 남은 link deadline 이 5000ms 미만이면 다시 걸지 않고 지금처럼 `LINK_FAILED` 로 끝난다. 시도가 모두 빠른 133 이면 세 번째 133 때
+    `LINK_FAILED`, 재시도 중 deadline 이 다하면 `LINK_TIMEOUT` 이다.
+  - 요청 뒤 5000ms 넘어 온 133, 133 이 아닌 status, `DiscoveringServices` 이후 실패, autoReconnect 연결은 지금과 같다.
+    재시도 중 `disconnect()` 는 `Disconnected(Requested)`, close 는 `Disconnected(ClientClosed)` 로 끝낸다.
+  - 근거: 실기기 첫 연결의 링크 수립 실패(HCI 0x3E)가 2026-10-12 lab 2회에서 48회 중 7회였다.
+
 ## 0.3.0 (2026-10-12)
 
 공개 API 변경 없음. 계약 러너 `properties` 레인.

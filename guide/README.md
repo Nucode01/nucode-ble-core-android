@@ -55,6 +55,7 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 - **Foreground Service 와 백그라운드 정책.** 앱이 소유합니다.
 - **권한 선언과 권한 요청 UI.** 앱이 선언하고 요청합니다.
 - **라이브러리 자체 재연결 시간표(백오프 · 재시도 횟수).** 0.2.0 에서 없앴습니다. OS autoConnect(`autoReconnect = true`)나 앱이 맡습니다.
+  예외 하나: `autoReconnect = false` 첫 연결이 요청 직후 GATT status 133 으로 실패하면 라이브러리가 같은 link 시간 제한 안에서 최대 2번 다시 겁니다([5.3](recipes/scan-connect.md#53-앱이-다시-시도하는-연결)).
 - **MTU 값 지정, 광고 원본 바이트, Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
 - **원격 저장소 배포.** 아직 로컬 Maven 뿐입니다.
 

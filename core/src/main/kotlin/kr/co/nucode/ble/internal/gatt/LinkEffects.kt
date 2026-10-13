@@ -3,7 +3,10 @@ package kr.co.nucode.ble.internal.gatt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.plus
 import kr.co.nucode.ble.AdapterState
+import kr.co.nucode.ble.AndroidApiOperation
+import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.connection.LinkSetup
@@ -11,6 +14,7 @@ import kr.co.nucode.ble.internal.core.connection.ConnectAdmission
 import kr.co.nucode.ble.internal.core.connection.ConnectionEffect
 import kr.co.nucode.ble.internal.core.connection.ConnectionEvent
 import kr.co.nucode.ble.internal.core.connection.ConnectionStageDeadline
+import kr.co.nucode.ble.internal.core.connection.LinkStartFailureKind
 import kr.co.nucode.ble.internal.core.connection.TerminalCause
 import kr.co.nucode.ble.internal.core.connection.TerminalCleanupReason
 import kr.co.nucode.ble.internal.port.GattDriver
@@ -105,6 +109,7 @@ internal class LinkEffects(
                 session.gatt?.let { driver.close(session.deviceId, it) }
                 session.gatt = null
             }
+            is ConnectionEffect.RetryLink -> retryLink(session, effect.generation)
             // 호출 진행 할 일은 호출자가 진행한다 — 호출자가 모으지 않는 경로(시작 실패 등)에서는 이미 알고 있다.
             is ConnectionEffect.Rediscover,
             is ConnectionEffect.ConnectLink,
@@ -126,6 +131,33 @@ internal class LinkEffects(
             is ConnectionEffect.RestoreSubscriptions -> linkSetup()?.onMtuSettled(session, effect.generation)
             else -> error("실행기가 다루지 않는 할 일: $effect")
         }
+    }
+
+    /**
+     * driver.connect 로 링크를 연다. 성공하면 handle 을 세션에 두고 [ConnectionEvent.LinkStarted] 를 넣은 뒤 null 을,
+     * 시작이 던지면 그 실패를 돌려준다(종결은 호출자가 사건으로 정한다).
+     */
+    fun openLink(session: Session, autoConnect: Boolean, generation: Long): LinkStartFailure? {
+        val gatt = try {
+            driver.connect(session.deviceId, autoConnect, generation)
+        } catch (e: BleException) {
+            return LinkStartFailure(e.failure, LinkStartFailureKind.Rejected)
+        } catch (_: SecurityException) {
+            val failure = GattFailureFactory.permissionDenied(session, FailurePhase.Connect, AndroidApiOperation.ConnectGatt)
+            return LinkStartFailure(failure, LinkStartFailureKind.PermissionDenied)
+        } catch (_: Exception) {
+            val failure = GattFailureFactory.startRejected(session, FailurePhase.Connect, AndroidApiOperation.ConnectGatt)
+            return LinkStartFailure(failure, LinkStartFailureKind.Rejected)
+        }
+        session.gatt = gatt
+        dispatch(session, ConnectionEvent.LinkStarted(session.connectionCoordinator.nowMillis))
+        return null
+    }
+
+    /** 빠른 133 재시도 — 같은 generation 에서 직접 연결을 다시 건다. 시작 실패는 Core 가 고정·게시한다. */
+    private fun retryLink(session: Session, generation: Long) {
+        val failed = openLink(session, autoConnect = false, generation) ?: return
+        dispatch(session, ConnectionEvent.RetryStartFailed(generation, failed.failure, failed.kind))
     }
 
     /** 서비스 목록 게시가 끝났다 — 붙은 뒤 절차(MTU 요청)를 진행한다. */
@@ -196,3 +228,6 @@ internal class LinkEffects(
         dispatch(session, ConnectionEvent.InternalFailure(cause))
     }
 }
+
+/** driver.connect 시작 실패 — 실패 값과 종결 원인 분류의 종류. */
+internal data class LinkStartFailure(val failure: BleFailure, val kind: LinkStartFailureKind)

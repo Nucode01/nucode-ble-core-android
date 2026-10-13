@@ -29,7 +29,18 @@ internal sealed interface ConnectAdmission {
 internal enum class RediscoveryFact { Found, Unavailable, NotFound }
 
 /** driver.connect 시작 실패의 종류 — 종결 원인 분류에 쓴다. */
-internal enum class LinkStartFailureKind { Rejected, PermissionDenied }
+internal enum class LinkStartFailureKind {
+    Rejected,
+    PermissionDenied,
+    ;
+
+    /** 이 시작 실패로 끝나는 generation 의 종결 원인 분류. */
+    val cleanupReason: TerminalCleanupReason
+        get() = when (this) {
+            Rejected -> TerminalCleanupReason.LinkStartRejected
+            PermissionDenied -> TerminalCleanupReason.PermissionDenied
+        }
+}
 
 /**
  * 연결 시작 정책(§4) — 중복 connect 판정, 시도 시작, 재발견 결과, 시작 실패·취소, 어댑터 복귀 재연결을
@@ -95,11 +106,12 @@ internal object ConnectionStart {
         options: ConnectOptions,
         defaultLinkMillis: Long,
         rediscover: Boolean,
+        atMillis: Long,
     ): ConnectionStep {
-        val begun = ConnectionCore.step(
-            state,
-            ConnectionEvent.Direct.BeginConnection(options.linkDeadlineMillis(defaultLinkMillis)),
-        )
+        val linkDeadline = options.linkDeadlineMillis(defaultLinkMillis)
+        val begun = ConnectionCore.step(state, ConnectionEvent.Direct.BeginConnection(linkDeadline))
+        // 빠른 133 재시도(§2)는 link deadline 이 있는 직접 연결만의 것이다.
+        val attempt = if (!options.autoConnect && linkDeadline != null) LinkAttempt(atMillis, null, retries = 0) else null
         // 이전 시도가 사용자 disconnect()·타임아웃 포기·시작 실패 중 무엇으로든 재연결 억제를 남겼더라도 새 시도는
         // 물려받지 않는다 — autoConnect 가 아니면 이 handle 은 처음부터 OS 대기용이 아니다. 새 시도는 어댑터 복귀
         // 재연결 대상도 아니다(이 시도 자체가 그 재연결이거나 사용자가 새로 건 것이다).
@@ -110,6 +122,7 @@ internal object ConnectionStart {
             autoConnect = options.autoConnect,
             relinkAfterAdapter = false,
             requestedMtu = options.requestedMtu,
+            linkAttempt = attempt,
         )
         val tail = if (rediscover) ConnectionEffect.Rediscover else ConnectionEffect.ConnectLink(options.autoConnect)
         return ConnectionCore.accepted(
@@ -201,14 +214,10 @@ internal object ConnectionStart {
 
     /** driver.connect 시작 실패 — 시작 실패는 OS 대기 대상이 아니라 handle 을 남기지 않고, 게시는 호출자 몫이다. */
     fun linkStartFailed(state: ConnectionCoreState, event: ConnectionEvent.LinkStartFailed): ConnectionStep {
-        val reason = when (event.kind) {
-            LinkStartFailureKind.Rejected -> TerminalCleanupReason.LinkStartRejected
-            LinkStartFailureKind.PermissionDenied -> TerminalCleanupReason.PermissionDenied
-        }
         val completed = ConnectionCleanup.completeWithoutPublish(
             state.copy(suppressReconnect = true),
             event.generation,
-            TerminalCause(reason, event.failure),
+            TerminalCause(event.kind.cleanupReason, event.failure),
         )
         return ConnectionCore.accepted(
             completed.state,
@@ -216,9 +225,11 @@ internal object ConnectionStart {
         )
     }
 
-    /** driver.connect 가 성공해 platform handle 이 열렸다. */
-    fun linkStarted(state: ConnectionCoreState): ConnectionStep =
-        ConnectionCore.accepted(state.copy(platformHandleOpen = true))
+    /** driver.connect 가 [atMillis] 에 성공해 platform handle 이 열렸다 — 직접 연결이면 이번 시도의 요청 시각을 적는다. */
+    fun linkStarted(state: ConnectionCoreState, atMillis: Long): ConnectionStep =
+        ConnectionCore.accepted(
+            state.copy(platformHandleOpen = true, linkAttempt = state.linkAttempt?.copy(requestedAtMillis = atMillis)),
+        )
 
     /**
      * connect 호출이 시작 실패로 던지려 한다 — 유령 Connecting 방지: 상태·스트림 둘 다 종결시킨다. 보통은 시작 경로가
@@ -248,6 +259,7 @@ internal object ConnectionStart {
             ConnectOptions(autoConnect = true, requestedMtu = state.requestedMtu),
             event.defaultLinkMillis,
             event.rediscover,
+            event.atMillis,
         )
     }
 }

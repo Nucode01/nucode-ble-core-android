@@ -58,8 +58,8 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // 근거(관측): 연결 성공은 status 0 STATE_CONNECTED 한 번.
     var onConnect: CallbackVariant = CallbackVariant.Arrive()
 
-    /** null 이 아니면 연결 콜백을 STATE_DISCONNECTED + 이 status 로 낸다(예: 133). */
-    var connectFailStatus: Int? = null
+    /** connect 마다 앞에서 하나씩 꺼내 연결 콜백을 STATE_DISCONNECTED + 그 status 로 낸다(예: 133). 비면 성공. */
+    val connectFailStatuses: ArrayDeque<Int> = ArrayDeque()
 
     /** null 이 아니면 connect 시작이 이 예외를 던진다(connectGatt 시작 거절 자리). */
     var connectThrows: Exception? = null
@@ -293,7 +293,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         connectThrows?.let { throw it }
         // 근거(production): connectGatt 는 호출마다 새 BluetoothGatt 를 만든다 — 이전(닫히지 않은) handle 의 콜백은 출처가 달라진다.
         epoch++
-        scheduleConnection(deviceId, onConnect, connectFailStatus, epoch, afterStartReturns = false)
+        scheduleConnection(deviceId, onConnect, connectFailStatuses.removeFirstOrNull(), epoch, afterStartReturns = false)
         return null
     }
 

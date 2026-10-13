@@ -38,6 +38,8 @@ internal data class ConnectionCoreState(
     val failureSessionId: String? = null,
     /** 원인 확정을 기다리는 Ready 링크 유실(§3 어댑터 정착 창). 있으면 링크는 없고 GATT 작업을 받지 않는다. */
     val pendingLoss: PendingLinkLoss? = null,
+    /** autoReconnect=false 연결의 링크 시도 기록 — 빠른 133 재시도([ConnectionRetry])의 근거. */
+    val linkAttempt: LinkAttempt? = null,
 )
 
 /** Runtime 이 Core 에 넣는 사건. */
@@ -140,7 +142,7 @@ internal sealed interface ConnectionEvent {
 
     /**
      * 링크 상태 콜백. [failure] 가 null 이면 성공 status 다(플랫폼 status 를 실패 값으로 바꾸는 것은 Runtime 이다).
-     * [status] 는 원인 없는 해제의 LINK_FAILED 에 담길 플랫폼 status 다.
+     * [status] 는 원인 없는 해제의 LINK_FAILED 에 담길 플랫폼 status 다. [atMillis] 는 콜백을 받은 단조 시각이다.
      */
     data class LinkStateChanged(
         val generation: Long,
@@ -149,6 +151,7 @@ internal sealed interface ConnectionEvent {
         val failure: BleFailure?,
         val discoveryMillis: Long,
         val disconnectCleanupMillis: Long,
+        val atMillis: Long,
     ) : ConnectionEvent
 
     /** 종결된 세션의 플랫폼 재연결 대기 handle 에 OS 가 다시 붙였다(Bootstrap 귀속 뒤). */
@@ -177,11 +180,12 @@ internal sealed interface ConnectionEvent {
     /** 이미 세션이 있을 때의 connect 요청 — 중복 판정만 한다(상태는 바뀌지 않고 [ConnectionEffect.ConnectAdmitted] 를 낸다). */
     data class ConnectRequested(val options: ConnectOptions, val defaultLinkMillis: Long) : ConnectionEvent
 
-    /** 새 연결 시도를 연다. [rediscover] 면 링크 시작 전에 cold-cache 재발견을 먼저 한다. */
+    /** 새 연결 시도를 연다([atMillis] 시각). [rediscover] 면 링크 시작 전에 cold-cache 재발견을 먼저 한다. */
     data class BeginConnect(
         val options: ConnectOptions,
         val defaultLinkMillis: Long,
         val rediscover: Boolean,
+        val atMillis: Long,
     ) : ConnectionEvent
 
     /**
@@ -201,8 +205,11 @@ internal sealed interface ConnectionEvent {
     /** driver.connect 가 던졌다. */
     data class LinkStartFailed(val generation: Long, val failure: BleFailure, val kind: LinkStartFailureKind) : ConnectionEvent
 
-    /** driver.connect 가 성공해 handle 이 열렸다. */
-    data object LinkStarted : ConnectionEvent
+    /** driver.connect 가 [atMillis] 에 성공해 handle 이 열렸다. */
+    data class LinkStarted(val atMillis: Long) : ConnectionEvent
+
+    /** 빠른 133 재시도의 driver.connect 가 던졌다 — 호출자는 이미 반환했으니 게시로 끝낸다. */
+    data class RetryStartFailed(val generation: Long, val failure: BleFailure, val kind: LinkStartFailureKind) : ConnectionEvent
 
     /** connect 호출이 시작 실패([failure])로 던지려 한다. */
     data class ConnectCallFailed(val failure: BleFailure) : ConnectionEvent
@@ -212,6 +219,7 @@ internal sealed interface ConnectionEvent {
         val adapterReady: Boolean,
         val defaultLinkMillis: Long,
         val rediscover: Boolean,
+        val atMillis: Long,
     ) : ConnectionEvent
 }
 
@@ -263,6 +271,9 @@ internal sealed interface ConnectionEffect {
 
     /** driver.connect 로 링크를 시작한다. */
     data class ConnectLink(val autoConnect: Boolean) : ConnectionEffect
+
+    /** 같은 [generation] 에서 driver.connect(autoConnect=false) 를 다시 건다(빠른 133 재시도). */
+    data class RetryLink(val generation: Long) : ConnectionEffect
 
     /** connect 호출을 [failure] 로 끝낸다(던진다). */
     data class FailConnectCall(val failure: BleFailure) : ConnectionEffect
@@ -334,11 +345,12 @@ internal object ConnectionCore {
         is ConnectionEvent.RestoreFinished -> ConnectionLink.restoreFinished(state, event)
         is ConnectionEvent.ConnectRequested -> ConnectionStart.admit(state, event.options, event.defaultLinkMillis)
         is ConnectionEvent.BeginConnect ->
-            ConnectionStart.beginConnect(state, event.options, event.defaultLinkMillis, event.rediscover)
+            ConnectionStart.beginConnect(state, event.options, event.defaultLinkMillis, event.rediscover, event.atMillis)
         is ConnectionEvent.RediscoveryFinished -> ConnectionStart.rediscoveryFinished(state, event)
         is ConnectionEvent.ConnectCallCancelled -> ConnectionStart.callCancelled(state, event.generation)
         is ConnectionEvent.LinkStartFailed -> ConnectionStart.linkStartFailed(state, event)
-        is ConnectionEvent.LinkStarted -> ConnectionStart.linkStarted(state)
+        is ConnectionEvent.LinkStarted -> ConnectionStart.linkStarted(state, event.atMillis)
+        is ConnectionEvent.RetryStartFailed -> ConnectionRetry.startFailed(state, event)
         is ConnectionEvent.ConnectCallFailed -> ConnectionStart.callFailed(state, event.failure)
         is ConnectionEvent.AdapterReturned -> ConnectionStart.adapterReturned(state, event)
         is ConnectionEvent.Direct.BeginConnection -> beginAttempt(state, event.linkTimeoutMillis)
@@ -468,7 +480,7 @@ internal object ConnectionCore {
         }
         check(state.generation != Long.MAX_VALUE) { "connection generation이 소진됐다" }
 
-        val next = state.copy(generation = state.generation + 1, terminalCause = null, pendingLoss = null)
+        val next = state.copy(generation = state.generation + 1, terminalCause = null, pendingLoss = null, linkAttempt = null)
         return enterStage(next, ConnectionStage.Connecting, linkTimeoutMillis)
     }
 
@@ -634,25 +646,5 @@ internal object ConnectionCore {
             ConnectionStage.Disconnected,
         )
         ConnectionStage.Disconnecting -> setOf(ConnectionStage.Disconnected)
-    }
-}
-
-/**
- * latch된 종결 원인에서 내부 [DisconnectReason]을 파생한다(순수 함수).
- *
- * 원인 없이 종결된 시작된 generation은 LINK_FAILED 실패로 본다. 그 [BleFailure]는 platform
- * statusCode 등 session 문맥이 필요하므로 호출자가 [unattributedFailure]로 넘긴다.
- */
-internal fun TerminalCause?.toDisconnectReason(
-    generationStarted: Boolean,
-    unattributedFailure: BleFailure,
-): DisconnectReason {
-    val failure = this?.failure
-    return when {
-        failure != null -> DisconnectReason.Failed(failure)
-        this?.reason == TerminalCleanupReason.UserRequested -> DisconnectReason.Requested
-        this?.reason == TerminalCleanupReason.ClientClosed -> DisconnectReason.ClientClosed
-        generationStarted -> DisconnectReason.Failed(unattributedFailure)
-        else -> DisconnectReason.Initial
     }
 }

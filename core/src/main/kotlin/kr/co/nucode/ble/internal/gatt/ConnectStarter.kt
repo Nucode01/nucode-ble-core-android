@@ -4,19 +4,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kr.co.nucode.ble.AdapterState
-import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
-import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Severity
 import kr.co.nucode.ble.internal.core.connection.ConnectAdmission
 import kr.co.nucode.ble.internal.core.connection.ConnectionEffect
 import kr.co.nucode.ble.internal.core.connection.ConnectionEvent
-import kr.co.nucode.ble.internal.core.connection.LinkStartFailureKind
 import kr.co.nucode.ble.internal.core.connection.RediscoveryFact
 import kr.co.nucode.ble.internal.model.ConnectOptions
-import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.core.scan.RediscoveryOutcome
 import kr.co.nucode.ble.internal.session.ConnectionReadinessTimeouts
@@ -33,7 +29,6 @@ import kr.co.nucode.ble.internal.session.SessionRegistry
 internal class ConnectStarter(
     private val registry: SessionRegistry,
     private val scope: CoroutineScope,
-    private val driver: GattDriver,
     private val readinessTimeouts: ConnectionReadinessTimeouts,
     private val rediscovery: PeripheralRediscovery?,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)?,
@@ -74,7 +69,12 @@ internal class ConnectStarter(
             val scanner = rediscoveryFor(deviceId)
             val progress = effects.dispatchCall(
                 session,
-                ConnectionEvent.BeginConnect(options, readinessTimeouts.linkMillis, rediscover = scanner != null),
+                ConnectionEvent.BeginConnect(
+                    options,
+                    readinessTimeouts.linkMillis,
+                    rediscover = scanner != null,
+                    atMillis = session.connectionCoordinator.nowMillis,
+                ),
             )
             proceed(session, options, scanner, progress)
         }
@@ -151,36 +151,10 @@ internal class ConnectStarter(
      * Connecting 을 Disconnected 로 정리하고 재던진다.
      */
     private fun startLink(session: Session, options: ConnectOptions, generation: Long) {
-        val gatt = try {
-            driver.connect(session.deviceId, options.autoConnect, generation)
-        } catch (e: BleException) {
-            linkStartFailed(session, generation, e.failure, LinkStartFailureKind.Rejected)
-            throw e
-        } catch (_: SecurityException) {
-            val failure = GattFailureFactory.permissionDenied(
-                session,
-                FailurePhase.Connect,
-                AndroidApiOperation.ConnectGatt,
-            )
-            linkStartFailed(session, generation, failure, LinkStartFailureKind.PermissionDenied)
-            throw BleException(failure)
-        } catch (_: Exception) {
-            val failure = GattFailureFactory.startRejected(
-                session,
-                FailurePhase.Connect,
-                AndroidApiOperation.ConnectGatt,
-            )
-            linkStartFailed(session, generation, failure, LinkStartFailureKind.Rejected)
-            throw BleException(failure)
-        }
-        session.gatt = gatt
-        effects.dispatch(session, ConnectionEvent.LinkStarted)
-
-        // #15 — 연결 타임아웃. STATE_CONNECTED 가 오면(LinkCallbacks) 취소된다.
-    }
-
-    private fun linkStartFailed(session: Session, generation: Long, failure: BleFailure, kind: LinkStartFailureKind) {
-        effects.dispatch(session, ConnectionEvent.LinkStartFailed(generation, failure, kind))
+        // #15 — 연결 타임아웃은 Connecting 의 link deadline 이다. STATE_CONNECTED 가 오면(LinkCallbacks) 취소된다.
+        val failed = effects.openLink(session, options.autoConnect, generation) ?: return
+        effects.dispatch(session, ConnectionEvent.LinkStartFailed(generation, failed.failure, failed.kind))
+        throw BleException(failed.failure)
     }
 
     /**
@@ -200,7 +174,12 @@ internal class ConnectStarter(
                     // 홉 사이에 어댑터가 다시 꺼졌으면 걸지 않는다 — 다음 Ready 복귀가 다시 판정한다.
                     val progress = effects.dispatchCall(
                         session,
-                        ConnectionEvent.AdapterReturned(adapterReady(), readinessTimeouts.linkMillis, rediscover = scanner != null),
+                        ConnectionEvent.AdapterReturned(
+                            adapterReady(),
+                            readinessTimeouts.linkMillis,
+                            rediscover = scanner != null,
+                            atMillis = session.connectionCoordinator.nowMillis,
+                        ),
                     ) ?: return@guarded
                     proceed(session, ConnectOptions(autoConnect = true, requestedMtu = session.requestedMtu), scanner, progress)
                 }

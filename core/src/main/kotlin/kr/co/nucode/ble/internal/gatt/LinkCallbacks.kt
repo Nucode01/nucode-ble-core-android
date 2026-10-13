@@ -84,6 +84,7 @@ internal class LinkCallbacks(
                 failure = failure,
                 discoveryMillis = readinessTimeouts.discoveryMillis,
                 disconnectCleanupMillis = readinessTimeouts.disconnectCleanupMillis,
+                atMillis = session.connectionCoordinator.nowMillis,
             ),
         )
     }

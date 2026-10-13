@@ -1,6 +1,7 @@
 package kr.co.nucode.ble.internal.core.connection
 
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.DisconnectReason
 
 /** 한 connection generation이 거치는 readiness/cleanup 단계. */
 internal enum class ConnectionStage {
@@ -71,3 +72,34 @@ internal data class ConnectionLifecycleSnapshot(
     val stageTimeoutMillis: Long?,
     val terminalCleanupReason: TerminalCleanupReason?,
 )
+
+/**
+ * autoReconnect=false 연결의 링크 시도 기록(contract/states.md §2 Android 첫 직접 연결 재시도). 시각은 Runtime 시계의
+ * 단조 ms 다. [connectingSinceMillis] 는 link deadline 이 시작된 시각, [requestedAtMillis] 는 이번 시도의 연결 요청
+ * 시각(요청 전이면 null), [retries] 는 지금까지 다시 건 횟수다.
+ */
+internal data class LinkAttempt(
+    val connectingSinceMillis: Long,
+    val requestedAtMillis: Long?,
+    val retries: Int,
+)
+
+/**
+ * latch된 종결 원인에서 내부 [DisconnectReason]을 파생한다(순수 함수).
+ *
+ * 원인 없이 종결된 시작된 generation은 LINK_FAILED 실패로 본다. 그 [BleFailure]는 platform
+ * statusCode 등 session 문맥이 필요하므로 호출자가 [unattributedFailure]로 넘긴다.
+ */
+internal fun TerminalCause?.toDisconnectReason(
+    generationStarted: Boolean,
+    unattributedFailure: BleFailure,
+): DisconnectReason {
+    val failure = this?.failure
+    return when {
+        failure != null -> DisconnectReason.Failed(failure)
+        this?.reason == TerminalCleanupReason.UserRequested -> DisconnectReason.Requested
+        this?.reason == TerminalCleanupReason.ClientClosed -> DisconnectReason.ClientClosed
+        generationStarted -> DisconnectReason.Failed(unattributedFailure)
+        else -> DisconnectReason.Initial
+    }
+}

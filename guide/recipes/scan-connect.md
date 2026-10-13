@@ -125,6 +125,11 @@ suspend fun connectAndAwaitReady(
 
 **언제 쓰나.** `autoReconnect = false` 로 연결하면서 일시적인 실패는 몇 번 더 시도하고 싶을 때. (0.2.0 에서 라이브러리 재연결 정책이 없어졌으므로 앱이 이렇게 합니다.)
 
+**라이브러리가 먼저 다시 거는 실패.** 첫 연결이 링크를 맺지 못하면(HCI 0x3E) Android 는 연결 요청 직후 GATT status 133 을 줍니다.
+`autoReconnect = false` 연결이 `Connecting` 에서 요청 뒤 5초 안에 133 을 받으면 라이브러리가 handle 을 닫고 최대 2번 다시 겁니다.
+그동안 상태는 `Connecting` 그대로이고, 시도마다 `Diagnostic(Warning, LINK_FAILED)` 만 남습니다. 남은 link 시간 제한이 5초보다 짧으면 다시 걸지 않습니다.
+세 번 모두 133 이면 `Disconnected(Failed(LINK_FAILED))` 로 끝나고, 그때 아래 코드가 다음 시도를 맡습니다. iOS 는 OS 가 연결 요청을 유지하므로 이 단계가 없습니다.
+
 ```kotlin
 /**
  * autoReconnect = false 로 연결하고, 실패하면 간격을 두고 최대 [attempts] 번까지 다시 시도합니다.

@@ -64,6 +64,10 @@ internal class ConnectionCoordinator(
     val activeDeadline: ConnectionStageDeadline?
         get() = state.deadline
 
+    /** 연결 사건에 싣는 단조 시각(ms) — Core 는 시계를 갖지 않으므로 시각은 사건으로 들어간다. */
+    val nowMillis: Long
+        get() = clock.elapsedMillis()
+
     val snapshot: ConnectionLifecycleSnapshot
         get() = ConnectionCore.snapshot(state)
 

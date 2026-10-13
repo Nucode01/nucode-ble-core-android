@@ -88,7 +88,7 @@ internal class GattConnectionLifecycle(
     )
     private val callbacks = LinkCallbacks(registry, emit, readinessTimeouts, ::emitDiagnostic, effects)
     private val starter = ConnectStarter(
-        registry, scope, driver, readinessTimeouts, rediscovery, linkCacheWarm, ::emitDiagnostic, effects,
+        registry, scope, readinessTimeouts, rediscovery, linkCacheWarm, ::emitDiagnostic, effects,
     )
 
     override fun onOperationPermissionLost(session: Session, cause: BleFailure) =

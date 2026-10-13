@@ -7,6 +7,7 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.DiagnosticValue
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Severity
@@ -192,7 +193,7 @@ internal class GattConnectionLifecycle(
         }
     }
 
-    private fun emitDiagnostic(severity: Severity, failure: BleFailure) {
-        emit(BleEvent.Diagnostic(severity = severity, failure = failure))
+    private fun emitDiagnostic(severity: Severity, failure: BleFailure, values: Map<String, DiagnosticValue> = emptyMap()) {
+        emit(BleEvent.Diagnostic(severity = severity, failure = failure, values = values))
     }
 }

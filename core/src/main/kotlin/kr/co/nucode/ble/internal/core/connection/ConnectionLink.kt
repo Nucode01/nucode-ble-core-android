@@ -43,7 +43,7 @@ internal object ConnectionLink {
     ): ConnectionStep {
         // Android 첫 직접 연결의 빠른 133 은 끝내지 않고 다시 건다(§2·§3 예외).
         ConnectionRetry.retry(state, event, failure)?.let { return it }
-        val diag = diagnostic(Severity.Error, failure)
+        val diag = ConnectionEffect.Diagnostic(Severity.Error, failure, ConnectionRetry.requestElapsedMillis(state, event))
         if (event.link != LinkFact.Down && !ConnectionCore.accepts(state, event.generation, ConnectionStage.Connecting)) {
             return ConnectionStep(state, listOf(diag), accepted = false)
         }

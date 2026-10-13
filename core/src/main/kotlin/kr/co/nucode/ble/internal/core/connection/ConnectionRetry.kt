@@ -41,11 +41,21 @@ internal object ConnectionRetry {
         return ConnectionCore.accepted(
             next,
             listOf(
-                ConnectionEffect.Diagnostic(Severity.Warning, failure),
+                ConnectionEffect.Diagnostic(Severity.Warning, failure, event.atMillis - requestedAt),
                 ConnectionEffect.ReleaseStaleHandle,
                 ConnectionEffect.RetryLink(event.generation),
             ),
         )
+    }
+
+    /**
+     * [event] 가 현재 generation 의 `Connecting` 링크 시도 결과면 이번 시도의 연결 요청 뒤 경과 ms 다. 요청 전이거나 그 밖이면 null.
+     * 진단에만 싣는다 — 다음 lab 이 '연결 요청 → 133' 지연을 로그로 잰다.
+     */
+    fun requestElapsedMillis(state: ConnectionCoreState, event: ConnectionEvent.LinkStateChanged): Long? {
+        val requestedAt = state.linkAttempt?.requestedAtMillis ?: return null
+        if (!ConnectionCore.accepts(state, event.generation, ConnectionStage.Connecting)) return null
+        return event.atMillis - requestedAt
     }
 
     /** 다시 건 driver.connect 가 던졌다 — connect() 호출자는 이미 반환했으니 그 시작 실패로 고정하고 게시한다. */

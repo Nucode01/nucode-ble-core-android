@@ -236,8 +236,8 @@ internal sealed interface ConnectionEffect {
 
     data class DeadlineFired(val deadline: ConnectionStageDeadline) : ConnectionEffect
 
-    /** 진단 사건을 낸다. */
-    data class Diagnostic(val severity: Severity, val failure: BleFailure) : ConnectionEffect
+    /** 진단 사건을 낸다. [linkRequestElapsedMillis] 는 링크 실패일 때 이번 시도의 연결 요청 뒤 경과 ms 다(없으면 null). */
+    data class Diagnostic(val severity: Severity, val failure: BleFailure, val linkRequestElapsedMillis: Long? = null) : ConnectionEffect
 
     /** 현재 공개 상태를 사건으로 알린다(ConnStateChanged). */
     data object Announce : ConnectionEffect

@@ -15,6 +15,11 @@
     재시도 중 `disconnect()` 는 `Disconnected(Requested)`, close 는 `Disconnected(ClientClosed)` 로 끝낸다.
   - 근거: 실기기 첫 연결의 링크 수립 실패(HCI 0x3E)가 2026-10-12 lab 2회에서 48회 중 7회였다.
 
+### Diagnostics
+
+- `Connecting` 의 링크 실패 진단(재시도 Warning, 끝내는 Error)의 logger 기록(`BleConfig.logger`)에 이번 시도의 연결 요청 뒤
+  경과 ms 를 `link_request_elapsed_ms` 로 싣는다. 공개 이벤트(`OfficialBleClientEvent.Diagnostic`)는 그대로다.
+
 ## 0.3.0 (2026-10-12)
 
 공개 API 변경 없음. 계약 러너 `properties` 레인.

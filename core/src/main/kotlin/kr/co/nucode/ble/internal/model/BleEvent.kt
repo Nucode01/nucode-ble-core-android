@@ -50,11 +50,13 @@ internal sealed interface BleEvent {
 
     /**
      * A typed diagnostic. Device correlation belongs to [BleFailure.context]; raw exception
-     * messages, payloads, and platform identifiers never cross this public boundary.
+     * messages, payloads, and platform identifiers never cross this public boundary. [values] go to the
+     * isolated logger only; the public projection carries severity and failure.
      */
     public data class Diagnostic(
         val severity: Severity,
         val failure: BleFailure,
+        val values: Map<String, DiagnosticValue> = emptyMap(),
     ) : BleEvent
 
 }

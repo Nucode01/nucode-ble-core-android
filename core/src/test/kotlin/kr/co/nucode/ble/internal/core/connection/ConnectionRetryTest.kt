@@ -80,7 +80,7 @@ class ConnectionRetryTest {
         assertEquals(LinkAttempt(T0, requestedAtMillis = null, retries = 1), step.state.linkAttempt)
         assertEquals(
             listOf(
-                ConnectionEffect.Diagnostic(Severity.Warning, linkFailed),
+                ConnectionEffect.Diagnostic(Severity.Warning, linkFailed, linkRequestElapsedMillis = 300),
                 ConnectionEffect.ReleaseStaleHandle,
                 ConnectionEffect.RetryLink(connecting.generation),
             ),
@@ -111,7 +111,7 @@ class ConnectionRetryTest {
         val third = second.state.relinked(at = T0 + 610).link(at = T0 + 900)
         assertFalse(third.retried())
         assertEquals("LINK_FAILED", third.state.failedCode())
-        assertTrue(ConnectionEffect.Diagnostic(Severity.Error, linkFailed) in third.effects)
+        assertTrue(ConnectionEffect.Diagnostic(Severity.Error, linkFailed, linkRequestElapsedMillis = 290) in third.effects)
         assertTrue(ConnectionEffect.ReleaseHandle in third.effects)
     }
 
@@ -122,6 +122,39 @@ class ConnectionRetryTest {
         val late = started().link(at = T0 + 5_001)
         assertFalse(late.retried())
         assertEquals("LINK_FAILED", late.state.failedCode())
+    }
+
+    @Test
+    fun `요청 뒤 5000ms 넘어 온 133 의 진단은 요청 뒤 경과 ms 를 싣는다`() {
+        val late = started().link(at = T0 + 32_270)
+
+        assertFalse(late.retried())
+        assertEquals(
+            ConnectionEffect.Diagnostic(Severity.Error, linkFailed, linkRequestElapsedMillis = 32_270),
+            late.effects.filterIsInstance<ConnectionEffect.Diagnostic>().first(),
+        )
+    }
+
+    @Test
+    fun `재시도 뒤 133 의 경과는 다시 건 요청부터 잰다`() {
+        val retried = started().link(at = T0 + 300).state.relinked(at = T0 + 310)
+        val diag = retried.link(at = T0 + 560).effects.filterIsInstance<ConnectionEffect.Diagnostic>().first()
+
+        assertEquals(250L, diag.linkRequestElapsedMillis)
+    }
+
+    @Test
+    fun `요청 전이거나 Connecting 밖의 링크 실패 진단은 경과가 없다`() {
+        val began = ConnectionCore.step(
+            ConnectionCoreState(failureSessionId = "s"),
+            ConnectionEvent.BeginConnect(ConnectOptions(autoConnect = false), LINK_MILLIS, rediscover = true, atMillis = T0),
+        ).state
+        val discovering = started().link(at = T0 + 300, status = 0, fact = LinkFact.Up, failure = null).state
+
+        for (step in listOf(began.link(at = T0 + 300), discovering.link(at = T0 + 400))) {
+            val diag = step.effects.filterIsInstance<ConnectionEffect.Diagnostic>().first()
+            assertNull(diag.linkRequestElapsedMillis)
+        }
     }
 
     @Test

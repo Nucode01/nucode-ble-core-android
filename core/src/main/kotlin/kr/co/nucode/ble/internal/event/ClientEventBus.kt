@@ -106,7 +106,7 @@ internal class ClientEventBus(
     fun emit(e: BleEvent) {
         if (isClosed()) return
         if (e is BleEvent.Diagnostic) {
-            diagnosticReporter.report(e.severity, e.failure)
+            diagnosticReporter.report(e.severity, e.failure) { e.values }
             return
         }
         if (e is BleEvent.CharValue) {

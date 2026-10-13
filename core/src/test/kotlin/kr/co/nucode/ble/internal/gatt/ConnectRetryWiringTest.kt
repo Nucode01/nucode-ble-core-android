@@ -1,12 +1,20 @@
 package kr.co.nucode.ble.internal.gatt
 
 import android.bluetooth.BluetoothProfile
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kr.co.nucode.ble.BleConfig
 import kr.co.nucode.ble.BleDisconnectReason
+import kr.co.nucode.ble.BleLogger
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.DiagnosticRecord
+import kr.co.nucode.ble.DiagnosticSeverity
+import kr.co.nucode.ble.DiagnosticValue
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Severity
@@ -50,6 +58,32 @@ class ConnectRetryWiringTest {
         val after = h.afterFirstConnecting()
         assertFalse("중간 Disconnected: ${h.states(id)}", after.any { it is ConnectionState.Disconnected })
         assertEquals("재시도 진단: ${h.events}", 1, h.retryDiagnostics().size)
+        h.close()
+    }
+
+    @Test
+    fun `재시도 진단의 logger 기록은 요청 뒤 경과 ms 를 싣고 공개 이벤트는 그대로다`() = runTest {
+        val logged = CopyOnWriteArrayList<DiagnosticRecord>()
+        val retryLogged = CountDownLatch(1)
+        val h = harness(
+            config = BleConfig(
+                logger = BleLogger { record ->
+                    logged += record
+                    if (record.failure.code.value == "LINK_FAILED") retryLogged.countDown()
+                },
+            ),
+        )
+        h.fake.connectFailStatuses += 133
+
+        h.connectToReady(id)
+
+        assertTrue("logger 기록: $logged", retryLogged.await(2, TimeUnit.SECONDS))
+        val record = logged.single { it.failure.code.value == "LINK_FAILED" }
+        assertEquals(DiagnosticSeverity.Warning, record.severity)
+        val elapsed = record.values[LinkEffects.LINK_REQUEST_ELAPSED_MS] as DiagnosticValue.Number
+        assertTrue("경과: $elapsed", elapsed.value >= 0)
+        val public = h.retryDiagnostics().single()
+        assertEquals(OfficialBleClientEvent.Diagnostic(Severity.Warning, public.failure), public)
         h.close()
     }
 

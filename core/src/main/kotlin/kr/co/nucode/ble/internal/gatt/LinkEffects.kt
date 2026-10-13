@@ -6,6 +6,7 @@ import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.DiagnosticValue
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.Severity
@@ -39,7 +40,7 @@ internal class LinkEffects(
     private val rediscovery: PeripheralRediscovery?,
     private val operations: GattOperationHooks,
     private val publishState: (Session) -> Unit,
-    private val emitDiagnostic: (Severity, BleFailure) -> Unit,
+    private val emitDiagnostic: (Severity, BleFailure, Map<String, DiagnosticValue>) -> Unit,
     /** 붙은 뒤 절차([LinkSetup]). 호출 시점에 읽는다 — 없으면 절차를 진행하지 않는다. */
     private val linkSetup: () -> LinkSetup? = { null },
 ) {
@@ -78,13 +79,17 @@ internal class LinkEffects(
         return seen.lastOrNull()
     }
 
+    /** logger 전용 값 — 공개 이벤트에는 실리지 않는다. 요청 뒤 경과는 lab 이 '연결 요청 → 133' 지연을 재는 데 쓴다. */
+    private fun ConnectionEffect.Diagnostic.loggerValues(): Map<String, DiagnosticValue> =
+        linkRequestElapsedMillis?.let { mapOf(LINK_REQUEST_ELAPSED_MS to DiagnosticValue.Number(it)) } ?: emptyMap()
+
     private fun ConnectionEffect.isCallProgress(): Boolean =
         this is ConnectionEffect.Rediscover || this is ConnectionEffect.ConnectLink ||
             this is ConnectionEffect.FailConnectCall || this is ConnectionEffect.EndConnectCall
 
     private fun execute(session: Session, effect: ConnectionEffect) {
         when (effect) {
-            is ConnectionEffect.Diagnostic -> emitDiagnostic(effect.severity, effect.failure)
+            is ConnectionEffect.Diagnostic -> emitDiagnostic(effect.severity, effect.failure, effect.loggerValues())
             is ConnectionEffect.Announce -> publishState(session)
             is ConnectionEffect.InvalidateOperations ->
                 operations.invalidateAll(session, GattFailureFactory.operationInvalidated(session))
@@ -226,6 +231,11 @@ internal class LinkEffects(
     /** 세션 소유 코루틴에서 잡히지 않은 예외가 났다. */
     fun failInternal(session: Session, cause: BleFailure) {
         dispatch(session, ConnectionEvent.InternalFailure(cause))
+    }
+
+    internal companion object {
+        /** 링크 실패 진단의 logger 값 이름 — 이번 시도의 연결 요청(connectGatt) 뒤 경과 ms. */
+        const val LINK_REQUEST_ELAPSED_MS = "link_request_elapsed_ms"
     }
 }
 

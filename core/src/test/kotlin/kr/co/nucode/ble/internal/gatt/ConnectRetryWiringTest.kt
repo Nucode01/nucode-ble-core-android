@@ -91,6 +91,27 @@ class ConnectRetryWiringTest {
     }
 
     @Test
+    fun `재시도 connect 가 권한 거절로 던지면 PERMISSION_DENIED 로 끝나고 더 걸지 않는다`() = runTest {
+        val h = harness()
+        h.fake.onConnect = CallbackVariant.Late(1_000)
+        h.fake.connectFailStatuses += 133
+
+        h.connect(id)
+        // 첫 시도는 이미 걸렸다. 133 이 오기 전에 걸어 재시도의 connect 만 던지게 한다.
+        h.fake.connectThrows = SecurityException("BLUETOOTH_CONNECT")
+        advanceTimeBy(1_100)
+        runCurrent()
+
+        assertEquals("driver 호출: ${h.fake.calls}", 2, h.connectCalls())
+        val reason = (h.session(id).connectionState.value as ConnectionState.Disconnected).reason
+        assertEquals("PERMISSION_DENIED", (reason as BleDisconnectReason.Failed).failure.code.value)
+        assertTrue(ConnectionState.Ready !in h.states(id))
+        h.advancePastAllDeadlines()
+        assertEquals(2, h.connectCalls())
+        h.close()
+    }
+
+    @Test
     fun `재시도 뒤 닫힌 handle 의 늦은 콜백은 상태를 건드리지 않는다`() = runTest {
         val h = harness()
         h.fake.onConnect = CallbackVariant.Late(1_000)

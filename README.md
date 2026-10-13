@@ -59,7 +59,7 @@ Swift 구현은 상위 폴더의 `../ios/`에 별도 git 저장소(`pdev-jay/nuc
 | 구조 | 순수 상태 기계 Core(`internal/core`) · Runtime · Port · Platform 드라이버 · Factory(`AndroidBleClientFactory`). 규칙은 `ArchitectureRulesTest` 가 강제 |
 | iOS | `../ios/` — 같은 계약, 0.3.0 태그 |
 | 검증 | 단위 시험 · 계약 시나리오 sim · 실기기 계약 23개 두 플랫폼 기록 비교 일치(`../lab/run.sh`) · 수동 점검표 자동 실행(`../lab/checklist-android.sh`). Pixel 5a / Android 14 + nRF52840 시험 펌웨어 한 조합 |
-| 알려진 문제 | 실기기 첫 연결 실패율 약 15%(2026-10-12 lab 2회, 48회 중 7회. 조사 보류) |
+| 알려진 문제 | 실기기 첫 연결 실패: 2026-10-12 lab 2회 48회 중 7회(약 15%). 원인은 HCI 0x3E 가 GATT status 133 으로 오는 것이고, 첫 직접 연결의 빠른 133 은 이제 라이브러리가 다시 건다(CHANGELOG Unreleased). 2026-10-13 lab 3회는 72회 중 실패 0회지만 0x3E 가 한 번도 나지 않아 재시도는 실기기에서 아직 돌지 않았다 |
 
 아래 "2026-08 시점 기록"부터 "구현하며 정해서 여기 채울 것"까지는 당시 상태와 판단의 기록이다. 지금 상태는 위 표가 맞다.
 

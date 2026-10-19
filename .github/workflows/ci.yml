@@ -2,8 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags: ['*']
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,9 +17,11 @@ jobs:
       - uses: actions/checkout@v4
 
       # 계약 시나리오(루트 저장소 contract/). 읽기 전용 배포 키로 받는다.
+      # 태그 실행은 같은 이름의 root 태그를 받는다. root 에 그 태그가 없으면 checkout 이 실패하므로 태그는 root 에 먼저 올린다.
       - uses: actions/checkout@v4
         with:
           repository: pdev-jay/nucode-ble-core
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
           ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
           path: .contract-root
 

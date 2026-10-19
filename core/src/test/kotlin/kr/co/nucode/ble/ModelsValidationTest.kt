@@ -38,6 +38,16 @@ class ModelsValidationTest {
         org.junit.Assert.assertFalse(config.diagnosticOptions.rawPayloadsEnabled)
     }
 
+    @Test
+    fun `BleConfig는 lifecycle 단계별 기본 timeout을 노출한다`() {
+        val config = BleConfig()
+
+        org.junit.Assert.assertEquals(15_000L, config.linkTimeoutMillis)
+        org.junit.Assert.assertEquals(10_000L, config.discoveryTimeoutMillis)
+        org.junit.Assert.assertEquals(10_000L, config.configurationTimeoutMillis)
+        org.junit.Assert.assertEquals(5_000L, config.disconnectCleanupTimeoutMillis)
+    }
+
     // ── ConnectOptions.requestedMtu — ATT 범위 23..517 경계 ─────────────────
 
     @Test

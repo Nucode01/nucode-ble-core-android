@@ -89,7 +89,7 @@ internal class QueuedCccdWrite(
  * scheduler FIFO(생명주기: 시작·ack·poison)를 소유한다.
  *
  * lifecycle 절반과는 [GattLifecycleHooks]로만 통신한다(op → lifecycle) — `connectionCoordinator`의
- * 쓰기(beginCleanup/completeCleanup/beginPlatformRelink)와 `driver.connect/disconnect/close`는 여기서
+ * 쓰기(dispatch·beginCleanup/completeCleanup)와 `driver.connect/disconnect/close`는 여기서
  * 직접 호출하지 않는다. 읽기(generation/stage/accepts)는 허용한다. 반대 방향은
  * [GattOperationHooks]를 이 클래스가 구현해 제공한다.
  */

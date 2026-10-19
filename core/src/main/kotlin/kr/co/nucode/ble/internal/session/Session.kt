@@ -150,7 +150,7 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
 
     /**
      * 플랫폼 재연결 대기 중인가 — autoConnect 연결이 끝났는데 Core 정책이 handle 을 OS 대기용으로 남겼다. 공개 상태 Recovering 의 유일한 근거이고, Bootstrap 귀속(CallbackAttribution)과
-     * 사용자 해제·client close·어댑터 꺼짐 스윕이 대기를 끝낼지(ConnectionCoordinator.supersedePlatformWait)의 근거다.
+     * 사용자 해제·client close·어댑터 꺼짐 스윕이 대기를 끝낼지(Core 정책 ConnectionCleanup.endPlatformWait)의 근거다.
      * handle 열림·suppressReconnect 같은 파생 입력으로 계산하지 않는다 — 입력이 게시 없이 바뀌면 공개 상태와
      * 어긋난다(review H1). 쓰는 곳은 Core 정책(ConnectionCleanup)뿐이다(generation 이 다시
      * 시작되면 stage 가 Disconnected 가 아니므로 false).

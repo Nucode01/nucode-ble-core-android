@@ -1,6 +1,12 @@
 package kr.co.nucode.ble.internal
 
 import java.io.File
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.internal.core.connection.ConnectionLifecycleSnapshot
+import kr.co.nucode.ble.internal.core.connection.ConnectionStage
+import kr.co.nucode.ble.internal.session.Session
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -103,6 +109,18 @@ class OwnershipTest {
             compare(row, actual, decl.known)
         }
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
+    }
+
+    @Test
+    fun `Session은 자기 connection coordinator를 독립 소유한다`() {
+        val first = Session(PeripheralId("first"), TestClock)
+        val second = Session(PeripheralId("second"), TestClock)
+
+        assertFalse(first.connectionCoordinator === second.connectionCoordinator)
+        assertEquals(
+            ConnectionLifecycleSnapshot(0, ConnectionStage.Disconnected, null, null),
+            first.connectionCoordinator.snapshot,
+        )
     }
 
     /** 행의 entryPoints 로 만든 정규식이 이 코드에서 찾은 입구 이름 집합. */
@@ -239,7 +257,7 @@ class OwnershipTest {
                 setOf("OperationExecutor.kt", "GattOperationScheduler.kt"),
                 setOf(
                     "apply", "submit", "handleOf", "release",
-                    "enqueue", "startNext", "removeQueued", "takePendingIfMatches", "drain", "poisonCurrentGeneration", "beginNextGeneration",
+                    "enqueue", "startNext", "drain", "beginNextGeneration",
                 ),
                 Enforcement.Direct("""\w*[sS]cheduler""", emptyMap()),
             ),

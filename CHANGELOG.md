@@ -20,6 +20,15 @@
 - `Connecting` 의 링크 실패 진단(재시도 Warning, 끝내는 Error)의 logger 기록(`BleConfig.logger`)에 이번 시도의 연결 요청 뒤
   경과 ms 를 `link_request_elapsed_ms` 로 싣는다. 공개 이벤트(`OfficialBleClientEvent.Diagnostic`)는 그대로다.
 
+### Internal
+
+- Core 순수 시험(ConnectionCoreTest·GattQueueCoreTest)과 겹치는 셸 시험 23건을 지웠다(`TerminalCauseLatchTest`·`ConnectionCoordinatorTest`
+  파일, `GattOperationSchedulerTest` 4건). 다른 곳에 없는 3건(BleConfig lifecycle 기본 timeout, Session 마다 coordinator 소유,
+  종결 원인 → DisconnectReason 파생)은 옮겨 남겼다.
+- main 과 남은 시험이 부르지 않는 internal 입구 8개를 지웠다: `GattOperationScheduler` 의 `removeQueued`·`takePendingIfMatches`·
+  `poisonCurrentGeneration`, `ConnectionCoordinator` 의 `beginPlatformRelink`·`supersedeForClose`·`supersedePlatformWait`·
+  `latchIfAbsent`·`setRelinkAfterAdapter`.
+
 ## 0.3.0 (2026-10-12)
 
 공개 API 변경 없음. 계약 러너 `properties` 레인.

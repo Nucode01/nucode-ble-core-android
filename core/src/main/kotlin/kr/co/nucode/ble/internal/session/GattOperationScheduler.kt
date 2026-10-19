@@ -39,7 +39,7 @@ private class ResolvedGattOperation<out T>(
     override val attributeIdentity: GattAttributeIdentity?,
 ) : GattOperation<T>
 
-/** poison 또는 lifecycle 종료 때 pending/queue를 한 번에 유한 종결하기 위한 snapshot. */
+/** [GattOperationScheduler.drain] 이 pending/queue를 한 번에 회수한 snapshot. */
 internal data class DrainedGattOperations(
     val pending: ScheduledGattOperation<*>?,
     val queued: List<ScheduledGattOperation<*>>,
@@ -151,48 +151,21 @@ internal class GattOperationScheduler(defaultTimeoutMillis: Long = DEFAULT_TIMEO
         return if (before == null && started != null) handles[started.sequence] else null
     }
 
-    /** 시작 전 cancellation용. 이미 pending이 된 항목은 이 경로로 제거할 수 없다. */
-    fun removeQueued(scheduled: ScheduledGattOperation<*>): Boolean {
-        val queued = state.waiting.any { it.sequence == scheduled.sequence }
-        apply(Direct.RemoveQueued(scheduled.sequence))
-        if (queued) handles.remove(scheduled.sequence)
-        return queued
-    }
-
-    /**
-     * generation, kind, attribute identity가 모두 맞는 callback만 pending을 꺼낸다.
-     * mismatch에서는 pending을 그대로 보존해 잘못된 callback이 현재 요청을 완료하지 못하게 한다.
-     */
-    fun takePendingIfMatches(
-        generation: Long,
-        kind: GattOperationKind,
-        attributeIdentity: GattAttributeIdentity?,
-    ): ScheduledGattOperation<*>? {
-        val candidate = state.pending
-        apply(Direct.TakePendingIfMatches(generation, kind, attributeIdentity))
-        return if (candidate != null && state.pending == null) handles.remove(candidate.sequence) else null
-    }
-
     /** pending과 queue를 비우되 현재 generation 자체는 유지한다. */
-    fun drain(): DrainedGattOperations = recall(Direct.Drain)
-
-    /** 현재 generation을 재사용 불가로 표시하고 모든 operation을 회수한다. */
-    fun poisonCurrentGeneration(): DrainedGattOperations = recall(Direct.PoisonCurrentGeneration)
+    fun drain(): DrainedGattOperations {
+        val pending = state.pending
+        val waiting = state.waiting
+        apply(Direct.Drain)
+        return DrainedGattOperations(
+            pending = pending?.let { handles.remove(it.sequence) },
+            queued = waiting.mapNotNull { handles.remove(it.sequence) },
+        )
+    }
 
     /** 이전 generation의 operation이 모두 회수된 뒤 새 active generation을 시작한다. */
     fun beginNextGeneration(): Long {
         apply(Direct.BeginNextGeneration)
         return state.generation
-    }
-
-    private fun recall(event: Direct): DrainedGattOperations {
-        val pending = state.pending
-        val waiting = state.waiting
-        apply(event)
-        return DrainedGattOperations(
-            pending = pending?.let { handles.remove(it.sequence) },
-            queued = waiting.mapNotNull { handles.remove(it.sequence) },
-        )
     }
 
     private fun view(entry: GattQueueEntry): ScheduledGattOperation<*>? =

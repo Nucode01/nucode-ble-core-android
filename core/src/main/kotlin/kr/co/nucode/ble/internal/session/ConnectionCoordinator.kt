@@ -93,15 +93,6 @@ internal class ConnectionCoordinator(
     }
 
     /**
-     * 끝난 generation 의 platform handle 에 OS 가 다시 붙인 것을 새 generation 에 귀속한다.
-     * link deadline 은 두지 않는다 — Bootstrap 은 링크 성공 콜백 안에서 곧바로 Connecting 을 떠난다.
-     */
-    fun beginPlatformRelink(authority: StageAuthority, scope: CoroutineScope): Long {
-        apply(ConnectionEvent.Direct.BeginPlatformRelink, scope)
-        return state.generation
-    }
-
-    /**
      * callback의 generation/stage가 현재 값과 일치할 때만 다음 readiness stage로 전이한다.
      * stale callback은 false를 반환하고 현재 deadline을 포함한 상태를 바꾸지 않는다.
      */
@@ -149,47 +140,10 @@ internal class ConnectionCoordinator(
     ): Boolean = apply(ConnectionEvent.Direct.CompleteCleanup(targetGeneration, fallback))
 
     /**
-     * client close 전용 원인 대체. 아직 Disconnected 가 아닌(종결되지 않은) [targetGeneration] 에 한해
-     * latch된 원인을 `TerminalCause(ClientClosed, null)` 로 바꾼다 — 이어지는 completeCleanup 이 게시한다.
-     *
-     * v1 계약상 client close 로 끝난 세션은 `Disconnected(ClientClosed)` 여야 한다. 이미 Disconnected 인
-     * generation(또는 stale generation)은 원래 원인을 유지하고 false — 플랫폼 재연결 대기 중인 종결
-     * generation 은 [supersedePlatformWait] 이 다룬다.
-     */
-    fun supersedeForClose(authority: StageAuthority, targetGeneration: Long): Boolean =
-        apply(ConnectionEvent.Direct.SupersedeForClose(targetGeneration))
-
-    /**
-     * 플랫폼 재연결 대기 중(이미 Disconnected 지만 autoConnect handle 로 OS 재연결을 기다림 —
-     * [Session.awaitingPlatformRelink], 공개 상태 Recovering)인 시작된 [targetGeneration] 의 원인을 [cause] 로
-     * 대체하고 Disconnected 를 다시 게시(onStageChanged)해 Recovering 을 대체한다. 대기 여부 판정은 호출자 몫이다.
-     *
-     * first wins 의 예외이며 소유자는 정확히 셋이다 — 모두 "대기를 끝내는" 주체이고, 대기 중인 세션은
-     * 앱 관점에서 아직 종착이 아니므로 그 종착 원인은 대기를 끝낸 쪽이다:
-     * - 사용자 disconnect() → `UserRequested` (사용자 해제는 Disconnected(Requested) 로 끝난다).
-     * - client close → `ClientClosed` (v1 계약: 닫힌 클라이언트의 세션은 Disconnected(ClientClosed)).
-     * - adapter off 스윕 → `AdapterUnavailable`/`PermissionDenied` (어댑터가 죽으면 재시도는 불가능하다).
-     *
-     * 다른 reason 은 거부한다(require). stale generation·종결되지 않은 generation·generation 0 이면 false.
-     */
-    fun supersedePlatformWait(authority: StageAuthority, targetGeneration: Long, cause: TerminalCause): Boolean =
-        apply(ConnectionEvent.Direct.SupersedePlatformWait(targetGeneration, cause))
-
-    /**
      * 연결 시도 전(generation 0) 세션의 닫힘을 첫 원인으로 고정하고 Disconnected 를 다시 게시한다.
      * 시작된 generation 이거나 이미 원인이 있으면 아무 것도 하지 않는다(first wins).
      */
     fun closeIdle(authority: StageAuthority): Boolean = apply(ConnectionEvent.Direct.CloseIdle)
-
-    /**
-     * stage를 바꾸지 않고 현재 generation에 원인만 latch한다(callback 실패 분기용).
-     * stale generation이거나 이미 latch된 원인이 있으면 false.
-     */
-    fun latchIfAbsent(
-        authority: StageAuthority,
-        targetGeneration: Long,
-        cause: TerminalCause,
-    ): Boolean = apply(ConnectionEvent.Direct.LatchIfAbsent(targetGeneration, cause))
 
     /** [generation] 이 현재 generation 이고 Ready 다. */
     fun readyFor(generation: Long): Boolean = ConnectionCore.readyFor(state, generation)
@@ -218,10 +172,6 @@ internal class ConnectionCoordinator(
 
     fun setAutoConnect(value: Boolean) {
         apply(ConnectionEvent.Direct.SetAutoConnect(value))
-    }
-
-    fun setRelinkAfterAdapter(value: Boolean) {
-        apply(ConnectionEvent.Direct.SetRelinkAfterAdapter(value))
     }
 
     fun setPlatformHandleOpen(value: Boolean) {

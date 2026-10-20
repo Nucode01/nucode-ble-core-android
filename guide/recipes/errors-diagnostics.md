@@ -137,6 +137,8 @@ fun formatDiagnostic(record: DiagnosticRecord): String {
 - **개인정보.** 기본값은 페이로드 원문을 남기지 않습니다. 페이로드 기록은 길이와 SHA-256 요약(`payload_digest`)만 담습니다.
   원문(`DiagnosticValue.Payload`)은 `rawPayloadsEnabled = true` **이고** 그 캐릭터리스틱이 `safeCharacteristics` 에 있을 때만, 최대 `maxRawPayloadBytes`(기본 256, 최대 1024)까지 남습니다.
   `sensitiveCharacteristics` 에 넣은 것은 항상 `Redacted` 이고, safe 와 겹치면 sensitive 가 이깁니다.
+- `Connecting` 의 링크 status 실패 기록(133 재시도 때마다 나가는 Warning, 링크 status 실패로 연결을 끝내는 Error)에는 `values` 에 `link_request_elapsed_ms`(이번 시도의 연결 요청 뒤 경과 ms, `DiagnosticValue.Number`)가 실립니다.
+  "요청 직후 133" 인지 "한참 뒤 133" 인지 가르는 데 씁니다. logger 기록에만 있고 `events` 의 `Diagnostic` 에는 없습니다.
 - 기록에는 기기 주소가 들어 있지 않습니다. 상관관계는 `failure.context` 의 세션 · 연결 세대 · 작업 ID 로 봅니다.
 - 실제 기기 로그가 문제 추적에 충분한지, 개인정보가 새지 않는지는 아직 검토하지 않았습니다([7장](../troubleshooting.md#7-한계와-검증-범위)).
 

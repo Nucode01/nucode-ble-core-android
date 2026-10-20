@@ -15,7 +15,7 @@
 - 덮어쓰기와 삭제는 하지 않습니다. 미러 이력이 Azure 와 갈라지면 파이프라인이 실패합니다.
 - 미러의 태그 push 가 GitHub Actions 의 ci.yml 을 시작합니다.
 - GitHub 는 push 된 태그의 커밋에 있는 workflow 를 씁니다. 옛 태그(0.2.0~0.3.0)의 ci.yml 은 태그로 돌지 않습니다.
-- 옛 태그에는 `jitpack.yml` 이 없어 JitPack 에서 받을 수 없습니다.
+- 옛 태그에는 `jitpack.yml` 이 없습니다. 이때 JitPack 은 기본 Gradle 빌드를 돌리고 JDK 를 스스로 고릅니다. JitPack 빌드를 확인한 버전은 0.3.0(`jitpack.yml` 없음)과 0.3.1 입니다.
 
 ### 파이프라인 설정 (처음 한 번)
 

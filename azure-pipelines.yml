@@ -30,9 +30,20 @@ steps:
       knownHostsEntry: 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl'
       sshKeySecureFile: nucode-ble-core-android-mirror
 
+  # 실행을 시작한 ref 하나만 옮긴다. 태그 실행은 main 을 건드리지 않는다.
+  # main: CI 는 detached HEAD 로 체크아웃하므로 대상 ref 를 refs/heads/main 으로 완전히 적는다.
   - bash: |
       set -euo pipefail
-      git push git@github.com:Nucode01/nucode-ble-core-android.git \
-        "refs/remotes/origin/main:refs/heads/main" \
-        "refs/tags/*:refs/tags/*"
-    displayName: Push main and tags to GitHub mirror
+      git push git@github.com:Nucode01/nucode-ble-core-android.git HEAD:refs/heads/main
+    displayName: Push main to GitHub mirror
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+  # 태그: annotated 태그 객체를 그대로 옮기도록 HEAD 가 아니라 태그 ref 를 push 한다(fetchTags).
+  # ref 이름은 스크립트 본문에 펼치지 않고 env 로 받는다.
+  - bash: |
+      set -euo pipefail
+      git push git@github.com:Nucode01/nucode-ble-core-android.git "${SOURCE_REF}:${SOURCE_REF}"
+    displayName: Push tag to GitHub mirror
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+    env:
+      SOURCE_REF: $(Build.SourceBranch)

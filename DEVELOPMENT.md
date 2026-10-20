@@ -11,7 +11,7 @@
 
 사람은 Azure 메인(`origin`)에만 push 합니다. `github` 원격으로 직접 push 하지 않습니다.
 
-- Azure Pipelines(`azure-pipelines.yml`)가 main 과 태그 push 마다 GitHub 미러로 `main` 과 모든 태그를 옮깁니다.
+- Azure Pipelines(`azure-pipelines.yml`)가 실행을 시작한 ref 하나만 GitHub 미러로 옮깁니다. main push 는 `main` 을, 태그 push 는 그 태그만 옮깁니다. 태그 실행은 미러의 `main` 을 바꾸지 않습니다.
 - 덮어쓰기와 삭제는 하지 않습니다. 미러 이력이 Azure 와 갈라지면 파이프라인이 실패합니다.
 - 미러의 태그 push 가 GitHub Actions 의 ci.yml 과 publish.yml 을 시작합니다.
 - GitHub 는 push 된 태그의 커밋에 있는 workflow 를 씁니다. 옛 태그(0.2.0~0.3.0)에는 publish.yml 이 없고 ci.yml 도 태그로 돌지 않습니다. 그래서 첫 동기화에서 옛 태그가 올라가도 배포는 돌지 않습니다. 0.3.0 은 Publish 손 실행으로 배포합니다.

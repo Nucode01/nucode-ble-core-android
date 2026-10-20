@@ -8,7 +8,7 @@
 ### Distribution
 
 - JitPack 으로 배포한다. 좌표는 `com.github.Nucode01:nucode-ble-core-android:<태그>` 이고 받을 때 인증이 필요 없다. 저장소 루트 `jitpack.yml` 이 JDK 17 로 `:core:publishToMavenLocal` 을 돈다.
-- GitHub Packages 배포(publish.yml, core 빌드의 GitHubPackages 저장소)를 지웠다. 태그와 `sdkVersion` 일치 검사는 ci.yml 태그 실행으로 옮겼다.
+- GitHub Packages 배포(publish.yml, core 빌드의 GitHubPackages 저장소)를 지웠다. 0.3.0 은 GitHub Packages(`kr.co.nucode:ble-core:0.3.0`)에 남아 있고, 이후 버전은 JitPack 으로 낸다. 태그와 `sdkVersion` 일치 검사는 ci.yml 태그 실행으로 옮겼다.
 
 ### Behavior
 

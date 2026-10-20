@@ -3,6 +3,12 @@
 ## Unreleased
 
 공개 API 변경 없음. 동작 변경: Android 첫 직접 연결의 빠른 GATT status 133 을 라이브러리가 다시 건다(contract/states.md §2, 2026-10-13).
+배포처 변경: GitHub Packages 대신 JitPack 에서 받는다.
+
+### Distribution
+
+- JitPack 으로 배포한다. 좌표는 `com.github.Nucode01:nucode-ble-core-android:<태그>` 이고 받을 때 인증이 필요 없다. 저장소 루트 `jitpack.yml` 이 JDK 17 로 `:core:publishToMavenLocal` 을 돈다.
+- GitHub Packages 배포(publish.yml, core 빌드의 GitHubPackages 저장소)를 지웠다. 태그와 `sdkVersion` 일치 검사는 ci.yml 태그 실행으로 옮겼다.
 
 ### Behavior
 

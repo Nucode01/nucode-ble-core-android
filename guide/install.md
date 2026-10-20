@@ -1,19 +1,11 @@
 # 2. 설치
 
-## 2.1 GitHub Packages 에서 받기
+## 2.1 JitPack 에서 받기
 
-라이브러리는 GitHub Packages Maven 저장소 `https://maven.pkg.github.com/Nucode01/nucode-ble-core-android` 에 있습니다.
-GitHub Packages 는 public 저장소의 패키지도 받을 때 인증이 필요합니다. GitHub 계정의 personal access token (classic)을 준비합니다. 범위는 `read:packages` 하나면 됩니다.
+라이브러리는 JitPack(`https://jitpack.io`)에서 받습니다. JitPack 은 GitHub 저장소 `Nucode01/nucode-ble-core-android` 의 릴리스 태그를 빌드해 냅니다.
+저장소가 public 이라 인증 없이 받습니다.
 
-토큰은 앱 저장소에 넣지 않습니다. `~/.gradle/gradle.properties` 에 둡니다.
-
-```properties
-# ~/.gradle/gradle.properties
-gpr.user=<GitHub 사용자 이름>
-gpr.key=<read:packages 토큰>
-```
-
-CI 처럼 파일을 둘 수 없는 곳에서는 환경 변수 `GITHUB_ACTOR` · `GITHUB_TOKEN` 을 씁니다. 아래 설정은 속성이 없으면 환경 변수를 읽습니다.
+좌표는 `com.github.Nucode01:nucode-ble-core-android:<태그>` 입니다. `<태그>` 에는 JitPack 에서 빌드된 릴리스 태그를 씁니다.
 
 ## 2.2 앱에 추가하기
 
@@ -23,13 +15,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
-            credentials {
-                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
-                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
-            }
-        }
+        maven { url = uri("https://jitpack.io") }
     }
 }
 ```
@@ -37,11 +23,11 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("kr.co.nucode:ble-core:0.3.0")
+    implementation("com.github.Nucode01:nucode-ble-core-android:<태그>")
 }
 ```
 
-인증이 빠지거나 틀리면 Gradle 이 `401 Unauthorized` 나 `Could not resolve kr.co.nucode:ble-core` 로 실패합니다. 토큰 범위가 `read:packages` 인지 확인하세요.
+Gradle 이 `Could not resolve com.github.Nucode01:nucode-ble-core-android` 로 실패하면 저장소 목록에 `https://jitpack.io` 가 있는지, 태그 이름이 맞는지 확인하세요. JitPack 은 태그를 처음 요청받을 때 빌드하므로 첫 해석은 몇 분 걸릴 수 있습니다.
 
 ### 로컬 Maven 으로 쓰기 (대안)
 
@@ -51,7 +37,7 @@ dependencies {
 ./gradlew :core:publishReleasePublicationToMavenLocal
 ```
 
-`~/.m2/repository/kr/co/nucode/ble-core/<버전>/` 에 aar · sources.jar · pom · module 이 생깁니다. 이 명령을 실행한 컴퓨터에서만 받을 수 있습니다.
+`~/.m2/repository/kr/co/nucode/ble-core/<버전>/` 에 aar · sources.jar · pom · module 이 생깁니다. 로컬 좌표는 `kr.co.nucode:ble-core:<버전>` 입니다. 이 명령을 실행한 컴퓨터에서만 받을 수 있습니다.
 앱의 `settings.gradle.kts` 저장소 목록 맨 앞에 `mavenLocal()` 을 더하면 로컬 것을 먼저 씁니다.
 
 ## 2.3 권한

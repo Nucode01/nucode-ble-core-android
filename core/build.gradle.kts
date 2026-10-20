@@ -87,18 +87,9 @@ publishing {
             }
         }
     }
+    // 원격 배포는 JitPack 이 한다. JitPack 은 태그 커밋에서 jitpack.yml 의 publishToMavenLocal 결과를 자기 좌표로 낸다.
     repositories {
         mavenLocal()
-        // 원격 배포처. 자격 증명은 저장소에 두지 않는다 — gradle 속성 gpr.user/gpr.key, 없으면 환경 변수 GITHUB_ACTOR/GITHUB_TOKEN.
-        // url 을 바꾸면 .github/publish/github-packages.init.gradle.kts 도 함께 고친다.
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
-            credentials {
-                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
-                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
-            }
-        }
     }
 }
 

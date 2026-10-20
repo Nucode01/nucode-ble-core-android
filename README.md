@@ -14,13 +14,13 @@ GATT 작업 직렬화, 연결·끊김·재연결, 실패 분류를 코루틴 API
 | compileSdk (라이브러리 빌드) | 36 |
 | 의존성 | `kotlinx-coroutines-android` 1.9.0 (`api` 로 전달됩니다) |
 | 빌드 도구 | AGP 8.13.2 · Kotlin 2.0.21 · Gradle 8.13 · JVM 11 |
-| 좌표 | `kr.co.nucode:ble-core:0.3.0` |
+| 좌표 (JitPack) | `com.github.Nucode01:nucode-ble-core-android:<태그>` |
 
 라이브러리 매니페스트는 권한을 선언하지 않습니다. 앱이 선언합니다([설치 · 권한](guide/install.md)).
 
 ## 설치
 
-GitHub Packages Maven 저장소에서 받습니다. 받을 때도 인증이 필요합니다. `read:packages` 범위의 personal access token (classic)을 준비합니다. 저장소는 public 이라 따로 읽기 권한은 필요 없습니다.
+JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. `<태그>` 에는 JitPack 에서 빌드된 릴리스 태그를 씁니다.
 
 ```kotlin
 // settings.gradle.kts
@@ -28,13 +28,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
-            credentials {
-                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
-                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
-            }
-        }
+        maven { url = uri("https://jitpack.io") }
     }
 }
 ```
@@ -42,18 +36,18 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("kr.co.nucode:ble-core:0.3.0")
+    implementation("com.github.Nucode01:nucode-ble-core-android:<태그>")
 }
 ```
 
-토큰은 `~/.gradle/gradle.properties` 의 `gpr.user` · `gpr.key` 에 둡니다. 로컬 Maven 으로 쓰는 법과 자세한 절차는 [설치](guide/install.md)를 봅니다.
+로컬 Maven 으로 쓰는 법과 자세한 절차는 [설치](guide/install.md)를 봅니다.
 
 ## 가이드
 
 | 문서 | 내용 |
 | --- | --- |
 | [개발자 가이드](guide/README.md) | 소개 · 5분 빠른 시작 · 목차 |
-| [설치](guide/install.md) | GitHub Packages 에서 받기, 로컬 Maven 대안, 앱에 추가, 권한 |
+| [설치](guide/install.md) | JitPack 에서 받기, 로컬 Maven 대안, 앱에 추가, 권한 |
 | [핵심 개념](guide/concepts.md) | `BleClient`·`BleSession`, 상태, 실패, 스레드 |
 | [문제 해결과 한계](guide/troubleshooting.md) | 자주 틀리는 것, 검증 범위 |
 

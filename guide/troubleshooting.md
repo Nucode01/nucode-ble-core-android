@@ -91,7 +91,7 @@ OS 가 기기를 다시 찾을 때까지 기한 없이 기다립니다. 기기�
 
 ### 배포 · 난독화
 
-- **배포:** GitHub Packages(`https://maven.pkg.github.com/Nucode01/nucode-ble-core-android`)에서 받습니다. 받을 때 `read:packages` 토큰이 필요합니다([설치](install.md)). 릴리스 태그는 `0.2.0` · `0.2.1` · `0.2.2` · `0.3.0` 입니다.
+- **배포:** JitPack(`https://jitpack.io`)에서 `com.github.Nucode01:nucode-ble-core-android:<태그>` 로 받습니다. 인증은 필요 없습니다([설치](install.md)). 기존 태그 `0.2.0` · `0.2.1` · `0.2.2` · `0.3.0` 에는 `jitpack.yml` 이 없어 JitPack 에서 받을 수 없습니다.
 - **라이브러리는 난독화하지 않습니다.** `isMinifyEnabled = false`, `consumer-rules.pro` 는 비어 있고 sources.jar 를 함께 배포합니다. 난독화는 앱의 R8 에 맡깁니다.
 - **앱 R8 호환은 빌드 단계만 확인했습니다.** sample release 를 `isMinifyEnabled = true`(`proguard-android-optimize.txt`)로 빌드해 R8 경고 · 누락 클래스 없이 통과했고, core 클래스가 난독화됐습니다. core 에 리플렉션 · 직렬화 · ServiceLoader 가 없어 keep 규칙이 필요 없었습니다.
 - **검증 필요:** 난독화된 release APK 의 **런타임** 동작(스캔 · 연결 · read/write · 구독)은 아직 확인하지 않았습니다. R8 을 켠 앱은 release 빌드로 실기기에서 한 번 확인하세요.

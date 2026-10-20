@@ -1,0 +1,6 @@
+# JitPack 빌드. JitPack 은 요청된 태그의 커밋에서 이 파일을 읽는다.
+# AGP 8.13 은 JDK 17 이상이 필요하다. 계약 폴더(../contract)가 없어도 배포 task 는 시험을 컴파일하지 않는다.
+jdk:
+  - openjdk17
+install:
+  - ./gradlew --no-daemon :core:publishToMavenLocal

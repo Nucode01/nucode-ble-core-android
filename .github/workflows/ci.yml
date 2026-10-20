@@ -16,6 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 태그 이름과 sdkVersion 이 다르면 시험 전에 실패로 알린다(JitPack 은 태그 이름으로 낸다).
+      - name: Check tag matches sdkVersion
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash .github/release/check-version.sh
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

@@ -1,5 +1,5 @@
 # Azure 메인의 main 과 태그를 GitHub 미러(Nucode01/nucode-ble-core-android)로 옮긴다.
-# 사람은 Azure 에만 push 한다. 미러의 태그 push 가 GitHub Actions ci·publish 를 돌린다.
+# 사람은 Azure 에만 push 한다. 미러의 태그 push 가 GitHub Actions ci 를 돌린다.
 # 덮어쓰기·삭제 없이 push 한다. 미러 이력이 갈라지면 push 가 실패로 드러난다.
 # 인증: 미러 저장소의 deploy key(쓰기 허용). 개인 키는 Secure files 의 nucode-ble-core-android-mirror (DEVELOPMENT.md).
 # batch: 실행 중에 들어온 push 는 그 실행이 끝난 뒤 한 번으로 묶어 겹치는 실행을 줄인다.

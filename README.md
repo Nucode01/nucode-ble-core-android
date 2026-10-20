@@ -14,13 +14,13 @@ GATT 작업 직렬화, 연결·끊김·재연결, 실패 분류를 코루틴 API
 | compileSdk (라이브러리 빌드) | 36 |
 | 의존성 | `kotlinx-coroutines-android` 1.9.0 (`api` 로 전달됩니다) |
 | 빌드 도구 | AGP 8.13.2 · Kotlin 2.0.21 · Gradle 8.13 · JVM 11 |
-| 좌표 (JitPack) | `com.github.Nucode01:nucode-ble-core-android:<태그>` |
+| 좌표 (JitPack) | `com.github.Nucode01:nucode-ble-core-android:0.3.1` |
 
 라이브러리 매니페스트는 권한을 선언하지 않습니다. 앱이 선언합니다([설치 · 권한](guide/install.md)).
 
 ## 설치
 
-JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. `<태그>` 에는 JitPack 에서 빌드된 릴리스 태그를 씁니다.
+JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. JitPack 에서 받을 수 있는 첫 버전은 0.3.1 입니다.
 
 ```kotlin
 // settings.gradle.kts
@@ -36,7 +36,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.Nucode01:nucode-ble-core-android:<태그>")
+    implementation("com.github.Nucode01:nucode-ble-core-android:0.3.1")
 }
 ```
 
@@ -55,7 +55,7 @@ dependencies {
 
 | 항목 | 상태 |
 |---|---|
-| 버전 | 0.3.0. 변경 내용은 [CHANGELOG](CHANGELOG.md) |
+| 버전 | 0.3.1. 변경 내용은 [CHANGELOG](CHANGELOG.md) |
 | 공개 API | [core/api/ble-core.api](core/api/ble-core.api) 가 기준이고, 단위 시험이 대조합니다 |
 | 실기기 검증 | Pixel 5a / Android 14 + nRF52840 시험 펌웨어 한 조합. 결과는 [실기기 검증 기록](docs/v1/android-real-device-results.md) |
 

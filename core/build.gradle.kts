@@ -16,7 +16,8 @@ kotlin {
     explicitApi()
 }
 
-// 계약 시나리오 폴더(루트 저장소 contract/). 루트 저장소 안에서는 ../contract, CI 는 -PbleContractDir 로 준다.
+// 계약 시나리오 폴더(루트 저장소 contract/). 루트 저장소 안에서는 ../contract, 다른 곳은 -PbleContractDir 로 준다.
+// GitHub 미러 CI 에는 계약 폴더가 없어 계약 시험은 건너뛴다.
 val bleContractDirProperty = providers.gradleProperty("bleContractDir")
 val bleContractDir: File = bleContractDirProperty.map { rootProject.file(it) }.getOrElse(rootProject.file("../contract"))
 
@@ -88,6 +89,16 @@ publishing {
     }
     repositories {
         mavenLocal()
+        // 원격 배포처. 자격 증명은 저장소에 두지 않는다 — gradle 속성 gpr.user/gpr.key, 없으면 환경 변수 GITHUB_ACTOR/GITHUB_TOKEN.
+        // url 을 바꾸면 .github/publish/github-packages.init.gradle.kts 도 함께 고친다.
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
+                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
+            }
+        }
     }
 }
 

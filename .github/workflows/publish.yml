@@ -1,0 +1,66 @@
+name: Publish
+
+# kr.co.nucode:ble-core 를 GitHub Packages 에 배포한다. 태그 push, 또는 손 실행에 태그 이름(ref)을 준다.
+# 태그 이름이 core/build.gradle.kts 의 sdkVersion 과 다르면 배포하지 않는다.
+# 태그 push 는 배포 전에 core 단위 시험을 돌린다. 손 실행은 이미 배포 대상이 된 태그를 다시 올리는 경로라 시험을 건너뛴다.
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 배포할 태그 이름 (sdkVersion 과 같아야 한다)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ inputs.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PUBLISH_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+    steps:
+      # 배포 도구(init script·버전 검사)는 이 workflow 의 커밋에서, 배포할 소스는 PUBLISH_REF 에서 받는다.
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PUBLISH_REF }}
+          path: src
+
+      - name: Check tag matches sdkVersion
+        working-directory: src
+        run: bash ../tools/.github/publish/check-version.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 시험이 실패한 버전은 올리지 않는다. GitHub Packages 는 같은 버전을 다시 받지 않는다(409).
+      - name: Test core
+        if: github.event_name == 'push'
+        working-directory: src
+        run: ./gradlew --no-daemon :core:test
+
+      # init script 는 GitHubPackages 저장소가 없는 옛 태그(0.3.0)에만 저장소를 더한다.
+      - name: Publish to GitHub Packages
+        working-directory: src
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ./gradlew --no-daemon
+          --init-script ../tools/.github/publish/github-packages.init.gradle.kts
+          :core:publishReleasePublicationToGitHubPackagesRepository

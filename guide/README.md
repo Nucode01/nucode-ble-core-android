@@ -14,7 +14,7 @@
 
 | 문서 | 내용 |
 |---|---|
-| [설치](install.md) | 로컬 Maven 배포, 앱에 추가, 권한 |
+| [설치](install.md) | GitHub Packages 에서 받기, 앱에 추가, 권한 |
 | [핵심 개념](concepts.md) | `BleClient`·`BleSession`, 주소, 캐릭터리스틱 참조, 상태, 실패, 스레드 |
 | [레시피: 스캔과 연결](recipes/scan-connect.md) | 5.1 스캔 필터 · 5.2 연결하고 Ready 기다리기 · 5.3 재시도 연결 · 5.4 서비스 찾기 |
 | [레시피: 읽기 · 쓰기 · 구독](recipes/data.md) | 5.5 read · 5.6 write · 5.7 notify/indicate · 5.8 요청-응답 |
@@ -57,7 +57,7 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 - **라이브러리 자체 재연결 시간표(백오프 · 재시도 횟수).** 0.2.0 에서 없앴습니다. OS autoConnect(`autoReconnect = true`)나 앱이 맡습니다.
   예외 하나: `autoReconnect = false` 첫 연결이 요청 직후 GATT status 133 으로 실패하면 라이브러리가 같은 link 시간 제한 안에서 최대 2번 다시 겁니다([5.3](recipes/scan-connect.md#53-앱이-다시-시도하는-연결)).
 - **MTU 값 지정, 광고 원본 바이트, Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
-- **원격 저장소 배포.** 아직 로컬 Maven 뿐입니다.
+- **공개 Maven 저장소(Maven Central 등) 배포.** GitHub Packages 에만 있어 받을 때 토큰이 필요합니다([설치](install.md)).
 
 ### 지원 환경
 

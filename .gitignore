@@ -42,7 +42,6 @@ docs/v1/*
 .agents/
 .agent/
 .codex/
-.claude/
 .cursor/
 .continue/
 .gemini/
@@ -55,8 +54,6 @@ docs/v1/*
 mcp.local.json
 AGENTS.md
 AGENTS.local.md
-CLAUDE.md
-CLAUDE.local.md
 GEMINI.md
 .github/copilot-instructions.md
 .github/instructions/
@@ -64,6 +61,3 @@ GEMINI.md
 
 # LLM 용 로컬 API 요약 (공유하지 않음)
 guide/llms-android.md
-
-# CI 가 계약 시나리오를 받으려고 체크아웃하는 루트 저장소
-/.contract-root/

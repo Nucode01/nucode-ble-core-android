@@ -20,13 +20,24 @@ GATT 작업 직렬화, 연결·끊김·재연결, 실패 분류를 코루틴 API
 
 ## 설치
 
-원격 저장소가 없습니다. 이 저장소에서 로컬 Maven 에 배포합니다.
+GitHub Packages Maven 저장소에서 받습니다. 받을 때도 인증이 필요합니다. `read:packages` 범위의 personal access token (classic)을 준비합니다. 저장소는 public 이라 따로 읽기 권한은 필요 없습니다.
 
-```bash
-./gradlew :core:publishReleasePublicationToMavenLocal
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
+                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
+            }
+        }
+    }
+}
 ```
-
-이 명령을 실행한 컴퓨터에서만 받을 수 있습니다. 앱에는 `mavenLocal()` 을 저장소로 추가하고 의존성을 선언합니다.
 
 ```kotlin
 // app/build.gradle.kts
@@ -35,14 +46,14 @@ dependencies {
 }
 ```
 
-자세한 절차는 [설치](guide/install.md)를 봅니다.
+토큰은 `~/.gradle/gradle.properties` 의 `gpr.user` · `gpr.key` 에 둡니다. 로컬 Maven 으로 쓰는 법과 자세한 절차는 [설치](guide/install.md)를 봅니다.
 
 ## 가이드
 
 | 문서 | 내용 |
 | --- | --- |
 | [개발자 가이드](guide/README.md) | 소개 · 5분 빠른 시작 · 목차 |
-| [설치](guide/install.md) | 로컬 Maven 배포, 앱에 추가, 권한 |
+| [설치](guide/install.md) | GitHub Packages 에서 받기, 로컬 Maven 대안, 앱에 추가, 권한 |
 | [핵심 개념](guide/concepts.md) | `BleClient`·`BleSession`, 상태, 실패, 스레드 |
 | [문제 해결과 한계](guide/troubleshooting.md) | 자주 틀리는 것, 검증 범위 |
 

@@ -16,15 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 계약 시나리오(루트 저장소 contract/). 읽기 전용 배포 키로 받는다.
-      # 태그 실행은 같은 이름의 root 태그를 받는다. root 에 그 태그가 없으면 checkout 이 실패하므로 태그는 root 에 먼저 올린다.
-      - uses: actions/checkout@v4
-        with:
-          repository: pdev-jay/nucode-ble-core
-          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
-          ssh-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
-          path: .contract-root
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,9 +23,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 단위 테스트(공개 API 덤프 대조·가이드 예시 동기화·계약 시나리오 sim 포함) + R8 켠 sample release 빌드
+      # 단위 테스트(공개 API 덤프 대조·가이드 예시 동기화) + R8 켠 sample release 빌드.
+      # 이 workflow 는 GitHub 미러에서 돈다. 미러에는 루트 계약 저장소가 없어 계약 시나리오 sim 은 건너뛴다.
+      # 계약 시험은 루트 저장소를 받은 로컬에서 돌린다(DEVELOPMENT.md).
       - name: Test and build
-        run: ./gradlew --no-daemon test :sample:assembleRelease -PbleContractDir=.contract-root/contract
+        run: ./gradlew --no-daemon test :sample:assembleRelease
 
       - name: Upload test reports
         if: failure()

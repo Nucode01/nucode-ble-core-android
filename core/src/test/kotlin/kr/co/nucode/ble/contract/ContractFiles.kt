@@ -5,8 +5,8 @@ import org.junit.Assume.assumeTrue
 
 /**
  * JVM 테스트가 contract/ 를 찾는 곳. Gradle 이 `ble.contract.dir` 을 넘긴다(core/build.gradle.kts).
- * `-PbleContractDir` 로 경로를 준 경우(CI)에 폴더가 없으면 실패하고, 기본 경로(../contract)에 없으면 건너뛴다 —
- * android 저장소만 따로 받은 경우를 위해서다.
+ * `-PbleContractDir` 로 경로를 준 경우에 폴더가 없으면 실패하고, 기본 경로(../contract)에 없으면 건너뛴다 —
+ * android 저장소만 따로 받은 경우(GitHub 미러 CI 포함)를 위해서다.
  */
 internal object ContractFiles {
     private val dir: File? = System.getProperty("ble.contract.dir")?.let(::File)

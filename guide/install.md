@@ -1,15 +1,19 @@
 # 2. 설치
 
-## 2.1 로컬 Maven 에 배포하기
+## 2.1 GitHub Packages 에서 받기
 
-라이브러리 저장소에서 한 번 실행합니다.
+라이브러리는 GitHub Packages Maven 저장소 `https://maven.pkg.github.com/Nucode01/nucode-ble-core-android` 에 있습니다.
+GitHub Packages 는 public 저장소의 패키지도 받을 때 인증이 필요합니다. GitHub 계정의 personal access token (classic)을 준비합니다. 범위는 `read:packages` 하나면 됩니다.
 
-```bash
-./gradlew :core:publishReleasePublicationToMavenLocal
+토큰은 앱 저장소에 넣지 않습니다. `~/.gradle/gradle.properties` 에 둡니다.
+
+```properties
+# ~/.gradle/gradle.properties
+gpr.user=<GitHub 사용자 이름>
+gpr.key=<read:packages 토큰>
 ```
 
-`~/.m2/repository/kr/co/nucode/ble-core/0.3.0/` 에 aar · sources.jar · pom · module 이 생깁니다.
-원격 저장소가 아직 없어서 **이 명령을 실행한 컴퓨터에서만** 받을 수 있습니다. 다른 개발자나 CI 는 각자 배포해야 합니다.
+CI 처럼 파일을 둘 수 없는 곳에서는 환경 변수 `GITHUB_ACTOR` · `GITHUB_TOKEN` 을 씁니다. 아래 설정은 속성이 없으면 환경 변수를 읽습니다.
 
 ## 2.2 앱에 추가하기
 
@@ -17,9 +21,15 @@
 // settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
-        mavenLocal() // 0.3.0 은 로컬 Maven 에만 있습니다
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/Nucode01/nucode-ble-core-android")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orElse(providers.environmentVariable("GITHUB_ACTOR")).orNull
+                password = providers.gradleProperty("gpr.key").orElse(providers.environmentVariable("GITHUB_TOKEN")).orNull
+            }
+        }
     }
 }
 ```
@@ -30,6 +40,19 @@ dependencies {
     implementation("kr.co.nucode:ble-core:0.3.0")
 }
 ```
+
+인증이 빠지거나 틀리면 Gradle 이 `401 Unauthorized` 나 `Could not resolve kr.co.nucode:ble-core` 로 실패합니다. 토큰 범위가 `read:packages` 인지 확인하세요.
+
+### 로컬 Maven 으로 쓰기 (대안)
+
+라이브러리 소스를 고쳐 바로 시험할 때는 라이브러리 저장소에서 로컬 Maven 에 배포합니다.
+
+```bash
+./gradlew :core:publishReleasePublicationToMavenLocal
+```
+
+`~/.m2/repository/kr/co/nucode/ble-core/<버전>/` 에 aar · sources.jar · pom · module 이 생깁니다. 이 명령을 실행한 컴퓨터에서만 받을 수 있습니다.
+앱의 `settings.gradle.kts` 저장소 목록 맨 앞에 `mavenLocal()` 을 더하면 로컬 것을 먼저 씁니다.
 
 ## 2.3 권한
 

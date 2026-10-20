@@ -1,7 +1,7 @@
 # Azure 메인의 main 과 태그를 GitHub 미러(Nucode01/nucode-ble-core-android)로 옮긴다.
 # 사람은 Azure 에만 push 한다. 미러의 태그 push 가 GitHub Actions ci·publish 를 돌린다.
 # 덮어쓰기·삭제 없이 push 한다. 미러 이력이 갈라지면 push 가 실패로 드러난다.
-# 비밀 변수 GITHUB_MIRROR_TOKEN: Nucode01 저장소 contents 쓰기 + workflows 쓰기 권한 토큰(DEVELOPMENT.md).
+# 인증: 미러 저장소의 deploy key(쓰기 허용). 개인 키는 Secure files 의 nucode-ble-core-android-mirror (DEVELOPMENT.md).
 # batch: 실행 중에 들어온 push 는 그 실행이 끝난 뒤 한 번으로 묶어 겹치는 실행을 줄인다.
 trigger:
   batch: true
@@ -23,12 +23,16 @@ steps:
     fetchTags: true
     persistCredentials: false
 
-  # 토큰은 env 로만 받는다. 명령 출력을 켜지 않고, 원격 URL 을 git config 에 남기지 않는다.
+  # known_hosts 는 GitHub 공개 호스트 키로 고정한다(api.github.com/meta 의 ssh_keys).
+  - task: InstallSSHKey@0
+    displayName: Install mirror deploy key
+    inputs:
+      knownHostsEntry: 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl'
+      sshKeySecureFile: nucode-ble-core-android-mirror
+
   - bash: |
       set -euo pipefail
-      git push "https://x-access-token:${GITHUB_MIRROR_TOKEN}@github.com/Nucode01/nucode-ble-core-android.git" \
+      git push git@github.com:Nucode01/nucode-ble-core-android.git \
         "refs/remotes/origin/main:refs/heads/main" \
         "refs/tags/*:refs/tags/*"
     displayName: Push main and tags to GitHub mirror
-    env:
-      GITHUB_MIRROR_TOKEN: $(GITHUB_MIRROR_TOKEN)

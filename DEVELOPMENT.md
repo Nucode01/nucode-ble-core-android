@@ -18,10 +18,15 @@
 
 ### 파이프라인 설정 (처음 한 번)
 
-1. Azure DevOps 에서 이 저장소의 `azure-pipelines.yml` 로 파이프라인을 만듭니다.
-2. GitHub 에서 `Nucode01/nucode-ble-core-android` 에 쓸 수 있는 토큰을 만듭니다. 권한은 contents 쓰기와 workflows 쓰기입니다. workflow 파일을 바꾸는 커밋을 push 하려면 workflows 쓰기가 필요합니다.
-3. 파이프라인 변수에 `GITHUB_MIRROR_TOKEN` 을 비밀 변수로 더하고 그 토큰을 넣습니다.
-4. 조직에서 Microsoft-hosted 병렬 작업을 쓸 수 있는지 확인합니다. 쓸 수 없으면 파이프라인이 대기열에서 시작하지 않습니다.
+파이프라인은 미러 저장소의 SSH deploy key 로 push 합니다. deploy key 는 사람 계정과 만료에 묶이지 않고, 이 저장소 하나에만 쓸 수 있습니다.
+
+1. 이 저장소 전용 ed25519 키 쌍을 만듭니다: `ssh-keygen -t ed25519 -N '' -C nucode-ble-core-android-mirror -f nucode-ble-core-android-mirror`. 다른 저장소와 키를 같이 쓰지 않습니다.
+2. 공개 키(`.pub`)를 GitHub 미러 `Nucode01/nucode-ble-core-android` 의 Settings → Deploy keys 에 더합니다. Allow write access 를 켭니다.
+3. 개인 키를 Azure DevOps 의 Pipelines → Library → Secure files 에 올립니다. 이름은 `nucode-ble-core-android-mirror` 입니다.
+4. 개인 키는 올린 뒤 로컬에서 지웁니다. 저장소에 넣지 않습니다.
+5. Azure DevOps 에서 이 저장소의 `azure-pipelines.yml` 로 파이프라인을 만듭니다.
+6. 첫 실행에서 secure file 사용 권한을 물으면 Permit 을 누릅니다.
+7. 조직에서 Microsoft-hosted 병렬 작업을 쓸 수 있는지 확인합니다. 쓸 수 없으면 파이프라인이 대기열에서 시작하지 않습니다.
 
 ## 모듈
 

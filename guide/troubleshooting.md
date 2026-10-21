@@ -43,7 +43,11 @@
 `AndroidBleClientFactory.create(context, BleConfig(operationTimeoutMillis = 10_000))` 처럼 `BleConfig` 로 바꿉니다. 모든 값은 0보다 커야 하고 `rediscoveryTimeoutMillis ≤ linkTimeoutMillis` 여야 합니다(아니면 `IllegalArgumentException`).
 
 **Q. MTU 를 직접 정할 수 있나요?**
-없습니다. 코어가 247 을 요청하고, 협상에 실패하면 23 으로 진행합니다(`CONFIGURATION_FAILED` 진단). 쓰기 청크는 코어가 맞춰 자릅니다.
+Android 에서만 요청 값을 고릅니다: `session.connect(BleConnectOptions(requestedMtu = 185))`(23..517, 생략하면 247). iOS 에는 없습니다.
+요청은 요청일 뿐이고 기기와 플랫폼이 실제 값을 정합니다. 협상에 실패하면 23 으로 진행합니다(`CONFIGURATION_FAILED` 진단).
+Android 14 이상은 요청 값과 다르게 협상할 수 있다고 알려져 있으나 이 라이브러리에서 실기기로 확인하지는 않았습니다.
+실제 값은 Ready 뒤 `session.writeLimits`(mode 별 한 번에 쓸 수 있는 바이트, Android 는 MTU − 3)와 Android 전용 `session.androidMtu` 로 읽습니다.
+같은 기기에 다른 `requestedMtu` 로 다시 `connect()` 하면 `CONNECTION_OPTIONS_CONFLICT` 입니다. 바꾸려면 먼저 `disconnect()` 합니다.
 
 **Q. 스캔 결과가 여러 번 옵니다.**
 정상입니다. 광고를 받을 때마다 옵니다. `peripheralId` 로 묶어서 최신 값만 쓰세요([5.1](recipes/scan-connect.md#51-스캔-필터로-찾고-가장-가까운-기기-고르기)).

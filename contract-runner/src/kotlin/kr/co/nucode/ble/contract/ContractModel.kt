@@ -9,38 +9,6 @@ import kr.co.nucode.ble.ServiceRef
 /** 시나리오·기기 정의 파일이 형식(contract/README.md)에 맞지 않을 때. 러너는 건너뛰지 않고 실패시킨다. */
 internal class ContractFormatException(message: String) : Exception(message)
 
-internal object Lanes {
-    const val STATE = "state"
-    const val RESULT = "result"
-    const val NOTIFY = "notify"
-    const val ACTIVE = "active"
-
-    // 확장 레인: 시나리오의 expect 에 있을 때만 기록·출력한다(README §기록).
-    const val ADAPTER = "adapter"
-    const val SCAN = "scan"
-    const val FOUND = "found"
-    const val SERVICES = "services"
-    const val PROPERTIES = "properties"
-    const val DESCRIPTORS = "descriptors"
-    const val AD_TYPES = "adTypes"
-    const val PEER = "peer"
-
-    val BASE = listOf(STATE, RESULT, NOTIFY, ACTIVE)
-    val EXTENSION = listOf(ADAPTER, SCAN, FOUND, SERVICES, PROPERTIES, DESCRIPTORS, AD_TYPES, PEER)
-
-    /** CONTRACT 줄의 출력 순서. */
-    val ALL = BASE + EXTENSION
-
-    /** `await <레인> is` 를 쓸 수 있는 레인. */
-    val AWAIT_IS = listOf(STATE, ACTIVE, ADAPTER, SCAN, SERVICES, AD_TYPES)
-
-    /** `await <레인> count` 를 쓸 수 있는 레인. */
-    val AWAIT_COUNT = listOf(NOTIFY, FOUND)
-
-    /** 연속으로 같은 값은 하나로 합치는 레인(현재 값 레인). */
-    val COALESCED = listOf(ACTIVE, ADAPTER, SCAN, SERVICES, PROPERTIES, DESCRIPTORS, AD_TYPES)
-}
-
 internal data class ServiceSpec(val symbol: String, val uuid: UUID, val advertised: Boolean)
 
 /** startScan 의 filter. 둘 다 없으면 필터 없음. */
@@ -113,6 +81,8 @@ internal sealed interface Step {
         val timeoutMs: Long,
         /** descriptor 호출의 `<characteristic 기호>/<descriptor 이름>`. */
         val desc: String? = null,
+        /** connect 의 Android 요청 MTU(23..517). 없으면 코어 기본. */
+        val requestedMtu: Int? = null,
     ) : Step {
         /** result 레인 한 줄의 앞부분: "read probe.value", "readDescriptor probe.control/cud". */
         val label: String get() = (desc ?: char)?.let { "${op.key} $it" } ?: op.key
@@ -230,6 +200,9 @@ internal object ContractLoader {
         val steps = root.req("steps").asList("steps").mapIndexed { index, raw ->
             parseStep("steps[$index]", raw.asObject("steps[$index]"), profile, names, cancelled, expect.keys, runsOn)
         }
+        if (platforms != setOf("android") && steps.any { it is Step.Call && it.requestedMtu != null }) {
+            throw ContractFormatException("requestedMtu 는 platforms 가 정확히 [\"android\"] 인 시나리오에서만 쓴다")
+        }
         val diffIgnore = root["diffIgnore"]?.let { root.stringList("diffIgnore") }.orEmpty().onEach {
             val lane = it.substringBefore('|', "")
             if (lane !in Lanes.ALL) throw ContractFormatException("diffIgnore '$it' 는 '<레인>|<패턴>' 이어야 한다")
@@ -322,7 +295,7 @@ internal object ContractLoader {
         val common = arrayOf("call", "async", "name", "timeoutMs")
         val needsChar = op in setOf(CallOp.Read, CallOp.Write, CallOp.Subscribe, CallOp.Unsubscribe)
         when (op) {
-            CallOp.Connect -> s.onlyKeys(where, *common, "autoReconnect")
+            CallOp.Connect -> s.onlyKeys(where, *common, "autoReconnect", "requestedMtu")
             CallOp.Write -> s.onlyKeys(where, *common, "char", "text", "hex", "pattern", "mode", "chunking", "chunkBytes")
             CallOp.StartScan -> s.onlyKeys(where, *common, "filter")
             CallOp.Read, CallOp.Subscribe, CallOp.Unsubscribe -> s.onlyKeys(where, *common, "char")
@@ -382,6 +355,10 @@ internal object ContractLoader {
             name = name,
             timeoutMs = s.long("timeoutMs", DEFAULT_TIMEOUT_MS),
             desc = desc,
+            requestedMtu = s["requestedMtu"]?.let {
+                s.long("requestedMtu").takeIf { it in 23L..517L }?.toInt()
+                    ?: throw ContractFormatException("$where: requestedMtu 는 23..517 이어야 한다(실제 $it)")
+            },
         )
     }
 

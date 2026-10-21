@@ -85,6 +85,11 @@ suspend fun sendIn20ByteChunks(session: BleSession, data: ByteArray): WriteRecei
 | | `Fixed(maxBytes)` | `maxBytes` 씩 자릅니다. 협상된 청크 크기보다 크면 `PAYLOAD_TOO_LARGE` |
 | | `Disabled` | 자르지 않습니다. 한 청크보다 길면 `PAYLOAD_TOO_LARGE` |
 
+지금 연결의 한도는 `session.writeLimits.value` 로 읽습니다. `WriteLimits(withResponse, withoutResponse)` 는 그 mode 의 write 한 번이 실을 수 있는
+최대 바이트이고 `Automatic` 조각 크기·`Disabled`·`Fixed` 한도가 이 값을 씁니다. Ready 가 되기 직전에 정해지고 Ready 를 떠나면 `null` 입니다.
+Android 는 두 값 모두 협상 MTU − 3 이고, MTU 숫자는 Android 전용 확장 `session.androidMtu` 로 봅니다. 요청 MTU 는 Android 전용
+`BleConnectOptions(requestedMtu = …)` 로 고릅니다.
+
 **주의점**
 
 - 청크는 각각 별개의 GATT write 로 나갑니다. 기기 펌웨어가 조각을 이어 붙여야 합니다(코어는 프레이밍을 하지 않습니다).

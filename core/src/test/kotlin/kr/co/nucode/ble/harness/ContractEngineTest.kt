@@ -337,6 +337,30 @@ class ContractEngineTest {
     }
 
     @Test
+    fun `writeLimits·androidMtu 레인은 expect 에 있을 때만 기록하고 연결 전 null 다음 협상 값을 남긴다`() {
+        val plain = run("[$connectToReady]", """{ "state": ["*"] }""")
+        assertFalse(plain.toString(), plain.toString().contains("|writeLimits|"))
+        assertFalse(plain.toString(), plain.toString().contains("|androidMtu|"))
+        val report = run(
+            """[$connectToReady, { "await": "writeLimits", "is": "62/62" }, { "await": "androidMtu", "is": "65" }]""",
+            """{ "writeLimits": ["null", "62/62"], "androidMtu": ["null", "65"] }""",
+        )
+        assertTrue(report.toString(), report.passed)
+    }
+
+    @Test
+    fun `writeLimits·androidMtu 줄은 adTypes 다음 peer 앞에 이 순서로 낸다`() {
+        val report = run(
+            """[$scanUntilAdTypes, $connectToReady, { "await": "writeLimits", "is": "*/*" }, $nusPattern, { "device": "rxCheck" }]""",
+            """{ "peer": ["*"], "androidMtu": ["*"], "writeLimits": ["*"], "adTypes": ["*"] }""",
+        )
+        val lanes = report.lines().map { it.split('|')[3] }
+        assertTrue(report.toString(), lanes.lastIndexOf("adTypes") < lanes.indexOf("writeLimits"))
+        assertTrue(report.toString(), lanes.lastIndexOf("writeLimits") < lanes.indexOf("androidMtu"))
+        assertTrue(report.toString(), lanes.lastIndexOf("androidMtu") < lanes.indexOf("peer"))
+    }
+
+    @Test
     fun `snapshot 은 결과 줄에 어댑터·스캔·세션을 붙인다`() {
         val report = run(
             """[{ "call": "snapshot" }, $connectToReady, { "call": "subscribe", "char": "probe.value" }, { "call": "snapshot" }]""",

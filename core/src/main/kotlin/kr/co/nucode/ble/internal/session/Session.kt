@@ -75,6 +75,13 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
     internal val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     /**
+     * Ready 동안의 협상 MTU(공개 `writeLimits`·Android `androidMtu` 의 원천). [publishStage] 가 공개 상태를 게시하기 직전에
+     * Ready 면 [mtu], 아니면 null 로 정한다. [mtu] 는 Configuring 에서만 바뀌므로 한 연결 동안 고정이다.
+     */
+    private val _readyMtu = MutableStateFlow<Int?>(null)
+    internal val readyMtu: StateFlow<Int?> = _readyMtu.asStateFlow()
+
+    /**
      * generation 이 링크를 떠나는 stage 이벤트(Disconnecting/Disconnected)의 단일 listener 슬롯.
      * 복원 job 의 소유자(LinkSetup)가 job 을 만들 때 건다 — Session 은 누가 거는지 모른다.
      */
@@ -95,6 +102,8 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
             subscriptionState.clearActive()
             onLeaveLink()
         }
+        // write 한도의 원천은 공개 상태보다 먼저 정한다 — Ready 를 본 관찰자가 값을 읽고, Ready 를 떠나면 null 이다.
+        _readyMtu.value = if (ConnectionCore.readyFor(connectionCoordinator.coreState, connectionCoordinator.generation)) mtu else null
         _connectionState.value = ConnectionCore.publicState(connectionCoordinator.coreState)
     }
 

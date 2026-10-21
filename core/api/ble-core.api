@@ -5,7 +5,7 @@ CONSTRUCTOR public kr.co.nucode.ble.BleChunking$Fixed(int) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConfig() throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConfig(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions() throws=
-CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions(boolean) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleConnectOptions(boolean,java.lang.Integer) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleDisconnectReason$Failed(kr.co.nucode.ble.BleFailure) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleException(kr.co.nucode.ble.BleFailure) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleManufacturerDataFilter(int,byte[],byte[]) throws=
@@ -37,6 +37,7 @@ CONSTRUCTOR public kr.co.nucode.ble.ScanRequest() throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanRequest(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanState$Idle(kr.co.nucode.ble.BleFailure) throws=
 CONSTRUCTOR public kr.co.nucode.ble.ScanState$Scanning(kr.co.nucode.ble.ScanRequest) throws=
+CONSTRUCTOR public kr.co.nucode.ble.WriteLimits(int,int) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteProgress(int,int,int,int,java.lang.Integer,java.lang.Integer,boolean,kr.co.nucode.ble.DeliverySemantics,boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteReceipt(int,int,kr.co.nucode.ble.DeliverySemantics) throws=
 FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.Balanced
@@ -147,6 +148,7 @@ METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<java.util.Set<kr.co.
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.AdapterState> kr.co.nucode.ble.BleClient.getAdapterState() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ConnectionState> kr.co.nucode.ble.BleSession.getConnectionState() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.ScanState> kr.co.nucode.ble.BleClient.getScanState() throws=
+METHOD public abstract <> kotlinx.coroutines.flow.StateFlow<kr.co.nucode.ble.WriteLimits> kr.co.nucode.ble.BleSession.getWriteLimits() throws=
 METHOD public abstract <> kr.co.nucode.ble.BleSession kr.co.nucode.ble.BleClient.session-fb5K3to(java.lang.String) throws=
 METHOD public abstract <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondController.bondState-fb5K3to(java.lang.String) throws=
 METHOD public abstract <> void kr.co.nucode.ble.BleClient.close() throws=
@@ -188,6 +190,10 @@ METHOD public final <> int kr.co.nucode.ble.ScanResult.component2() throws=
 METHOD public final <> int kr.co.nucode.ble.ScanResult.getRssi() throws=
 METHOD public final <> int kr.co.nucode.ble.ServiceRef.component2() throws=
 METHOD public final <> int kr.co.nucode.ble.ServiceRef.getInstanceIndex() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteLimits.component1() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteLimits.component2() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteLimits.getWithResponse() throws=
+METHOD public final <> int kr.co.nucode.ble.WriteLimits.getWithoutResponse() throws=
 METHOD public final <> int kr.co.nucode.ble.WriteProgress.component1() throws=
 METHOD public final <> int kr.co.nucode.ble.WriteProgress.component2() throws=
 METHOD public final <> int kr.co.nucode.ble.WriteProgress.component3() throws=
@@ -202,6 +208,8 @@ METHOD public final <> int kr.co.nucode.ble.WriteReceipt.getBytesCompleted() thr
 METHOD public final <> int kr.co.nucode.ble.WriteReceipt.getChunksCompleted() throws=
 METHOD public final <> java.lang.Boolean kr.co.nucode.ble.AdvertisementData.isConnectable() throws=
 METHOD public final <> java.lang.Integer kr.co.nucode.ble.AdvertisementData.getTxPower() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.BleConnectOptions.component2() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.BleConnectOptions.getRequestedMtu() throws=
 METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.component2() throws=
 METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.component3() throws=
 METHOD public final <> java.lang.Integer kr.co.nucode.ble.PlatformDetail$Android.getReasonCode() throws=
@@ -335,7 +343,7 @@ METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOpt
 METHOD public final <> kr.co.nucode.ble.BleChunking kr.co.nucode.ble.BleWriteOptions.getChunking() throws=
 METHOD public final <> kr.co.nucode.ble.BleChunking$Fixed kr.co.nucode.ble.BleChunking$Fixed.copy(int) throws=
 METHOD public final <> kr.co.nucode.ble.BleConfig kr.co.nucode.ble.BleConfig.copy(kotlin.coroutines.CoroutineContext,int,long,long,long,long,long,long,kr.co.nucode.ble.BleLogger,kr.co.nucode.ble.DiagnosticOptions) throws=
-METHOD public final <> kr.co.nucode.ble.BleConnectOptions kr.co.nucode.ble.BleConnectOptions.copy(boolean) throws=
+METHOD public final <> kr.co.nucode.ble.BleConnectOptions kr.co.nucode.ble.BleConnectOptions.copy(boolean,java.lang.Integer) throws=
 METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.component1() throws=
 METHOD public final <> kr.co.nucode.ble.BleDisconnectReason kr.co.nucode.ble.ConnectionState$Disconnected.getReason() throws=
 METHOD public final <> kr.co.nucode.ble.BleDisconnectReason$Failed kr.co.nucode.ble.BleDisconnectReason$Failed.copy(kr.co.nucode.ble.BleFailure) throws=
@@ -436,6 +444,7 @@ METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.ServiceRef.c
 METHOD public final <> kr.co.nucode.ble.SessionSnapshot kr.co.nucode.ble.SessionSnapshot.copy-yNm8nfo(java.lang.String,kr.co.nucode.ble.ConnectionState,java.util.List<kr.co.nucode.ble.GattService>,java.util.Set<kr.co.nucode.ble.CharacteristicRef>) throws=
 METHOD public final <> kr.co.nucode.ble.Severity kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.component1() throws=
 METHOD public final <> kr.co.nucode.ble.Severity kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.getSeverity() throws=
+METHOD public final <> kr.co.nucode.ble.WriteLimits kr.co.nucode.ble.WriteLimits.copy(int,int) throws=
 METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.BleFailure.component7() throws=
 METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.BleFailure.getWriteProgress() throws=
 METHOD public final <> kr.co.nucode.ble.WriteProgress kr.co.nucode.ble.DiagnosticFailure.component7() throws=
@@ -516,6 +525,7 @@ METHOD public static final <> boolean kr.co.nucode.ble.FailureCategory.equals-im
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCode.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.PeripheralId.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> byte[] kr.co.nucode.ble.android.AndroidAdvertisementDataKt.getAndroidScanRecordBytes(kr.co.nucode.ble.AdvertisementData) throws=
+METHOD public static final <> kotlinx.coroutines.flow.StateFlow<java.lang.Integer> kr.co.nucode.ble.android.AndroidSessionMtuKt.getAndroidMtu(kr.co.nucode.ble.BleSession) throws=
 METHOD public static final <> kr.co.nucode.ble.BleClient kr.co.nucode.ble.android.AndroidBleClientFactory.create(android.content.Context,kr.co.nucode.ble.BleConfig) throws=
 METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
 TYPE public abstract interface kr.co.nucode.ble.AdapterState extends=- implements=
@@ -569,12 +579,14 @@ TYPE public final kr.co.nucode.ble.ScanResult extends=java.lang.Object implement
 TYPE public final kr.co.nucode.ble.ServiceRef extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.SessionSnapshot extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.Severity extends=java.lang.Enum<kr.co.nucode.ble.Severity> implements=
+TYPE public final kr.co.nucode.ble.WriteLimits extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.WriteProgress extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.WriteReceipt extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidAdvertisementDataKt extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBleClientFactory extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=
+TYPE public final kr.co.nucode.ble.android.AndroidSessionMtuKt extends=java.lang.Object implements=
 TYPE public static final kr.co.nucode.ble.AdapterState$PoweredOff extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Resetting extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState

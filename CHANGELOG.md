@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-공개 API 추가: Android 전용 광고 원본 확장(CANDIDATE-31), 공통 descriptor 탐색·read·write(CANDIDATE-32).
+공개 API 추가: Android 전용 광고 원본 확장(CANDIDATE-31), 공통 descriptor 탐색·read·write(CANDIDATE-32),
+Android 요청 MTU 와 write 한도·협상 MTU 조회(CANDIDATE-33·CANDIDATE-5).
 동작 변경: `AdvertisementData` 의 같음 판정이 원본 바이트를 반영한다. 소스 호환이 깨지는 변경이 있다(Breaking).
 
 ### Breaking
@@ -11,9 +12,19 @@
 - `BleSession` 에 `readDescriptor`·`writeDescriptor` 를 더했다. `BleSession` 을 직접 구현한 코드(시험용 fake 등)는 두 함수를 구현해야 한다.
 - data class 시그니처: `GattCharacteristic` 에 `descriptors`(기본 `emptyList()`), `FailureContext` 에 `descriptor`(기본 `null`, 맨 끝)를 더했다.
   기본값이 있어 이름 인자·기존 위치 인자 생성은 그대로 컴파일되지만 생성자·`copy` 의 JVM 시그니처가 바뀌어 다시 컴파일해야 한다.
+- `BleSession` 에 `writeLimits` 를 더했다. `BleSession` 을 직접 구현한 코드는 이 속성도 구현해야 한다.
+- data class 시그니처: `BleConnectOptions` 에 `requestedMtu`(기본 `null`)를 더했다. 생성자·`copy`·`component2` 의 JVM 시그니처가 바뀌어 다시 컴파일해야 한다.
 
 ### Added
 
+- `BleConnectOptions.requestedMtu: Int?`(Android 전용, iOS 에는 없다): Configuring 에서 요청할 ATT MTU. 23..517 밖이면 생성 때
+  `IllegalArgumentException`, `null` 이면 코어 기본 247 을 요청한다. 같은 기기에 다른 값으로 `connect()` 하면 `CONNECTION_OPTIONS_CONFLICT` 이고
+  `null` 과 247 은 같은 값이다.
+- `WriteLimits(withResponse, withoutResponse)` 와 `BleSession.writeLimits: StateFlow<WriteLimits?>`: 그 mode 의 write 한 번이 실을 수 있는 최대 바이트.
+  자동 분할 조각 크기와 `Disabled`·`Fixed` 한도 판정이 이 값을 쓴다. Android 는 두 값 모두 협상 MTU − 3 이다. Ready 게시 직전에 정하고 Ready 를 떠나면
+  (Disconnecting·Recovering·Disconnected) `null` 이다. 한 연결 동안 바뀌지 않는다. `SessionSnapshot` 에는 넣지 않았다.
+- `kr.co.nucode.ble.android.androidMtu`: `BleSession` 의 Android 전용 확장. Configuring 에서 협상된 MTU 를 `writeLimits` 와 같은 때에 준다.
+  협상이 실패하면 23 이다. 요청 값과 다를 수 있다(기기와 플랫폼이 정한다).
 - `DescriptorRef(characteristic, uuid, instanceIndex = 0)` 와 `GattCharacteristic.descriptors`(탐색 순서, CCCD 포함).
 - `BleSession.readDescriptor(descriptor): ByteArray`, `BleSession.writeDescriptor(descriptor, value)`. characteristic 작업과 같은 GATT 큐·기한·poison·끊김 규칙.
   write 는 응답 있는 쓰기 한 번이고 나누지 않는다. 512바이트 초과는 `PAYLOAD_TOO_LARGE`, 없는 ref 는 `CHARACTERISTIC_NOT_FOUND`, 플랫폼 동기 거절은
@@ -42,12 +53,16 @@
   기기 정의의 `descriptors` 를 읽는다. sim 가짜 기기가 descriptor 값·쓰기·CCCD 구독 상태(0100 일 때만 알림)를 흉내 낸다.
   draft 시나리오 `descriptors-discovered`·`descriptor-read-write`·`descriptor-read-during-link-loss`·`descriptor-cccd-write-syncs-subscription`·
   `descriptor-cccd-write-restored` 가 sim 에서 통과한다. 기기 실행은 펌웨어 재플래시 뒤다.
+- 계약 러너가 connect 의 `requestedMtu`(정수 23..517, `platforms` 가 정확히 `["android"]` 인 시나리오에서만), `writeLimits`·`androidMtu` 값 레인
+  (`await … is` 가능, CONTRACT 순서 adTypes → writeLimits → androidMtu → peer)을 읽는다. sim 가짜 기기는 요청과 최대 65 중 작은 값으로 협상한다.
+  draft 시나리오 `connect-requested-mtu`·`connect-requested-mtu-conflict`·`write-limits-ready-and-disconnect`·`write-limits-across-recovery` 가 sim 에서 통과한다.
 
 ### Internal
 
 - `AdvertisementData` 를 `PublicModels.kt` 에서 `AdvertisementData.kt` 로 옮겼다(같은 패키지, 공개 시그니처 불변).
   공개 API 덤프 시험이 top-level 공개 선언(확장 속성)의 facade 클래스도 덤프에 넣는다.
 - descriptor 시작과 CCCD 시작을 `DescriptorStart.kt` 로, 러너 읽기 도우미를 `ContractReading.kt` 로 옮겼다. 실패 종류 매핑을 큐 Core 한 곳에 둔다.
+- 러너 레인 목록을 `ContractLanes.kt` 로 옮겼다.
 
 ## 0.3.1 (2026-10-20)
 

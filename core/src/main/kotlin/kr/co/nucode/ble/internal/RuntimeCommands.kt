@@ -220,10 +220,13 @@ internal class RuntimeCommands(
      * 공개 connect 옵션을 런타임 연결로 옮긴다. `autoReconnect = true` 는 Android `autoConnect = true` 로
      * 연결하고 재연결 주체를 플랫폼에 넘긴다(handle 유지, link deadline 없음). 그 밖에는 `autoConnect = false`
      * 이고 링크가 끊기면 재연결 없이 Disconnected(Failed) 로 끝난다. handle 을 OS 대기용으로 남길지
-     * (suppressReconnect)는 lifecycle 이 연결 시작 시점에 모드로 정한다.
+     * (suppressReconnect)는 lifecycle 이 연결 시작 시점에 모드로 정한다. `requestedMtu = null` 은 내부 기본(247)이라
+     * 옵션 비교에서 null 과 247 이 같은 값이 된다.
      */
     internal suspend fun connectOfficial(requestedId: PeripheralId, options: BleConnectOptions) {
-        onCore { connect(requestedId.normalized(), ConnectOptions(autoConnect = options.autoReconnect)) }
+        val internal = options.requestedMtu?.let { ConnectOptions(autoConnect = options.autoReconnect, requestedMtu = it) }
+            ?: ConnectOptions(autoConnect = options.autoReconnect)
+        onCore { connect(requestedId.normalized(), internal) }
     }
 
     /**

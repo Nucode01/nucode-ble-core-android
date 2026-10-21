@@ -3,6 +3,9 @@ package kr.co.nucode.ble.internal
 import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.model.WriteResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kr.co.nucode.ble.WriteLimits
+import kr.co.nucode.ble.internal.gatt.chunkSizeForMtu
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleWriteMode
@@ -27,6 +30,14 @@ internal class DefaultBleSession(
     override val connectionState = MappedStateFlow(backing.connectionState) { it }
     override val services = MappedStateFlow(backing.services) { it }
     override val activeSubscriptions = backing.subscriptionState.activeFlow
+
+    // write 한도는 조각 크기와 같은 함수로 계산한다(Android 는 두 mode 모두 mtu − 3).
+    override val writeLimits: StateFlow<WriteLimits?> = MappedStateFlow(backing.readyMtu) { mtu ->
+        mtu?.let { chunkSizeForMtu(it) }?.let { WriteLimits(withResponse = it, withoutResponse = it) }
+    }
+
+    /** Android 확장 `androidMtu` 의 원천. [writeLimits] 와 같은 때에 생기고 지워진다. */
+    internal val androidMtu: StateFlow<Int?> = MappedStateFlow(backing.readyMtu) { it }
 
     override suspend fun connect(options: BleConnectOptions) {
         runtime.checkOpen()

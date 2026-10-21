@@ -41,7 +41,7 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 | 코루틴 API | 명령은 `suspend` 함수, 상태는 `StateFlow`, 수신 값은 `Flow` 로 다룹니다. |
 | GATT 작업 줄 세우기 | 기기(세션)마다 read · write · 구독을 먼저 온 순서대로 하나씩 실행합니다. 여러 코루틴에서 동시에 불러도 됩니다. |
 | descriptor 읽기·쓰기 | `GattCharacteristic.descriptors` 로 탐색 결과를 보고 `readDescriptor`·`writeDescriptor` 로 같은 GATT 큐에서 읽고 씁니다. Android 는 CCCD 직접 쓰기를 구독 상태에 맞춥니다([5.7](recipes/data.md#57-notify--indicate-구독)). |
-| 긴 write 자동 분할 | 협상된 MTU 에 맞춰 잘라 보내고, 성공하면 `WriteReceipt`, 도중에 실패하면 어디까지 갔는지(`WriteProgress`)를 알려 줍니다. |
+| 긴 write 자동 분할 | 협상된 MTU 에 맞춰(한도는 `writeLimits`) 잘라 보내고, 성공하면 `WriteReceipt`, 도중에 실패하면 어디까지 갔는지(`WriteProgress`)를 알려 줍니다. |
 | 타입이 있는 실패 | 모든 실패는 `BleException(failure: BleFailure)` 입니다. 바뀌지 않는 문자열 `code` 와 재시도 가능성(`Retryability`)으로 분기합니다. |
 | 연결 단계 관리 | 서비스 탐색과 MTU 협상을 코어가 하고, 진행 상황을 `ConnectionState`(`Connecting → DiscoveringServices → Configuring → Ready`)로 보여 줍니다. |
 | 재연결과 구독 복원 | `autoReconnect = true` 면 링크가 끊겨도 OS 가 다시 붙일 때까지 기다리고, 블루투스가 다시 켜지면 한 번 다시 연결합니다. 켜 둔 구독(notify)은 새 연결마다 `Ready` 전에 자동으로 다시 켭니다. |
@@ -57,7 +57,9 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 - **권한 선언과 권한 요청 UI.** 앱이 선언하고 요청합니다.
 - **라이브러리 자체 재연결 시간표(백오프 · 재시도 횟수).** 0.2.0 에서 없앴습니다. OS autoConnect(`autoReconnect = true`)나 앱이 맡습니다.
   예외 하나: `autoReconnect = false` 첫 연결이 요청 직후 GATT status 133 으로 실패하면 라이브러리가 같은 link 시간 제한 안에서 최대 2번 다시 겁니다([5.3](recipes/scan-connect.md#53-앱이-다시-시도하는-연결)).
-- **MTU 값 지정, Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
+- **Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
+  요청 MTU 는 Android 전용 연결 옵션 `BleConnectOptions(requestedMtu = …)`(23..517, 기본 247)로 고릅니다. 공통 API 에서는 MTU 숫자 대신 mode 별 write 한도
+  `session.writeLimits` 를 읽고, 협상 MTU 숫자는 Android 전용 확장 `session.androidMtu` 로 읽습니다([5.6](recipes/data.md)).
   광고 원본 바이트는 Android 전용 확장으로 제공(공통 API 에는 없음)합니다. iOS 는 원본 바이트를 주지 않습니다([5.1](recipes/scan-connect.md#51-스캔-필터로-찾고-가장-가까운-기기-고르기)).
 - **Maven Central 배포.** JitPack 으로만 냅니다([설치](install.md)).
 

@@ -73,7 +73,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     var onDiscover: CallbackVariant = CallbackVariant.Arrive()
     var services: List<GattServiceSnapshot> = listOf(gapServiceSnapshot())
 
-    // 근거(가정): 요청한 MTU 를 그대로 허용해 status 0 으로 한 번 응답(mtuResult 로 바꿀 수 있음).
+    // 근거(가정): status 0 으로 한 번 응답. 협상값은 요청과 기기 최대 [mtuResult](null 이면 제한 없음) 중 작은 값.
     var onMtu: CallbackVariant = CallbackVariant.Arrive()
     var mtuResult: Int? = null
 
@@ -338,7 +338,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         if (!mtuStarts) return false
         val source = sourceAt(epoch)
         schedule(onMtu) { status ->
-            GattDriverEvent.MtuChanged(deviceId, source, mtuResult ?: mtu, status, connectionGeneration = null)
+            GattDriverEvent.MtuChanged(deviceId, source, mtuResult?.coerceAtMost(mtu) ?: mtu, status, connectionGeneration = null)
         }
         return true
     }

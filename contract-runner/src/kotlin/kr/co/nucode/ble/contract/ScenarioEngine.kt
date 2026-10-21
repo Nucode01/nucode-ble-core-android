@@ -24,6 +24,7 @@ import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.android.androidMtu
 import kr.co.nucode.ble.android.androidScanRecordBytes
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -207,7 +208,7 @@ internal class ScenarioEngine(
                 }
                 CallOp.StopScan -> target.client.stopScan()
                 CallOp.Close -> target.client.close()
-                CallOp.Connect -> session.connect(BleConnectOptions(autoReconnect = call.autoReconnect))
+                CallOp.Connect -> session.connect(BleConnectOptions(autoReconnect = call.autoReconnect, requestedMtu = call.requestedMtu))
                 CallOp.Disconnect -> session.disconnect()
                 CallOp.Read -> session.read(ref!!)
                 CallOp.Write -> session.write(
@@ -281,6 +282,18 @@ internal class ScenarioEngine(
                     if (!it.peripheralId.value.equals(id.value, ignoreCase = true)) return@collect
                     it.advertisement.androidScanRecordBytes?.let { raw -> addAdTypes(log, raw) }
                 }
+            }
+        }
+        if (log.records(Lanes.WRITE_LIMITS)) {
+            // 공통 write 한도: `<withResponse>/<withoutResponse>`, 없으면 null(README §기록).
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                session.writeLimits.collect { log.add(Lanes.WRITE_LIMITS, it?.let { l -> "${l.withResponse}/${l.withoutResponse}" } ?: "null") }
+            }
+        }
+        if (log.records(Lanes.ANDROID_MTU)) {
+            // Android 전용 공개 확장으로 협상 MTU 를 읽는다. 10진수, 없으면 null.
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                session.androidMtu.collect { log.add(Lanes.ANDROID_MTU, it?.toString() ?: "null") }
             }
         }
         if (log.records(Lanes.SERVICES)) {

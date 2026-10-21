@@ -27,6 +27,13 @@ public interface BleSession {
      */
     public val activeSubscriptions: StateFlow<Set<CharacteristicRef>>
 
+    /**
+     * Per-mode write limits of the current connection. Set just before [connectionState] becomes `Ready`, so an
+     * observer that sees `Ready` reads a non-null value. Null outside `Ready` (Disconnecting, Recovering,
+     * Disconnected and the setup stages). The value does not change during one connection.
+     */
+    public val writeLimits: StateFlow<WriteLimits?>
+
     public suspend fun connect(options: BleConnectOptions = BleConnectOptions())
     public suspend fun disconnect()
 

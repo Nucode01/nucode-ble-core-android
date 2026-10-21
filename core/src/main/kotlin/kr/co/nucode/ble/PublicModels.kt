@@ -201,8 +201,23 @@ public sealed interface BleDisconnectReason {
  *   대기를 유지하는 no-op). 옵션을 바꾸려면 먼저 `disconnect()` 한 뒤 다시 연결한다.
  * - 어댑터가 꺼져 `Disconnected(Failed(ADAPTER_UNAVAILABLE))` 로 끝난 `autoReconnect` 세션은 어댑터가 다시
  *   켜지면 한 번 다시 연결을 건다(예약·재시도 없음). 그 사이 `disconnect()` 하면 걸지 않는다.
+ *
+ * [requestedMtu] is Android only, iOS has no equivalent. It is the ATT MTU the core requests while
+ * `Configuring`, 23..517 (outside that range the constructor throws `IllegalArgumentException`).
+ * Null requests the core default, 247. The peripheral and the platform decide the negotiated value; read it
+ * from `writeLimits`, or from the Android extension `androidMtu`. A `connect()` with a different value on the
+ * same device fails with `CONNECTION_OPTIONS_CONFLICT`; null and 247 count as the same value.
  */
-public data class BleConnectOptions(val autoReconnect: Boolean = false)
+public data class BleConnectOptions(
+    val autoReconnect: Boolean = false,
+    val requestedMtu: Int? = null,
+) {
+    init {
+        require(requestedMtu == null || requestedMtu in 23..517) {
+            "requestedMtu must be in 23..517: $requestedMtu"
+        }
+    }
+}
 
 public data class GattService(
     val ref: ServiceRef,

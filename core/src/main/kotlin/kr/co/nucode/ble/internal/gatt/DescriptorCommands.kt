@@ -2,7 +2,9 @@ package kr.co.nucode.ble.internal.gatt
 
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
+import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
+import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.DiagnosticValue
@@ -48,6 +50,9 @@ internal class QueuedDescriptorWrite(
 
     /** CCCD(0x2902) 쓰기는 로컬 알림 수신과 구독 상태를 함께 맞춘다(B.4). */
     val isCccd: Boolean get() = descriptor.uuid.value == OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID
+
+    /** CCCD 쓰기의 로컬 수신 정산 기록. 세션 owner 에서 시작 때 쓰고 완료 때 한 번 읽는다. 시작 전에 끝나면 null 이다. */
+    var routingSettle: CccdRoutingSettle? = null
 
     fun valueCopy(): ByteArray = immutableValue.copyOf()
 }
@@ -102,8 +107,9 @@ internal class DescriptorCommands(
     }
 
     /**
-     * 기기가 성공으로 응답한 뒤에만 고친다. 0 이 아니면 의도(마지막 값)·활성에 넣는다 — 접수 뒤 요청 순간 해제(unsubscribe)가
-     * 있었거나 시작 generation 이 더 이상 Ready 가 아니면 넣지 않는다. 0 이면 뺀다.
+     * 로컬 수신은 성공·실패 모두 정산한다([CccdRoutingSettle]). 구독 상태는 기기가 성공으로 응답한 뒤에만 고친다. 0 이 아니면
+     * 의도(마지막 값)·활성에 넣는다 — 접수 뒤 요청 순간 해제(unsubscribe)가 있었거나 시작 generation 이 더 이상 Ready 가 아니면
+     * 넣지 않는다. 0 이면 뺀다.
      */
     private fun applyCccdOnSuccess(session: Session, operation: QueuedDescriptorWrite, queued: ScheduledGattOperation<Unit>) {
         val charRef = operation.descriptor.characteristic
@@ -111,6 +117,8 @@ internal class DescriptorCommands(
         val startGeneration = session.connectionCoordinator.generation
         val removalMark = session.subscriptionState.removalMark(charRef)
         queued.completion.invokeOnCompletion { cause ->
+            val settled = operation.routingSettle?.settle(succeeded = cause == null) ?: true
+            if (!settled) reportRoutingOffRejected(session, operation.descriptor)
             if (cause != null) return@invokeOnCompletion
             val enables = value.enablesNotifications()
             val changed = if (enables) {
@@ -123,6 +131,14 @@ internal class DescriptorCommands(
             }
             if (changed) observeSubscriptionChange(session, queued, operation.descriptor, enables)
         }
+    }
+
+    /** 로컬 수신 끄기가 거절됐다 — 구독 상태는 기기 응답대로 두고 Warning 진단만 낸다. */
+    private fun reportRoutingOffRejected(session: Session, descriptor: DescriptorRef) {
+        val failure = GattFailureFactory.startRejected(
+            session, FailurePhase.Operation, AndroidApiOperation.SetCharacteristicNotification, kind = OperationKind.WriteDescriptor,
+        )
+        executor.emitDiagnostic(Severity.Warning, failure.copy(context = failure.context.copy(descriptor = descriptor)))
     }
 
     /**

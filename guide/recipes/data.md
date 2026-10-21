@@ -154,7 +154,8 @@ suspend fun stopReceiving(session: BleSession, characteristic: CharacteristicRef
 **CCCD(0x2902) 직접 쓰기 — Android 만.**
 
 - 받은 값을 그대로 씁니다. `0x0003` 이나 비표준 값도 바꾸지 않고, properties 로 거르지 않습니다.
-- 값이 0 이 아니면 로컬 알림 수신을 켜고 0 이면 끕니다. 기기가 성공으로 응답한 뒤에만 `activeSubscriptions` 와 구독 의도를 고칩니다.
+- 값이 0 이 아니면 쓰기 전에 로컬 알림 수신을 켜고, 0 이면 기기가 성공으로 응답한 뒤에 끕니다. 기기가 성공으로 응답한 뒤에만 `activeSubscriptions` 와 구독 의도를 고칩니다.
+- 쓰기가 실패하면 로컬 수신·`activeSubscriptions`·구독 의도가 쓰기 전 상태입니다. 그래서 0 쓰기가 거절되면 알림이 계속 옵니다.
 - 구독 의도는 마지막으로 쓴 값을 기억하고 재연결 복원 때 그 값을 그대로 다시 씁니다. `subscribe()`·`unsubscribe()` 와 같은 큐에서 나중에 끝난 작업이 상태를 정합니다.
 - 진단 logger 에는 이 쓰기로 구독이 켜지거나 꺼질 때 값 키 `subscription_change`(`enabled`·`disabled`)가 든 기록이 하나 남습니다.
 - 구독만 필요하면 `subscribe()` 를 쓰세요. iOS 는 OS 제약으로 CCCD 쓰기를 할 수 없습니다(iOS 구현 때 거절 코드가 생깁니다). 읽기(`readDescriptor`)는 두 플랫폼이 같습니다.

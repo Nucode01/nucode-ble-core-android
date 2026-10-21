@@ -84,6 +84,62 @@ class CccdWriteTest {
     }
 
     @Test
+    fun `규칙 2·3 - 0 쓰기가 거절되면 로컬 수신을 끄지 않아 알림이 계속 전달된다`() = runTest {
+        val h = descriptorHarness()
+        h.connectToReady(DEVICE)
+        call { h.session(DEVICE).writeDescriptor(CCCD, byteArrayOf(1, 0)) }
+        h.fake.notificationRouting.clear()
+        h.fake.descriptorWriteStatus = { _, _ -> 3 }
+
+        assertEquals("GATT_STATUS_FAILED", call { h.session(DEVICE).writeDescriptor(CCCD, byteArrayOf(0, 0)) }.failureCode())
+        assertEquals(emptyList<Boolean>(), h.fake.notificationRouting)
+        assertEquals(setOf(CHAR), h.active())
+        assertEquals(setOf(CHAR), h.intent())
+        h.close()
+    }
+
+    @Test
+    fun `규칙 3 - 활성이 아니던 0 이 아닌 값 쓰기가 거절되면 켠 로컬 수신을 되돌린다`() = runTest {
+        val h = descriptorHarness()
+        h.connectToReady(DEVICE)
+        h.fake.notificationRouting.clear()
+        h.fake.descriptorWriteStatus = { _, _ -> 3 }
+
+        assertEquals("GATT_STATUS_FAILED", call { h.session(DEVICE).writeDescriptor(CCCD, byteArrayOf(1, 0)) }.failureCode())
+        assertEquals(listOf(true, false), h.fake.notificationRouting)
+        assertTrue(h.active().isEmpty() && h.intent().isEmpty())
+        h.close()
+    }
+
+    @Test
+    fun `규칙 3 - 0 이 아닌 값 쓰기의 동기 거절도 켠 로컬 수신을 되돌린다`() = runTest {
+        val h = descriptorHarness()
+        h.connectToReady(DEVICE)
+        h.fake.notificationRouting.clear()
+        h.fake.descriptorStarts = false
+
+        assertEquals("GATT_OPERATION_START_FAILED", call { h.session(DEVICE).writeDescriptor(CCCD, byteArrayOf(1, 0)) }.failureCode())
+        assertEquals(listOf(true, false), h.fake.notificationRouting)
+        assertTrue(h.active().isEmpty() && h.intent().isEmpty())
+        h.close()
+    }
+
+    @Test
+    fun `규칙 3 - 이미 활성인 구독에 0 이 아닌 값 쓰기가 거절되면 로컬 수신을 끄지 않는다`() = runTest {
+        val h = descriptorHarness()
+        h.connectToReady(DEVICE)
+        h.subscribe(DEVICE, CHAR)
+        h.fake.notificationRouting.clear()
+        h.fake.descriptorWriteStatus = { _, _ -> 3 }
+
+        assertEquals("GATT_STATUS_FAILED", call { h.session(DEVICE).writeDescriptor(CCCD, byteArrayOf(3, 0)) }.failureCode())
+        assertEquals(listOf(true), h.fake.notificationRouting)
+        assertEquals(setOf(CHAR), h.active())
+        assertEquals(setOf(CHAR), h.intent())
+        h.close()
+    }
+
+    @Test
     fun `규칙 4 - 재연결 복원은 마지막으로 쓴 값을 그대로 다시 쓴다`() = runTest {
         val h = descriptorHarness()
         h.connectToReady(DEVICE, auto)
@@ -120,6 +176,7 @@ class CccdWriteTest {
 
         assertEquals(setOf(CHAR), h.active())
         assertEquals(setOf(CHAR), h.intent())
+        assertEquals(true, h.fake.notificationRouting.last())
         h.close()
     }
 

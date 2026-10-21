@@ -30,7 +30,8 @@ Android 요청 MTU 와 write 한도·협상 MTU 조회(CANDIDATE-33·CANDIDATE-5
   write 는 응답 있는 쓰기 한 번이고 나누지 않는다. 512바이트 초과는 `PAYLOAD_TOO_LARGE`, 없는 ref 는 `CHARACTERISTIC_NOT_FOUND`, 플랫폼 동기 거절은
   `GATT_OPERATION_START_FAILED` 다. 실패 문맥에 `FailureContext.descriptor` 를 싣는다.
 - Android CCCD(0x2902) 직접 쓰기: 받은 값을 그대로 쓰고, 기기가 성공으로 응답한 뒤 `activeSubscriptions`·구독 의도를 그 값에 맞춘다(0 이 아니면 켜짐,
-  0 이면 꺼짐). 재연결 복원은 마지막으로 쓴 값을 다시 쓴다. `subscribe`·`unsubscribe` 와 같은 큐에서 나중 작업이 상태를 정한다.
+  0 이면 꺼짐). 값이 0 이 아니면 쓰기 전에 로컬 알림 수신을 켜고, 0 이면 기기가 성공으로 응답한 뒤에 끈다. 쓰기가 실패하면 로컬 수신·
+  `activeSubscriptions`·구독 의도가 쓰기 전 상태다(0 쓰기가 거절되면 알림이 계속 온다). 재연결 복원은 마지막으로 쓴 값을 다시 쓴다. `subscribe`·`unsubscribe` 와 같은 큐에서 나중 작업이 상태를 정한다.
 - 진단: descriptor payload 는 `GATT_PAYLOAD_OBSERVED` 로 관측하고 safe·sensitive 는 그 characteristic 의 판정을 따른다. 앱 CCCD 쓰기가 활성 구독을
   바꾸면 logger 에 값 키 `subscription_change`(`enabled`·`disabled`) 기록이 하나 남는다(문맥 종류 `Subscribe`·`Unsubscribe`). 실패 코드 수는 그대로다.
 

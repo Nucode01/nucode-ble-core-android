@@ -75,8 +75,8 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
     internal val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     /**
-     * Ready 동안의 협상 MTU(공개 `writeLimits`·Android `androidMtu` 의 원천). [publishStage] 가 공개 상태를 게시하기 직전에
-     * Ready 면 [mtu], 아니면 null 로 정한다. [mtu] 는 Configuring 에서만 바뀌므로 한 연결 동안 고정이다.
+     * Ready 동안의 협상 MTU(공개 `writeLimits`·Android `androidMtu` 의 원천). [publishStage] 가 Ready 면 공개 상태 게시 직전에 [mtu] 로,
+     * 아니면 게시 직후에 null 로 정한다. [mtu] 는 Configuring 에서만 바뀌므로 한 연결 동안 고정이다.
      */
     private val _readyMtu = MutableStateFlow<Int?>(null)
     internal val readyMtu: StateFlow<Int?> = _readyMtu.asStateFlow()
@@ -102,9 +102,11 @@ internal class Session(val deviceId: PeripheralId, clock: ClockPort) {
             subscriptionState.clearActive()
             onLeaveLink()
         }
-        // write 한도의 원천은 공개 상태보다 먼저 정한다 — Ready 를 본 관찰자가 값을 읽고, Ready 를 떠나면 null 이다.
-        _readyMtu.value = if (ConnectionCore.readyFor(connectionCoordinator.coreState, connectionCoordinator.generation)) mtu else null
+        // Ready 를 본 관찰자가 늘 write 한도를 읽도록: 들어갈 때는 공개 상태보다 먼저 값을, 떠날 때는 공개 상태 뒤에 null 을 정한다.
+        val readyMtu = if (ConnectionCore.readyFor(connectionCoordinator.coreState, connectionCoordinator.generation)) mtu else null
+        if (readyMtu != null) _readyMtu.value = readyMtu
         _connectionState.value = ConnectionCore.publicState(connectionCoordinator.coreState)
+        if (readyMtu == null) _readyMtu.value = null
     }
 
     /** stage 이벤트 없이 공개 상태만 다시 파생한다(플랫폼 재연결 대기 표시가 바뀐 경우). */

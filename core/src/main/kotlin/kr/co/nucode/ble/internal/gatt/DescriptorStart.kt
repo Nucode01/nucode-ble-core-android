@@ -48,6 +48,68 @@ internal fun startCccdWrite(
 }
 
 /**
+ * 앱 CCCD write(B.4 규칙 2·3). 0 이 아니면 쓰기 전에 로컬 알림 수신을 켜고(거절이면 쓰지 않고 시작 거절), 0 이면 건드리지 않는다.
+ * 쓰기 전에 [QueuedDescriptorWrite.routingSettle] 을 남긴다 — 끄기·되돌리기는 기기 응답(또는 동기 거절의 실패 완료) 뒤에 한다.
+ */
+private fun startAppCccdWrite(
+    driver: GattDriver,
+    session: Session,
+    gatt: GattHandle?,
+    characteristic: PlatformCharacteristic,
+    descriptor: PlatformDescriptor,
+    operation: QueuedDescriptorWrite,
+    value: ByteArray,
+): BleFailure? {
+    val enables = value.enablesNotifications()
+    if (enables && !driver.setCharacteristicNotification(session.deviceId, gatt, characteristic, true)) {
+        return GattFailureFactory.startRejected(
+            session, FailurePhase.Operation, AndroidApiOperation.WriteDescriptor, kind = OperationKind.WriteDescriptor,
+        )
+    }
+    operation.routingSettle = CccdRoutingSettle(
+        driver, session, gatt, characteristic,
+        enables = enables,
+        wasActive = operation.descriptor.characteristic in session.subscriptionState.activeSnapshot,
+        startGeneration = session.connectionCoordinator.generation,
+    )
+    return if (driver.writeDescriptor(session.deviceId, gatt, descriptor, value)) {
+        null
+    } else {
+        GattFailureFactory.startRejected(
+            session, FailurePhase.Operation, AndroidApiOperation.WriteDescriptor, kind = OperationKind.WriteDescriptor,
+        )
+    }
+}
+
+/**
+ * 앱 CCCD write 가 끝난 뒤의 로컬 수신 정산. 성공한 0 이면 끈다. 실패한 0 이 아닌 값이면 쓰기 전에 활성이 아니었을 때만 켠 수신을 끈다.
+ * 실패한 0·성공한 0 이 아닌 값은 할 일이 없다. 시작 generation 이 더 이상 Ready 가 아니면 아무것도 하지 않는다(링크가 떠나는 중이다).
+ */
+internal class CccdRoutingSettle(
+    private val driver: GattDriver,
+    private val session: Session,
+    private val gatt: GattHandle?,
+    private val characteristic: PlatformCharacteristic,
+    private val enables: Boolean,
+    private val wasActive: Boolean,
+    private val startGeneration: Long,
+) {
+    /**
+     * 끄기가 거절되거나 예외를 던지면 false — 호출자가 진단만 남긴다. completion 처리기에서 불리므로 예외를 밖으로 내지 않는다
+     * (내면 큐 셸이 남은 할 일을 버린다).
+     */
+    fun settle(succeeded: Boolean): Boolean {
+        val disable = if (succeeded) !enables else enables && !wasActive
+        if (!disable || !session.connectionCoordinator.readyFor(startGeneration)) return true
+        return try {
+            driver.setCharacteristicNotification(session.deviceId, gatt, characteristic, false)
+        } catch (e: Exception) {
+            false
+        }
+    }
+}
+
+/**
  * descriptor read·write 를 플랫폼에 시작한다. descriptor 는 [target] 의 탐색 순서 목록에서 (uuid, 순번)으로 고르고, 없으면
  * `CHARACTERISTIC_NOT_FOUND` 다. 플랫폼이 동기로 거절하면 `GATT_OPERATION_START_FAILED` 다. write 는 시작이 받아들여지면
  * [onWriteStarted] 로 보낸 값을 알린다(payload 관측).
@@ -74,7 +136,7 @@ internal fun startDescriptorOperation(
     val value = operation.valueCopy()
     val failure = when {
         descriptor == null -> GattFailureFactory.characteristicNotFound(session, kind)
-        operation.isCccd -> startCccdWrite(driver, session, gatt, target.characteristic, descriptor, value, kind)
+        operation.isCccd -> startAppCccdWrite(driver, session, gatt, target.characteristic, descriptor, operation, value)
         driver.writeDescriptor(session.deviceId, gatt, descriptor, value) -> null
         else -> GattFailureFactory.startRejected(session, FailurePhase.Operation, AndroidApiOperation.WriteDescriptor, kind = kind)
     }

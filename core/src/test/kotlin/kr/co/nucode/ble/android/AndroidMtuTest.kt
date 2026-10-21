@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kr.co.nucode.ble.BleChunking
@@ -144,6 +145,23 @@ class AndroidMtuTest {
         h.connectToReady(id)
         runCurrent()
         assertEquals(listOf<WriteLimits?>(WriteLimits(62, 62)), seenAtReady)
+        watcher.cancel()
+        h.close()
+    }
+
+    @Test
+    fun `Ready 를 떠날 때 write 한도가 null 이 되는 순간 공개 상태는 이미 Ready 가 아니다`() = runTest {
+        val h = mtuHarness(maxMtu = 65)
+        val session = h.session(id)
+        h.connectToReady(id)
+        val stateAtNull = mutableListOf<ConnectionState>()
+        val watcher = launch(UnconfinedTestDispatcher(testScheduler)) {
+            session.writeLimits.collect { if (it == null) stateAtNull += session.connectionState.value }
+        }
+        h.disconnect(id)
+        runCurrent()
+        assertTrue(stateAtNull.isNotEmpty())
+        assertTrue(stateAtNull.none { it == ConnectionState.Ready })
         watcher.cancel()
         h.close()
     }

@@ -11,6 +11,8 @@ internal enum class GattOperationKind {
     Subscribe,
     Unsubscribe,
     RequestMtu,
+    ReadDescriptor,
+    WriteDescriptor,
 }
 
 /**
@@ -51,9 +53,11 @@ internal data class GattCharacteristicIdentity(
     }
 }
 
+/** [descriptorInstanceIndex] 는 같은 characteristic 아래 같은 UUID descriptor 사이의 탐색 순번이다. */
 internal data class GattDescriptorIdentity(
     val characteristic: GattCharacteristicIdentity,
     val descriptorUuid: UUID,
+    val descriptorInstanceIndex: Int = 0,
 ) : GattAttributeIdentity
 
 /**

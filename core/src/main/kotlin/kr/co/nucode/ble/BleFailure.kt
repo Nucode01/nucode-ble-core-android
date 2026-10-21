@@ -94,6 +94,8 @@ public enum class OperationKind {
     Subscribe,
     Unsubscribe,
     RequestMtu,
+    ReadDescriptor,
+    WriteDescriptor,
 }
 
 /** Why pending work was invalidated with the active connection generation. */
@@ -120,6 +122,8 @@ public data class FailureContext(
     val operationId: String? = null,
     val operationKind: OperationKind? = null,
     val invalidationReason: ConnectionInvalidationReason? = null,
+    /** The descriptor a `readDescriptor`/`writeDescriptor` failure or payload observation refers to. */
+    val descriptor: DescriptorRef? = null,
 ) {
     init {
         require(connectionGeneration == null || connectionGeneration >= 0L) {
@@ -261,29 +265,6 @@ internal sealed interface DisconnectReason {
     public data object Requested : DisconnectReason
     public data object ClientClosed : DisconnectReason
     public data class Failed(val failure: BleFailure) : DisconnectReason
-}
-
-/**
- * Android API operations that may appear in public [PlatformDetail.Android.apiOperation]. Keeping
- * this closed at the mapper boundary prevents exception text or caller-supplied identifiers from
- * reaching the public failure value.
- */
-internal enum class AndroidApiOperation(internal val wireName: String) {
-    StartScan("startScan"),
-    OnScanFailed("onScanFailed"),
-    ConnectGatt("connectGatt"),
-    DiscoverServices("discoverServices"),
-    SetCharacteristicNotification("setCharacteristicNotification"),
-    ReadCharacteristic("readCharacteristic"),
-    WriteCharacteristic("writeCharacteristic"),
-    WriteDescriptor("writeDescriptor"),
-    RequestMtu("requestMtu"),
-    OnConnectionStateChange("onConnectionStateChange"),
-    OnServicesDiscovered("onServicesDiscovered"),
-    OnMtuChanged("onMtuChanged"),
-    OnCharacteristicRead("onCharacteristicRead"),
-    OnCharacteristicWrite("onCharacteristicWrite"),
-    OnDescriptorWrite("onDescriptorWrite"),
 }
 
 /**

@@ -135,6 +135,25 @@ suspend fun stopReceiving(session: BleSession, characteristic: CharacteristicRef
 - `disconnect()` 는 그 세션의 구독 의도를 모두 지웁니다. 다시 연결한 뒤 `subscribe()` 를 다시 불러야 합니다.
 - `unsubscribe()` 는 기기 쪽 해제가 실패해도 던지지 않습니다(`events` 에 진단만 남김). 로컬에서는 즉시 꺼집니다.
 
+### descriptor 읽기·쓰기
+
+**언제 쓰나.** 캐릭터리스틱 설명(CUD 0x2901), 표시 형식(CPF 0x2904), 기기 전용 descriptor 처럼 캐릭터리스틱 아래 값을 읽고 쓸 때.
+
+- 탐색이 끝나면 `services` 의 `GattCharacteristic.descriptors` 에 descriptor 가 탐색 순서대로 들어 있습니다. CCCD(0x2902)도 숨기지 않습니다.
+  `DescriptorRef(characteristic, uuid, instanceIndex)` 로 가리키고, `instanceIndex` 는 같은 캐릭터리스틱 아래 같은 UUID descriptor 사이의 순번입니다.
+- `session.readDescriptor(ref)` 는 원본 바이트를 돌려줍니다. 0x2901 문자열, 0x2904 구조 해석은 앱이 합니다.
+- `session.writeDescriptor(ref, value)` 는 응답 있는 쓰기 한 번이고 나누지 않습니다. 512바이트를 넘으면 `PAYLOAD_TOO_LARGE` 로 아무것도 보내지 않습니다.
+- read·write 와 같은 GATT 큐에서 같은 작업 기한·끊김 규칙으로 실행합니다. 탐색 결과에 없는 ref 는 `CHARACTERISTIC_NOT_FOUND` 입니다.
+- 진단 기록(`GATT_PAYLOAD_OBSERVED`)의 원문 공개 여부는 그 descriptor 가 속한 캐릭터리스틱의 `safeCharacteristics`·`sensitiveCharacteristics` 를 따릅니다.
+
+**CCCD(0x2902) 직접 쓰기 — Android 만.**
+
+- 받은 값을 그대로 씁니다. `0x0003` 이나 비표준 값도 바꾸지 않고, properties 로 거르지 않습니다.
+- 값이 0 이 아니면 로컬 알림 수신을 켜고 0 이면 끕니다. 기기가 성공으로 응답한 뒤에만 `activeSubscriptions` 와 구독 의도를 고칩니다.
+- 구독 의도는 마지막으로 쓴 값을 기억하고 재연결 복원 때 그 값을 그대로 다시 씁니다. `subscribe()`·`unsubscribe()` 와 같은 큐에서 나중에 끝난 작업이 상태를 정합니다.
+- 진단 logger 에는 이 쓰기로 구독이 켜지거나 꺼질 때 값 키 `subscription_change`(`enabled`·`disabled`)가 든 기록이 하나 남습니다.
+- 구독만 필요하면 `subscribe()` 를 쓰세요. iOS 는 OS 제약으로 CCCD 쓰기를 할 수 없습니다(iOS 구현 때 거절 코드가 생깁니다). 읽기(`readDescriptor`)는 두 플랫폼이 같습니다.
+
 ## 5.8 요청-응답 (write 하고 notify 로 답 받기, 예: NUS)
 
 **언제 쓰나.** 명령을 보내고 그 응답을 notify 로 받는 프로토콜(UART 형 명령어 등).

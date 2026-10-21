@@ -9,6 +9,7 @@ import kr.co.nucode.ble.BleWriteMode
 import kr.co.nucode.ble.BleWriteOptions
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.ConnectionState
+import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.internal.gatt.GattFailureFactory
@@ -84,5 +85,15 @@ internal class DefaultBleSession(
     override suspend fun unsubscribe(characteristic: CharacteristicRef) {
         runtime.checkOpen()
         runtime.unsubscribe(peripheralId, characteristic)
+    }
+
+    override suspend fun readDescriptor(descriptor: DescriptorRef): ByteArray {
+        runtime.checkOpen()
+        return runtime.readDescriptor(peripheralId, descriptor)
+    }
+
+    override suspend fun writeDescriptor(descriptor: DescriptorRef, value: ByteArray) {
+        runtime.checkOpen()
+        runtime.writeDescriptor(peripheralId, descriptor, value.copyOf())
     }
 }

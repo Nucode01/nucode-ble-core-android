@@ -51,7 +51,11 @@ internal enum class GattResponseCategory(val callbackKind: String, val kinds: Se
         "CharacteristicWrite",
         setOf(GattOperationKind.WriteWithResponse, GattOperationKind.WriteWithoutResponse),
     ),
-    DescriptorWrite("DescriptorWrite", setOf(GattOperationKind.Subscribe, GattOperationKind.Unsubscribe)),
+    DescriptorRead("DescriptorRead", setOf(GattOperationKind.ReadDescriptor)),
+    DescriptorWrite(
+        "DescriptorWrite",
+        setOf(GattOperationKind.Subscribe, GattOperationKind.Unsubscribe, GattOperationKind.WriteDescriptor),
+    ),
 }
 
 /** Runtime 이 Core 에 넣는 사건. */

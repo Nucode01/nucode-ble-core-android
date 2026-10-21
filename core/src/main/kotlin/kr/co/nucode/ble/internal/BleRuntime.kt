@@ -363,6 +363,12 @@ internal class BleRuntime internal constructor(
 
     public suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef): Unit = commands.unsubscribe(deviceId, charRef)
 
+    internal suspend fun readDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef): ByteArray =
+        commands.readDescriptor(deviceId, descriptor)
+
+    internal suspend fun writeDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef, value: ByteArray): Unit =
+        commands.writeDescriptor(deviceId, descriptor, value)
+
 
     /** [close] 가 예약한 정리가 끝났는지 기다린다(plan `runtime-no-runblocking` task 2(B)). */
     internal suspend fun awaitClosed() = closer.awaitClosed()

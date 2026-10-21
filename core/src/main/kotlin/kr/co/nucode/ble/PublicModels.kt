@@ -44,6 +44,20 @@ public data class CharacteristicRef(
     }
 }
 
+/**
+ * Exact descriptor instance reference under a discovered characteristic. [instanceIndex] orders
+ * descriptors with the same UUID under the same characteristic, in discovery order.
+ */
+public data class DescriptorRef(
+    val characteristic: CharacteristicRef,
+    val uuid: BleUuid,
+    val instanceIndex: Int = 0,
+) {
+    init {
+        require(instanceIndex >= 0) { "instanceIndex must be non-negative" }
+    }
+}
+
 public data class ScanResult(
     val peripheralId: PeripheralId,
     val rssi: Int,
@@ -198,6 +212,8 @@ public data class GattService(
 public data class GattCharacteristic(
     val ref: CharacteristicRef,
     val properties: Set<CharacteristicProperty>,
+    /** Descriptors in discovery order, including the CCCD (0x2902). */
+    val descriptors: List<DescriptorRef> = emptyList(),
 )
 
 public enum class CharacteristicProperty {

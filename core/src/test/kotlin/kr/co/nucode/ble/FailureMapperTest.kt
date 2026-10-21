@@ -152,6 +152,8 @@ class FailureMapperTest {
                 "operationId",
                 "operationKind",
                 "invalidationReason",
+                // descriptor 작업 문맥(CANDIDATE-32, api-contract FailureContext.descriptor). 공통 ref 이고 플랫폼 객체가 아니다.
+                "descriptor",
             ),
             fieldNames,
         )

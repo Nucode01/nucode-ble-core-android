@@ -3,6 +3,7 @@ package kr.co.nucode.ble.internal.platform.android
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kr.co.nucode.ble.internal.port.TargetResolution
+import kr.co.nucode.ble.internal.port.PlatformDescriptorEntry
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
@@ -156,6 +157,15 @@ internal class AndroidGattDriver(
         operation = AndroidApiOperation.ReadCharacteristic,
     ) { gatt.bluetoothGatt?.readCharacteristic(characteristic.bluetoothCharacteristic) ?: false }
 
+    override fun readDescriptor(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
+    ): Boolean = startOrPermissionDenied(
+        phase = FailurePhase.Operation,
+        operation = AndroidApiOperation.ReadDescriptor,
+    ) { gatt.bluetoothGatt?.readDescriptor(descriptor.bluetoothDescriptor) ?: false }
+
     override fun writeCharacteristic(
         deviceId: PeripheralId,
         gatt: GattHandle?,
@@ -202,6 +212,7 @@ internal class AndroidGattDriver(
         return TargetResolution.Resolved(
             propertyMask = platformCharacteristic.properties,
             cccdDescriptor = platformCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)?.let(::AndroidDescriptor),
+            descriptors = platformCharacteristic.descriptors.map { PlatformDescriptorEntry(it.uuid, AndroidDescriptor(it)) },
         )
     }
 

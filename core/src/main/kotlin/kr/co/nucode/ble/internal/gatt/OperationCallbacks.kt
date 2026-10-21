@@ -78,6 +78,17 @@ internal class OperationCallbacks(
         )
     }
 
+    /** 동일 generation/descriptor read callback만 descriptor read 를 완료한다. 값은 성공 완료 때 호출자에게 간다. */
+    internal fun handleDescriptorRead(event: GattDriverEvent.DescriptorRead) {
+        val session = attributedSession(event, ackKind = "DescriptorRead", ackStatus = event.status) ?: return
+        val identity = event.attributeIdentity
+        executor.dispatch(
+            session,
+            responded(session, GattResponseCategory.DescriptorRead, identity, event.status),
+            response = identity?.toDescriptorRef()?.let { ReadResponse(it.characteristic, event.value, it) },
+        )
+    }
+
     private fun responded(
         session: Session,
         category: GattResponseCategory,

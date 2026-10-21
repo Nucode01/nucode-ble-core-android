@@ -21,11 +21,12 @@ internal object Lanes {
     const val FOUND = "found"
     const val SERVICES = "services"
     const val PROPERTIES = "properties"
+    const val DESCRIPTORS = "descriptors"
     const val AD_TYPES = "adTypes"
     const val PEER = "peer"
 
     val BASE = listOf(STATE, RESULT, NOTIFY, ACTIVE)
-    val EXTENSION = listOf(ADAPTER, SCAN, FOUND, SERVICES, PROPERTIES, AD_TYPES, PEER)
+    val EXTENSION = listOf(ADAPTER, SCAN, FOUND, SERVICES, PROPERTIES, DESCRIPTORS, AD_TYPES, PEER)
 
     /** CONTRACT 줄의 출력 순서. */
     val ALL = BASE + EXTENSION
@@ -37,7 +38,7 @@ internal object Lanes {
     val AWAIT_COUNT = listOf(NOTIFY, FOUND)
 
     /** 연속으로 같은 값은 하나로 합치는 레인(현재 값 레인). */
-    val COALESCED = listOf(ACTIVE, ADAPTER, SCAN, SERVICES, PROPERTIES, AD_TYPES)
+    val COALESCED = listOf(ACTIVE, ADAPTER, SCAN, SERVICES, PROPERTIES, DESCRIPTORS, AD_TYPES)
 }
 
 internal data class ServiceSpec(val symbol: String, val uuid: UUID, val advertised: Boolean)
@@ -51,6 +52,8 @@ internal data class CharacteristicSpec(
     val uuid: UUID,
     val properties: Set<String>,
     val runnerOnly: Boolean,
+    /** 이름 → descriptor, 기기 정의의 순서(= 펌웨어 attribute 표 순서). */
+    val descriptors: Map<String, DescriptorSpec> = emptyMap(),
 ) {
     val ref: CharacteristicRef get() = CharacteristicRef(ServiceRef(BleUuid(service)), BleUuid(uuid))
 }
@@ -71,7 +74,7 @@ internal data class PeripheralProfile(
 
 internal enum class CallOp(val key: String) {
     Connect("connect"), Disconnect("disconnect"), Read("read"), Write("write"),
-    Subscribe("subscribe"), Unsubscribe("unsubscribe"),
+    Subscribe("subscribe"), Unsubscribe("unsubscribe"), ReadDescriptor("readDescriptor"), WriteDescriptor("writeDescriptor"),
     StartScan("startScan"), StopScan("stopScan"), Snapshot("snapshot"), Close("close"),
 }
 
@@ -108,9 +111,11 @@ internal sealed interface Step {
         val async: Boolean,
         val name: String?,
         val timeoutMs: Long,
+        /** descriptor 호출의 `<characteristic 기호>/<descriptor 이름>`. */
+        val desc: String? = null,
     ) : Step {
-        /** result 레인 한 줄의 앞부분: "read probe.value". */
-        val label: String get() = if (char == null) op.key else "${op.key} $char"
+        /** result 레인 한 줄의 앞부분: "read probe.value", "readDescriptor probe.control/cud". */
+        val label: String get() = (desc ?: char)?.let { "${op.key} $it" } ?: op.key
     }
 
     /** state·active·adapter·scan·services 레인의 마지막 기록이 패턴과 맞을 때까지. */
@@ -178,7 +183,7 @@ internal object ContractLoader {
         }
         val chars = root.req("characteristics").asObject("characteristics").mapValues { (symbol, raw) ->
             val c = raw.asObject(symbol)
-            c.onlyKeys(symbol, "service", "uuid", "properties", "runnerOnly")
+            c.onlyKeys(symbol, "service", "uuid", "properties", "runnerOnly", "descriptors")
             CharacteristicSpec(
                 symbol = symbol,
                 service = c.uuid("service"),
@@ -187,6 +192,7 @@ internal object ContractLoader {
                     .onEach { it.oneOf("properties", "read", "write", "writeWithoutResponse", "notify", "indicate") }
                     .toSet(),
                 runnerOnly = c.bool("runnerOnly", false),
+                descriptors = ContractDescriptors.parse(symbol, c["descriptors"]),
             )
         }
         return PeripheralProfile(name, root.string("advertisedName"), services, chars)
@@ -320,8 +326,12 @@ internal object ContractLoader {
             CallOp.Write -> s.onlyKeys(where, *common, "char", "text", "hex", "pattern", "mode", "chunking", "chunkBytes")
             CallOp.StartScan -> s.onlyKeys(where, *common, "filter")
             CallOp.Read, CallOp.Subscribe, CallOp.Unsubscribe -> s.onlyKeys(where, *common, "char")
+            CallOp.ReadDescriptor -> s.onlyKeys(where, *common, "desc")
+            CallOp.WriteDescriptor -> s.onlyKeys(where, *common, "desc", "text", "hex")
             CallOp.Disconnect, CallOp.StopScan, CallOp.Snapshot, CallOp.Close -> s.onlyKeys(where, *common)
         }
+        val desc = if (op == CallOp.ReadDescriptor || op == CallOp.WriteDescriptor) s.string("desc") else null
+        if (desc != null) ContractDescriptors.check(where, desc, op, profile)
         val char = if (needsChar) s.string("char") else null
         if (char != null) {
             val spec = profile.spec(char)
@@ -353,6 +363,7 @@ internal object ContractLoader {
             }
             chunking = parseChunking(where, s)
         }
+        if (op == CallOp.WriteDescriptor) bytes = ContractDescriptors.value(where, s)
         val filter = if (op == CallOp.StartScan) s["filter"]?.let { parseFilter(where, it, profile) } else null
         val async = s.bool("async", false)
         val name = s["name"]?.let { it as? String ?: throw ContractFormatException("$where: name 은 문자열이다") }
@@ -370,6 +381,7 @@ internal object ContractLoader {
             async = async,
             name = name,
             timeoutMs = s.long("timeoutMs", DEFAULT_TIMEOUT_MS),
+            desc = desc,
         )
     }
 
@@ -411,62 +423,5 @@ internal object ContractLoader {
             emptyList()
         }
         return ScanFilterSpec(name, services)
-    }
-
-    // ── 읽기 도우미 ─────────────────────────────────────────────────────────
-
-    private fun Map<String, Any?>.requireFormat() {
-        if (this["format"] != FORMAT) throw ContractFormatException("format 은 $FORMAT 이어야 한다(실제 ${this["format"]})")
-    }
-
-    private fun Map<String, Any?>.onlyKeys(where: String, vararg allowed: String) {
-        val unknown = keys - allowed.toSet()
-        if (unknown.isNotEmpty()) throw ContractFormatException("$where: 모르는 키 $unknown")
-    }
-
-    private fun Map<String, Any?>.req(key: String): Any =
-        this[key] ?: throw ContractFormatException("'$key' 가 없다")
-
-    private fun Map<String, Any?>.string(key: String): String =
-        req(key) as? String ?: throw ContractFormatException("'$key' 는 문자열이어야 한다")
-
-    private fun Map<String, Any?>.long(key: String, default: Long? = null): Long {
-        val raw = this[key] ?: return default ?: throw ContractFormatException("'$key' 가 없다")
-        return raw as? Long ?: throw ContractFormatException("'$key' 는 정수여야 한다")
-    }
-
-    private fun Map<String, Any?>.bool(key: String, default: Boolean? = null): Boolean {
-        val raw = this[key] ?: return default ?: throw ContractFormatException("'$key' 가 없다")
-        return raw as? Boolean ?: throw ContractFormatException("'$key' 는 true/false 여야 한다")
-    }
-
-    private fun Map<String, Any?>.stringList(key: String): List<String> =
-        req(key).asList(key).map { it as? String ?: throw ContractFormatException("'$key' 는 문자열 목록이다") }
-
-    private fun Map<String, Any?>.uuid(key: String): UUID = string(key).let {
-        runCatching { UUID.fromString(it) }.getOrNull() ?: throw ContractFormatException("'$key' 가 UUID 가 아니다: $it")
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun Any?.asObject(where: String): Map<String, Any?> =
-        this as? Map<String, Any?> ?: throw ContractFormatException("$where 는 객체여야 한다")
-
-    private fun Any?.asList(where: String): List<Any?> =
-        this as? List<Any?> ?: throw ContractFormatException("$where 는 배열이어야 한다")
-
-    private fun String.oneOf(key: String, vararg allowed: String) {
-        if (this !in allowed) throw ContractFormatException("$key 의 모르는 값 '$this'")
-    }
-
-    private fun Int.positive(where: String) {
-        if (this <= 0) throw ContractFormatException("$where: 1 이상이어야 한다")
-    }
-
-    private fun String.hexBytes(where: String): ByteArray {
-        val clean = replace(" ", "")
-        if (clean.length % 2 != 0 || !clean.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            throw ContractFormatException("$where: hex 가 아니다: $this")
-        }
-        return ByteArray(clean.length / 2) { clean.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
     }
 }

@@ -45,27 +45,7 @@ internal class SubscriptionCommands(
      */
     suspend fun subscribe(deviceId: PeripheralId, charRef: CharacteristicRef, recordIntent: Boolean) {
         val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
-        val characteristicIdentity = when {
-            operationStarter != null -> GattCharacteristicIdentity.from(charRef)
-            operationTargetResolver != null -> executor.resolveOperationTarget(session, charRef)?.identity
-                ?: throw BleException(GattFailureFactory.characteristicNotFound(session, OperationKind.Subscribe))
-            else -> {
-                val characteristic = session.resolve(charRef)
-                    ?: throw BleException(GattFailureFactory.characteristicNotFound(session, OperationKind.Subscribe))
-                executor.exactIdentity(session, characteristic, charRef)
-            }
-        }
-        val identity = GattDescriptorIdentity(
-            characteristic = characteristicIdentity,
-            descriptorUuid = OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID,
-        )
-        val operation = QueuedCccdWrite(
-            generation = session.gattOperationScheduler.currentGeneration,
-            charRef = charRef,
-            enabled = true,
-            descriptorIdentity = identity,
-        )
-        val scheduled = executor.submit(session, operation) { queued ->
+        val scheduled = submitEnable(session, charRef, value = null) { queued ->
             if (recordIntent) {
                 val startGeneration = session.connectionCoordinator.generation
                 val removalMark = session.subscriptionState.removalMark(charRef)
@@ -88,9 +68,44 @@ internal class SubscriptionCommands(
     /**
      * LinkSetup 복원 경로. [subscribe] 와 같은 FIFO·같은 실패 처리다 — timeout 으로 poison 되면
      * [GattLifecycleHooks.onOperationPoisoned] 이 handle 을 닫고 세션을 끝낸다(재연결로 회복하지 않는다).
+     * 의도가 기억하는 앱 CCCD 값이 있으면 그 값을 그대로 다시 쓴다(B.4 규칙 4). 의도·활성 표시는 LinkSetup 이 한다.
      */
-    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) =
-        subscribe(deviceId, charRef, recordIntent = false)
+    suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) {
+        val session = registry.get(deviceId) ?: throw BleException(GattFailureFactory.unknownDevice())
+        val scheduled = submitEnable(session, charRef, session.subscriptionState.cccdValueFor(charRef)) {}
+        executor.awaitAfterStart(session, scheduled, ackTimeoutMillis)
+    }
+
+    /** CCCD 켜기 하나를 접수한다. [value] 가 null 이면 시작 때 properties 로 값을 고른다. */
+    private fun submitEnable(
+        session: Session,
+        charRef: CharacteristicRef,
+        value: ByteArray?,
+        beforeStart: (ScheduledGattOperation<Unit>) -> Unit,
+    ): ScheduledGattOperation<Unit> {
+        val characteristicIdentity = when {
+            operationStarter != null -> GattCharacteristicIdentity.from(charRef)
+            operationTargetResolver != null -> executor.resolveOperationTarget(session, charRef)?.identity
+                ?: throw BleException(GattFailureFactory.characteristicNotFound(session, OperationKind.Subscribe))
+            else -> {
+                val characteristic = session.resolve(charRef)
+                    ?: throw BleException(GattFailureFactory.characteristicNotFound(session, OperationKind.Subscribe))
+                executor.exactIdentity(session, characteristic, charRef)
+            }
+        }
+        val identity = GattDescriptorIdentity(
+            characteristic = characteristicIdentity,
+            descriptorUuid = OperationExecutor.CLIENT_CHARACTERISTIC_CONFIG_UUID,
+        )
+        val operation = QueuedCccdWrite(
+            generation = session.gattOperationScheduler.currentGeneration,
+            charRef = charRef,
+            enabled = true,
+            descriptorIdentity = identity,
+            value = value,
+        )
+        return executor.submit(session, operation, beforeStart)
+    }
 
     /**
      * 구독 해제 — D8 best-effort(plan design decisions v1, review L-1). `subscribe` 와

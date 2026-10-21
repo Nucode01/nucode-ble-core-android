@@ -78,6 +78,15 @@ internal class ContractLog(private val enabled: Set<String> = emptySet()) {
                 "$name=" + properties.map(::vocabulary).sorted().joinToString("+")
             }
 
+        /** descriptors 레인 한 줄: 기호 이름순 `이름=이름+이름`, descriptor 이름은 탐색 순서 그대로(README §기록). */
+        fun renderDescriptors(byName: Map<String, List<String>>): String =
+            byName.toSortedMap().entries.joinToString(",", "{", "}") { (name, descriptors) ->
+                "$name=" + descriptors.joinToString("+")
+            }
+
+        /** readDescriptor 결과 줄의 값: 대문자 16진수, 구분자 없음. */
+        fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02X".format(it) }
+
         /**
          * adTypes 레인의 읽기 규칙(README §기록): AD 구조(길이 1바이트 · type 1바이트 · 값)를 앞에서부터 읽어 type 을 모은다.
          * 길이 바이트가 0이면 끝(legacy 0 채움)이다. 길이가 남은 바이트를 넘는 구조는 버리고 앞에서 읽은 것까지만 쓴다.

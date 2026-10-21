@@ -3,6 +3,8 @@ package kr.co.nucode.ble.internal.gatt
 import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.port.GattDriverEvent
+import kr.co.nucode.ble.internal.port.PlatformDescriptorEntry
+import kr.co.nucode.ble.DescriptorRef
 import kotlinx.coroutines.CoroutineScope
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleFailure
@@ -38,6 +40,8 @@ internal data class GattOperationTarget(
     val identity: GattCharacteristicIdentity,
     val propertyMask: Int,
     val cccdDescriptor: PlatformDescriptor? = null,
+    /** 그 characteristic 의 descriptor(탐색 순서). descriptor 작업이 (uuid, 순번)으로 고른다. */
+    val descriptors: List<PlatformDescriptorEntry> = emptyList(),
 )
 
 /** Test-only resolution seam. Production leaves this null and retains exact driver-side target lookup. */
@@ -159,6 +163,7 @@ internal class GattBridge(
             is GattDriverEvent.CharacteristicRead -> operations.handleCharacteristicRead(event)
             is GattDriverEvent.CharacteristicWrite -> operations.handleCharacteristicWrite(event)
             is GattDriverEvent.DescriptorWrite -> operations.handleDescriptorWrite(event)
+            is GattDriverEvent.DescriptorRead -> operations.handleDescriptorRead(event)
         }
     }
 
@@ -202,6 +207,12 @@ internal class GattBridge(
     suspend fun restoreSubscription(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.restoreSubscription(deviceId, charRef)
 
     suspend fun unsubscribe(deviceId: PeripheralId, charRef: CharacteristicRef) = operations.unsubscribe(deviceId, charRef)
+
+    suspend fun readDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef): ByteArray =
+        operations.readDescriptor(deviceId, descriptor)
+
+    suspend fun writeDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef, value: ByteArray) =
+        operations.writeDescriptor(deviceId, descriptor, value)
 
     suspend fun writeCommand(
         session: Session,

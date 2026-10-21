@@ -9,6 +9,7 @@ import kotlinx.coroutines.ensureActive
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.core.gatt.GattQueueEvent
 import kr.co.nucode.ble.internal.diagnostics.DiagnosticIngress
@@ -70,13 +71,17 @@ internal class QueuedWriteChunk(
     fun chunkCopy(): ByteArray = immutableChunk.copyOf()
 }
 
-/** Subscribe/unsubscribe direction is command intent, not a fact present in Android callback. */
+/**
+ * Subscribe/unsubscribe direction is command intent, not a fact present in Android callback. [value] 는 복원이 다시 쓰는
+ * 앱 CCCD 값이다. null 이면 시작 때 properties 로 고른다(notify 우선).
+ */
 internal class QueuedCccdWrite(
     override val generation: Long,
     val charRef: CharacteristicRef,
     val enabled: Boolean,
     descriptorIdentity: GattDescriptorIdentity,
     override val timeoutMillis: Long? = null,
+    val value: ByteArray? = null,
 ) : GattOperation<Unit>, StartTrackedGattOperation {
     override val started: CompletableDeferred<Unit> = CompletableDeferred()
     override val kind: GattOperationKind =
@@ -113,6 +118,7 @@ internal class GattOperationEngine(
     )
     private val callbacks = OperationCallbacks(registry, emit, executor)
     private val subscriptions = SubscriptionCommands(registry, ackTimeoutMillis, operationStarter, operationTargetResolver, executor)
+    private val descriptors = DescriptorCommands(registry, ackTimeoutMillis, executor, diagnosticIngress)
 
     override fun invalidateAll(session: Session, failure: BleFailure) =
         executor.invalidateScheduledOperations(session, failure)
@@ -124,6 +130,12 @@ internal class GattOperationEngine(
     internal fun handleCharacteristicRead(event: GattDriverEvent.CharacteristicRead) = callbacks.handleCharacteristicRead(event)
     internal fun handleCharacteristicWrite(event: GattDriverEvent.CharacteristicWrite) = callbacks.handleCharacteristicWrite(event)
     internal fun handleDescriptorWrite(event: GattDriverEvent.DescriptorWrite) = callbacks.handleDescriptorWrite(event)
+    internal fun handleDescriptorRead(event: GattDriverEvent.DescriptorRead) = callbacks.handleDescriptorRead(event)
+
+    suspend fun readDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef): ByteArray = descriptors.read(deviceId, descriptor)
+
+    suspend fun writeDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef, value: ByteArray) =
+        descriptors.write(deviceId, descriptor, value)
 
     // ── 진입 함수(실제 플랫폼 호출) ──────────────────────────────────────────
 

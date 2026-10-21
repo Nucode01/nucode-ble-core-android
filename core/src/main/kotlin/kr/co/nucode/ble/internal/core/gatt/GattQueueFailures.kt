@@ -39,6 +39,8 @@ internal object GattQueueFailures {
         GattOperationKind.Subscribe -> OperationKind.Subscribe
         GattOperationKind.Unsubscribe -> OperationKind.Unsubscribe
         GattOperationKind.RequestMtu -> OperationKind.RequestMtu
+        GattOperationKind.ReadDescriptor -> OperationKind.ReadDescriptor
+        GattOperationKind.WriteDescriptor -> OperationKind.WriteDescriptor
     }
 
     fun androidOperation(kind: GattOperationKind, callback: Boolean): AndroidApiOperation = when (kind) {
@@ -48,7 +50,10 @@ internal object GattQueueFailures {
         -> if (callback) AndroidApiOperation.OnCharacteristicWrite else AndroidApiOperation.WriteCharacteristic
         GattOperationKind.Subscribe,
         GattOperationKind.Unsubscribe,
+        GattOperationKind.WriteDescriptor,
         -> if (callback) AndroidApiOperation.OnDescriptorWrite else AndroidApiOperation.WriteDescriptor
+        GattOperationKind.ReadDescriptor ->
+            if (callback) AndroidApiOperation.OnDescriptorRead else AndroidApiOperation.ReadDescriptor
         GattOperationKind.RequestMtu -> if (callback) AndroidApiOperation.OnMtuChanged else AndroidApiOperation.RequestMtu
     }
 

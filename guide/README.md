@@ -40,6 +40,7 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 | --- | --- |
 | 코루틴 API | 명령은 `suspend` 함수, 상태는 `StateFlow`, 수신 값은 `Flow` 로 다룹니다. |
 | GATT 작업 줄 세우기 | 기기(세션)마다 read · write · 구독을 먼저 온 순서대로 하나씩 실행합니다. 여러 코루틴에서 동시에 불러도 됩니다. |
+| descriptor 읽기·쓰기 | `GattCharacteristic.descriptors` 로 탐색 결과를 보고 `readDescriptor`·`writeDescriptor` 로 같은 GATT 큐에서 읽고 씁니다. Android 는 CCCD 직접 쓰기를 구독 상태에 맞춥니다([5.7](recipes/data.md#57-notify--indicate-구독)). |
 | 긴 write 자동 분할 | 협상된 MTU 에 맞춰 잘라 보내고, 성공하면 `WriteReceipt`, 도중에 실패하면 어디까지 갔는지(`WriteProgress`)를 알려 줍니다. |
 | 타입이 있는 실패 | 모든 실패는 `BleException(failure: BleFailure)` 입니다. 바뀌지 않는 문자열 `code` 와 재시도 가능성(`Retryability`)으로 분기합니다. |
 | 연결 단계 관리 | 서비스 탐색과 MTU 협상을 코어가 하고, 진행 상황을 `ConnectionState`(`Connecting → DiscoveringServices → Configuring → Ready`)로 보여 줍니다. |

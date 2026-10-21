@@ -220,6 +220,12 @@ internal class ScenarioEngine(
                 )
                 CallOp.Subscribe -> session.subscribe(ref!!)
                 CallOp.Unsubscribe -> session.unsubscribe(ref!!)
+                CallOp.ReadDescriptor -> {
+                    // descriptor 값은 기기 정의·펌웨어가 고정하므로 값까지 남긴다(값이 비면 `ok` 로 끝난다).
+                    val value = session.readDescriptor(ContractDescriptors.ref(call.desc!!, profile))
+                    return if (value.isEmpty()) "${call.label} ok" else "${call.label} ok ${ContractLog.hex(value)}"
+                }
+                CallOp.WriteDescriptor -> session.writeDescriptor(ContractDescriptors.ref(call.desc!!, profile), call.bytes!!)
             }
             "${call.label} ok"
         } catch (e: BleException) {
@@ -295,6 +301,22 @@ internal class ScenarioEngine(
                         present[spec.ref]?.let { spec.symbol to it.properties }
                     }.toMap()
                     log.add(Lanes.PROPERTIES, ContractLog.renderProperties(byName))
+                }
+            }
+        }
+        if (log.records(Lanes.DESCRIPTORS)) {
+            // services 와 같은 원천·같은 characteristic. 이름마다 정의에 있는 UUID 의 descriptor 이름을 탐색 순서대로 잇는다.
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                session.services.collect { list ->
+                    val present = list.flatMap { it.characteristics }.reversed().associateBy { it.ref }
+                    val byName = profile.characteristics.values.mapNotNull { spec ->
+                        present[spec.ref]?.let { characteristic ->
+                            spec.symbol to characteristic.descriptors.mapNotNull { ref ->
+                                spec.descriptors.values.firstOrNull { it.uuid == ref.uuid.value }?.name
+                            }
+                        }
+                    }.toMap()
+                    log.add(Lanes.DESCRIPTORS, ContractLog.renderDescriptors(byName))
                 }
             }
         }

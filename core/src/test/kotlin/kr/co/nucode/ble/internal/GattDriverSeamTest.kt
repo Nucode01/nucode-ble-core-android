@@ -1460,7 +1460,7 @@ class GattDriverSeamTest {
         assertEquals(2, Regex("override fun onCharacteristicChanged\\(").findAll(source).count())
         assertEquals(2, Regex("override fun onCharacteristicRead\\(").findAll(source).count())
         assertEquals(
-            2,
+            3,
             Regex("Build\\.VERSION\\.SDK_INT < Build\\.VERSION_CODES\\.TIRAMISU")
                 .findAll(source)
                 .count(),

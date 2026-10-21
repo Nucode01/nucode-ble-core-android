@@ -7,11 +7,11 @@ import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.FailurePhase
 import kr.co.nucode.ble.OperationKind
 import kr.co.nucode.ble.ServiceRef
@@ -27,18 +27,16 @@ import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.GattAttributeIdentity
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
-import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.GattOperation
 import kr.co.nucode.ble.internal.model.GattOperationKind
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
-import kr.co.nucode.ble.internal.model.PlatformDescriptor
 import kr.co.nucode.ble.internal.model.WriteType
 import kr.co.nucode.ble.internal.port.ClockPort
 import kr.co.nucode.ble.internal.session.ScheduledGattOperation
 import kr.co.nucode.ble.internal.session.Session
 
-/** read 콜백이 실어 온 값. 큐 Core 가 read 를 성공으로 끝낼 때 호출자에게 넘긴다. */
-internal class ReadResponse(val characteristic: CharacteristicRef, val value: ByteArray)
+/** read 콜백이 실어 온 값. 큐 Core 가 read 를 성공으로 끝낼 때 호출자에게 넘긴다. descriptor read 면 [descriptor] 가 있다. */
+internal class ReadResponse(val characteristic: CharacteristicRef, val value: ByteArray, val descriptor: DescriptorRef? = null)
 
 /**
  * [GattOperationEngine] 의 실행 칸 — 큐 Core 의 할 일 실행기다. 사건을 세션 scheduler 셸에 넣고, 셸이 낸 할 일을
@@ -113,8 +111,10 @@ internal class OperationExecutor(
         val scheduled = session.gattOperationScheduler.release(sequence) ?: return
         when (outcome) {
             GattQueueOutcome.Success ->
-                if (response != null && scheduled.operation.kind == GattOperationKind.Read) {
-                    emitPayloadObservation(session, PayloadDirection.Rx, response.characteristic, response.value, scheduled)
+                if (response != null && scheduled.operation.kind in READ_KINDS) {
+                    emitPayloadObservation(
+                        session, PayloadDirection.Rx, response.characteristic, response.value, scheduled, response.descriptor,
+                    )
                     (scheduled.completion as CompletableDeferred<ByteArray>).complete(response.value.copyOf())
                 } else {
                     (scheduled.completion as CompletableDeferred<Unit>).complete(Unit)
@@ -313,15 +313,22 @@ internal class OperationExecutor(
             val gatt = session.gatt
             if (gatt == null && operationTargetResolver == null) return GattFailureFactory.notConnected(session)
             resolution.identity = GattDescriptorIdentity(target.identity, CLIENT_CHARACTERISTIC_CONFIG_UUID)
-            return startCccdOperation(
-                session = session,
-                gatt = gatt,
-                characteristic = target.characteristic,
-                charRef = operation.charRef,
-                enabled = operation.enabled,
-                descriptor = target.cccdDescriptor,
-                propertyMask = target.propertyMask,
+            return startCccdWrite(
+                driver, session, gatt, target.characteristic, target.cccdDescriptor,
+                subscriptionCccdValue(operation.enabled, target.propertyMask, operation.value), subscriptionKind(operation.enabled),
             )
+        }
+        if (operation is QueuedDescriptorOperation) {
+            val ref = operation.descriptor
+            val target = resolveOperationTarget(session, ref.characteristic)
+                ?: return GattFailureFactory.characteristicNotFound(session, GattFailureFactory.operationKind(resolution.kind))
+            val gatt = session.gatt
+            if (gatt == null && operationTargetResolver == null) return GattFailureFactory.notConnected(session)
+            resolution.identity = GattDescriptorIdentity(target.identity, ref.uuid.value, ref.instanceIndex)
+            return startDescriptorOperation(driver, session, gatt, target, operation) { sent ->
+                val resolved = scheduled.resolvedAs(resolution.kind, resolution.identity)
+                emitPayloadObservation(session, PayloadDirection.Tx, ref.characteristic, sent, resolved, ref)
+            }
         }
         val identity = operation.attributeIdentity as? GattCharacteristicIdentity
             ?: (operation.attributeIdentity as? GattDescriptorIdentity)?.characteristic
@@ -357,70 +364,20 @@ internal class OperationExecutor(
             ).also { started ->
                 if (started) emitPayloadObservation(session, PayloadDirection.Tx, charRef, operation.chunkCopy(), scheduled)
             }) null else startFailure()
-            is GattOperation.Subscribe -> startCccdOperation(
-                session = session,
-                gatt = gatt,
-                characteristic = characteristic,
-                charRef = charRef,
-                enabled = true,
-                descriptor = resolved.cccdDescriptor,
-                propertyMask = resolved.propertyMask,
+            is GattOperation.Subscribe -> startCccdWrite(
+                driver, session, gatt, characteristic, resolved.cccdDescriptor,
+                subscriptionCccdValue(true, resolved.propertyMask, null), OperationKind.Subscribe,
             )
-            is GattOperation.Unsubscribe -> startCccdOperation(
-                session = session,
-                gatt = gatt,
-                characteristic = characteristic,
-                charRef = charRef,
-                enabled = false,
-                descriptor = resolved.cccdDescriptor,
-                propertyMask = resolved.propertyMask,
+            is GattOperation.Unsubscribe -> startCccdWrite(
+                driver, session, gatt, characteristic, resolved.cccdDescriptor,
+                subscriptionCccdValue(false, resolved.propertyMask, null), OperationKind.Unsubscribe,
             )
             else -> startFailure()
         }
     }
 
-    private fun startCccdOperation(
-        session: Session,
-        gatt: GattHandle?,
-        characteristic: PlatformCharacteristic,
-        charRef: CharacteristicRef,
-        enabled: Boolean,
-        descriptor: PlatformDescriptor?,
-        propertyMask: Int,
-    ): BleFailure? {
-        val routingStarted = driver.setCharacteristicNotification(
-            session.deviceId,
-            gatt,
-            characteristic,
-            enabled,
-        )
-        if (enabled && !routingStarted) {
-            return GattFailureFactory.startRejected(
-                session,
-                FailurePhase.Operation,
-                AndroidApiOperation.WriteDescriptor,
-                kind = if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe,
-            )
-        }
-
-        val resolvedDescriptor = descriptor
-            ?: return GattFailureFactory.characteristicNotFound(session, if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe)
-        val value = when {
-            !enabled -> byteArrayOf(0x00, 0x00)
-            propertyMask and GattProperties.NOTIFY != 0 -> byteArrayOf(0x01, 0x00)
-            else -> byteArrayOf(0x02, 0x00)
-        }
-        return if (driver.writeDescriptor(session.deviceId, gatt, resolvedDescriptor, value)) {
-            null
-        } else {
-            GattFailureFactory.startRejected(
-                session,
-                FailurePhase.Operation,
-                AndroidApiOperation.WriteDescriptor,
-                kind = if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe,
-            )
-        }
-    }
+    private fun subscriptionKind(enabled: Boolean): OperationKind =
+        if (enabled) OperationKind.Subscribe else OperationKind.Unsubscribe
 
     fun resolveOperationTarget(session: Session, charRef: CharacteristicRef): GattOperationTarget? {
         operationTargetResolver?.let { resolver ->
@@ -433,6 +390,7 @@ internal class OperationExecutor(
             identity = GattCharacteristicIdentity.from(charRef, charRef.service.instanceIndex),
             propertyMask = resolved.propertyMask,
             cccdDescriptor = resolved.cccdDescriptor,
+            descriptors = resolved.descriptors,
         )
     }
 
@@ -470,8 +428,10 @@ internal class OperationExecutor(
         characteristic: CharacteristicRef,
         payload: ByteArray,
         scheduled: ScheduledGattOperation<*>? = null,
+        descriptor: DescriptorRef? = null,
     ) {
-        val observation = GattFailureFactory.payloadObserved(session, scheduled)
+        // descriptor payload 는 자기 characteristic 의 safe·sensitive 판정을 따른다([characteristic] 이 그 characteristic 이다).
+        val observation = GattFailureFactory.payloadObserved(session, scheduled, descriptor)
         diagnosticIngress.observe(Severity.Info, observation) { options ->
             DiagnosticPolicy().payloadValues(options, direction, characteristic, payload)
         }
@@ -482,6 +442,9 @@ internal class OperationExecutor(
         /** CCCD(00002902-...) 표준 UUID. BLE 스펙 고정값 — 기기마다 다르지 않다. */
         val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        /** 성공 완료 때 값을 호출자에게 넘기는 종류. */
+        private val READ_KINDS = setOf(GattOperationKind.Read, GattOperationKind.ReadDescriptor)
     }
 }
 

@@ -31,6 +31,7 @@ import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.internal.BleRuntime
 import kr.co.nucode.ble.internal.gatt.GattOperationTarget
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
+import kr.co.nucode.ble.internal.gatt.toCharacteristicRef
 import kr.co.nucode.ble.internal.model.GattHandle
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
@@ -76,8 +77,12 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     var onMtu: CallbackVariant = CallbackVariant.Arrive()
     var mtuResult: Int? = null
 
-    // 근거(가정): CCCD write 는 status 0 ack 한 번.
+    // 근거(가정): descriptor write 는 status 0 ack 한 번, descriptor read 는 [onRead] 를 따른다.
     var onDescriptorWrite: CallbackVariant = CallbackVariant.Arrive()
+
+    /** sim 가짜 기기의 descriptor 값(read)과 쓰기 응답 status(write, 0 성공). null 이면 read 는 [readValue], write 는 variant 의 status. */
+    var descriptorValue: ((GattDescriptorIdentity) -> ByteArray)? = null
+    var descriptorWriteStatus: ((GattDescriptorIdentity, ByteArray) -> Int)? = null
 
     // 근거(가정): read/write 는 status 0 ack 한 번. read 값은 [readValue].
     var onRead: CallbackVariant = CallbackVariant.Arrive()
@@ -112,6 +117,9 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     /** CCCD write 기록 — (ref, 켜기 여부). 값이 전부 0 이면 끄기다. */
     val cccdWrites: MutableList<Pair<CharacteristicRef?, Boolean>> = mutableListOf()
+
+    /** 모든 descriptor write 기록 — (identity, 값 사본). CCCD 포함. */
+    val descriptorWrites: MutableList<Pair<GattDescriptorIdentity?, ByteArray>> = mutableListOf()
 
     // ── 어댑터 ──────────────────────────────────────────────────────────────
 
@@ -261,14 +269,13 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     // ── resolver ────────────────────────────────────────────────────────────
 
     private val characteristicRefs = mutableMapOf<PlatformCharacteristic, CharacteristicRef>()
-    private val descriptorRefs = mutableMapOf<PlatformDescriptor, CharacteristicRef>()
+    private val descriptorTable = FakeDescriptorTable()
 
-    /** JVM 스텁 객체는 uuid 를 못 돌려주므로 만든 객체 → ref 를 기억해 콜백 identity 를 채운다. */
+    /** JVM 스텁 객체는 uuid 를 못 돌려주므로 만든 객체 → ref·identity 를 기억해 콜백 identity 를 채운다. */
     val resolver = GattOperationTargetResolver { _, ref ->
         val characteristic = FakePlatformCharacteristic(ref.uuid.value)
-        val descriptor = FakePlatformDescriptor(CCCD_UUID)
+        val descriptor = descriptorTable.register(GattDescriptorIdentity(GattCharacteristicIdentity.from(ref), CCCD_UUID))
         characteristicRefs[characteristic] = ref
-        descriptorRefs[descriptor] = ref
         GattOperationTarget(
             characteristic = characteristic,
             identity = GattCharacteristicIdentity.from(ref),
@@ -277,6 +284,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
                 BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE or
                 BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             cccdDescriptor = descriptor,
+            descriptors = descriptorTable.entries(ref, services),
         )
     }
 
@@ -335,13 +343,14 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         return true
     }
 
-    // 근거(가정): setCharacteristicNotification 은 로컬 호출이라 콜백 없이 성공.
+    // 근거(가정): setCharacteristicNotification 은 로컬 호출이라 콜백 없이 성공. [notificationRouting] 에 켜기 여부를 남긴다.
+    val notificationRouting: MutableList<Boolean> = mutableListOf()
     override fun setCharacteristicNotification(
         deviceId: PeripheralId,
         gatt: GattHandle?,
         characteristic: PlatformCharacteristic,
         enabled: Boolean,
-    ): Boolean = true
+    ): Boolean = notificationRouting.add(enabled)
 
     override fun writeDescriptor(
         deviceId: PeripheralId,
@@ -351,17 +360,22 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     ): Boolean {
         calls += "descriptor"
         if (!descriptorStarts) return false
-        val ref = descriptorRefs[descriptor]
-        cccdWrites += ref to value.any { it != 0.toByte() }
+        val identity = descriptorTable.identityOf(descriptor)
+        descriptorWrites += identity to value.copyOf()
+        if (identity?.descriptorUuid == CCCD_UUID) cccdWrites += identity.characteristic.toCharacteristicRef() to value.any { it != 0.toByte() }
+        val remote = identity?.let { descriptorWriteStatus?.invoke(it, value.copyOf()) }
         val source = sourceAt(epoch)
-        schedule(onDescriptorWrite) { status ->
-            GattDriverEvent.DescriptorWrite(
-                deviceId,
-                source,
-                status,
-                ref?.let { GattDescriptorIdentity(GattCharacteristicIdentity.from(it), CCCD_UUID) },
-            )
-        }
+        schedule(onDescriptorWrite) { status -> GattDriverEvent.DescriptorWrite(deviceId, source, remote ?: status, identity) }
+        return true
+    }
+
+    override fun readDescriptor(deviceId: PeripheralId, gatt: GattHandle?, descriptor: PlatformDescriptor): Boolean {
+        calls += "readDescriptor"
+        if (!readStarts) return false
+        val identity = descriptorTable.identityOf(descriptor)
+        val value = identity?.let { descriptorValue?.invoke(it) } ?: readValue
+        val source = sourceAt(epoch)
+        schedule(onRead) { status -> GattDriverEvent.DescriptorRead(deviceId, source, status, identity, value.copyOf()) }
         return true
     }
 
@@ -490,20 +504,4 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         const val ADVERTISING_INTERVAL_MILLIS = 100L
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
-}
-
-/** GAP 서비스(0x1800) + Device Name(0x2A00, read) 스냅샷 — 실기기에서 항상 보이는 최소 토폴로지. */
-internal fun gapServiceSnapshot(): GattServiceSnapshot {
-    val gap = UUID.fromString("00001800-0000-1000-8000-00805f9b34fb")
-    return GattServiceSnapshot(
-        serviceUuid = gap,
-        characteristics = listOf(
-            GattCharacteristicSnapshot(
-                serviceUuid = gap,
-                charUuid = UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb"),
-                instanceIndex = 0,
-                propertyMask = BluetoothGattCharacteristic.PROPERTY_READ,
-            ),
-        ),
-    )
 }

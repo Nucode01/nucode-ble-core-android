@@ -2,6 +2,7 @@ package kr.co.nucode.ble.internal.gatt
 
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
+import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.FailureCategories
 import kr.co.nucode.ble.FailureCode
 import kr.co.nucode.ble.FailureContext
@@ -84,25 +85,11 @@ internal object GattFailureFactory {
         context = operationContext(session, kind),
     )
 
-    fun operationKind(kind: GattOperationKind): OperationKind = when (kind) {
-        GattOperationKind.Read -> OperationKind.Read
-        GattOperationKind.WriteWithResponse -> OperationKind.WriteWithResponse
-        GattOperationKind.WriteWithoutResponse -> OperationKind.WriteWithoutResponse
-        GattOperationKind.Subscribe -> OperationKind.Subscribe
-        GattOperationKind.Unsubscribe -> OperationKind.Unsubscribe
-        GattOperationKind.RequestMtu -> OperationKind.RequestMtu
-    }
+    /** 종류 매핑은 큐 Core 쪽 하나만 둔다. */
+    fun operationKind(kind: GattOperationKind): OperationKind = GattQueueFailures.operationKind(kind)
 
-    fun androidOperation(kind: GattOperationKind, callback: Boolean): AndroidApiOperation = when (kind) {
-        GattOperationKind.Read -> if (callback) AndroidApiOperation.OnCharacteristicRead else AndroidApiOperation.ReadCharacteristic
-        GattOperationKind.WriteWithResponse,
-        GattOperationKind.WriteWithoutResponse,
-        -> if (callback) AndroidApiOperation.OnCharacteristicWrite else AndroidApiOperation.WriteCharacteristic
-        GattOperationKind.Subscribe,
-        GattOperationKind.Unsubscribe,
-        -> if (callback) AndroidApiOperation.OnDescriptorWrite else AndroidApiOperation.WriteDescriptor
-        GattOperationKind.RequestMtu -> if (callback) AndroidApiOperation.OnMtuChanged else AndroidApiOperation.RequestMtu
-    }
+    fun androidOperation(kind: GattOperationKind, callback: Boolean): AndroidApiOperation =
+        GattQueueFailures.androidOperation(kind, callback)
 
     fun operationInvalidated(session: Session, operation: GattOperation<*>? = null): BleFailure =
         invalidated(session, operation?.kind?.let(::operationKind))
@@ -265,8 +252,15 @@ internal object GattFailureFactory {
         context = operationContext(session, kind = kind),
     )
 
-    /** notify/indicate payload 관찰 — 진단 전용, `DiagnosticPolicy` report 여부는 호출부가 결정한다. */
-    fun payloadObserved(session: Session, scheduled: ScheduledGattOperation<*>?): BleFailure = failure(
+    /**
+     * notify/indicate payload 관찰 — 진단 전용, `DiagnosticPolicy` report 여부는 호출부가 결정한다. descriptor 작업이면
+     * [descriptor] 를 문맥에 싣는다.
+     */
+    fun payloadObserved(
+        session: Session,
+        scheduled: ScheduledGattOperation<*>?,
+        descriptor: DescriptorRef? = null,
+    ): BleFailure = failure(
         code = "GATT_PAYLOAD_OBSERVED",
         phase = FailurePhase.Operation,
         retryability = Retryability.Never,
@@ -274,6 +268,6 @@ internal object GattFailureFactory {
             session = session,
             kind = scheduled?.operation?.kind?.let(::operationKind),
             operationId = scheduled?.operationId,
-        ),
+        ).copy(descriptor = descriptor),
     )
 }

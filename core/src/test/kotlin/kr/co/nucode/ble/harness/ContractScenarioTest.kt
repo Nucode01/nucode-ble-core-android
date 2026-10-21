@@ -14,7 +14,10 @@ import kr.co.nucode.ble.internal.gatt.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.gatt.GattServiceSnapshot
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.contract.ContractFiles
+import kr.co.nucode.ble.contract.DescriptorSpec
 import kr.co.nucode.ble.contract.DeviceEvent
+import kr.co.nucode.ble.internal.gatt.toCharacteristicRef
+import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.contract.PeripheralProfile
 import kr.co.nucode.ble.contract.ScenarioEngine
 import kr.co.nucode.ble.contract.ScenarioTarget
@@ -64,7 +67,7 @@ class ContractScenarioTest(private val name: String) {
  * 기기 사건을 [FakeAndroidPlatform] 콜백으로 흉내 낸다. 실기기 펌웨어(peripheral_uart)의 동작에 맞춘다:
  * 알림은 CCCD 가 켜져 있을 때만 보내고, 링크가 끊기면 CCCD 는 꺼진다(본딩 없음).
  */
-internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : ScenarioTarget {
+internal class SimTarget(private val h: Harness, private val profile: PeripheralProfile) : ScenarioTarget {
     override val platform = "android"
     override val client = h.client
     override val peripheralId = PeripheralId("F0:2F:24:A8:0F:9E")
@@ -81,7 +84,10 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
             GattServiceSnapshot(
                 serviceUuid = service,
                 characteristics = chars.map {
-                    GattCharacteristicSnapshot(service, it.uuid, instanceIndex = 0, propertyMask = propertyMask(it.properties))
+                    GattCharacteristicSnapshot(
+                        service, it.uuid, instanceIndex = 0, propertyMask = propertyMask(it.properties),
+                        descriptorUuids = it.descriptors.values.map { d -> d.uuid },
+                    )
                 },
             )
         }
@@ -89,6 +95,9 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
         // ATT 왕복 하나에 연결 간격 하나. 이게 없으면 가상 시간 0 에 긴 write 가 끝나 호출자 취소(§5-3)를 시험할 수 없다.
         h.fake.mtuResult = SIM_MTU
         h.fake.onWrite = CallbackVariant.Late(WRITE_ACK_MILLIS)
+        // descriptor(README §sim): 값은 연결마다 정의의 value(CCCD 는 0000)로 돌아가고, write 속성이 있으면 쓴 값을 둔다.
+        h.fake.descriptorValue = { id -> descriptorValue(id) }
+        h.fake.descriptorWriteStatus = { id, value -> writeDescriptor(id, value) }
         // 실기기 펌웨어처럼 연결되어 있지 않고 숨지 않았을 때 광고한다(이름과, advertised 인 서비스 UUID).
         val advertised = profile.services.values.filter { it.advertised }.map { it.uuid }
         h.fake.advertiser = FakeAndroidPlatform.Advertiser(
@@ -129,11 +138,41 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
             else -> 0
         }
     }
-    private var cccdFrom = 0
     private var notifySeq = 0
 
+    /** 이 연결의 descriptor 값. 연결(handle 세대)이 바뀌거나 링크가 끊기면 비운다 — 비면 정의의 처음 값이다. */
+    private val descriptorValues = mutableMapOf<GattDescriptorIdentity, ByteArray>()
+    private var valuesEpoch = -1L
+
+    private fun connectionValues(): MutableMap<GattDescriptorIdentity, ByteArray> {
+        if (valuesEpoch != h.fake.epoch) {
+            descriptorValues.clear()
+            valuesEpoch = h.fake.epoch
+        }
+        return descriptorValues
+    }
+
+    private fun definition(id: GattDescriptorIdentity): DescriptorSpec? =
+        profile.characteristics.values.firstOrNull {
+            it.service == id.characteristic.serviceUuid && it.uuid == id.characteristic.characteristicUuid
+        }?.descriptors?.values?.firstOrNull { it.uuid == id.descriptorUuid }
+
+    private fun descriptorValue(id: GattDescriptorIdentity): ByteArray =
+        connectionValues()[id] ?: if (id.descriptorUuid == FakeAndroidPlatform.CCCD_UUID) CCC_OFF else definition(id)?.value ?: ByteArray(0)
+
+    /** write 속성이 없는 정의된 descriptor 는 ATT Write Not Permitted(3). 정의에 없는 descriptor 는 받기만 한다. */
+    private fun writeDescriptor(id: GattDescriptorIdentity, value: ByteArray): Int {
+        val definition = definition(id)
+        if (definition != null && "write" !in definition.properties) return ATT_WRITE_NOT_PERMITTED
+        connectionValues()[id] = value.copyOf()
+        return 0
+    }
+
+    /** 펌웨어처럼 probe.value 의 CCCD 가 정확히 0100(notify)일 때만 알림을 보낸다. */
     private val deviceCccEnabled: Boolean
-        get() = h.fake.cccdWrites.drop(cccdFrom).lastOrNull { it.first == probeValue }?.second == true
+        get() = connectionValues().entries.firstOrNull {
+            it.key.descriptorUuid == FakeAndroidPlatform.CCCD_UUID && it.key.characteristic.toCharacteristicRef() == probeValue
+        }?.value?.contentEquals(CCC_NOTIFY) == true
 
     override suspend fun perform(event: DeviceEvent, session: BleSession, profile: PeripheralProfile) {
         when (event) {
@@ -176,7 +215,7 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
     private fun dropLink(readvertiseAfterMillis: Long) {
         // 펌웨어 LINK_DROP 은 원격 사용자 종료(HCI 0x13 = GATT status 19)로 끊는다.
         h.fake.linkLoss(peripheralId, status = 19)
-        cccdFrom = h.fake.cccdWrites.size
+        valuesEpoch = -1L
         rxFrom = h.fake.writes.size
         h.fake.hideAdvertising(readvertiseAfterMillis)
         h.fake.beforeRead = null
@@ -192,6 +231,11 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
 
         /** write 조각 하나의 응답까지(연결 간격 하나로 본다). */
         const val WRITE_ACK_MILLIS = 15L
+
+        /** ATT 오류 Write Not Permitted. */
+        const val ATT_WRITE_NOT_PERMITTED = 3
+        val CCC_OFF = byteArrayOf(0x00, 0x00)
+        val CCC_NOTIFY = byteArrayOf(0x01, 0x00)
     }
 
     private fun sendNotification() {

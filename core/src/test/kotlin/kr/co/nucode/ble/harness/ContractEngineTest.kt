@@ -157,6 +157,49 @@ class ContractEngineTest {
     }
 
     @Test
+    fun `descriptors 레인은 expect 에 있을 때만 기록하고 연결 전 빈 집합 다음에 탐색 순서의 이름을 남긴다`() {
+        val plain = run("[$connectToReady]", """{ "services": ["*"] }""")
+        assertFalse(plain.toString(), plain.toString().contains("|descriptors|"))
+        val report = run("[$connectToReady]", """{ "descriptors": ["{}", "{nus.rx=,nus.tx=ccc,probe.control=cud+echo,probe.value=ccc+cpf}"] }""")
+        assertTrue(report.toString(), report.passed)
+        val wrong = run("[$connectToReady]", """{ "descriptors": ["{}", "{nus.rx=,nus.tx=ccc,probe.control=echo+cud,probe.value=ccc+cpf}"] }""")
+        assertFalse(wrong.toString(), wrong.passed)
+    }
+
+    @Test
+    fun `descriptors 줄은 properties 다음 adTypes 앞에 낸다`() {
+        val report = run(
+            """[{ "call": "startScan" }, { "sleep": 300 }, { "call": "stopScan" }, $connectToReady]""",
+            """{ "adTypes": ["*"], "descriptors": ["*"], "properties": ["*"] }""",
+        )
+        val lanes = report.lines().map { it.split('|')[3] }
+        assertTrue(report.toString(), lanes.lastIndexOf("properties") < lanes.indexOf("descriptors"))
+        assertTrue(report.toString(), lanes.lastIndexOf("descriptors") < lanes.indexOf("adTypes"))
+    }
+
+    @Test
+    fun `descriptors 줄은 이름순 characteristic 에 탐색 순서 그대로 잇는다`() {
+        val cases = listOf(
+            emptyMap<String, List<String>>() to "{}",
+            mapOf("a" to emptyList<String>()) to "{a=}",
+            mapOf("b" to listOf("z", "a"), "a" to listOf("ccc")) to "{a=ccc,b=z+a}",
+        )
+        for ((input, expected) in cases) assertEquals(input.toString(), expected, ContractLog.renderDescriptors(input))
+    }
+
+    @Test
+    fun `readDescriptor 결과 줄은 값을 대문자 16진수로 붙이고 쓰기 뒤 읽으면 쓴 값이다`() {
+        val report = run(
+            """[$connectToReady, { "call": "readDescriptor", "desc": "probe.value/cpf" },
+                { "call": "writeDescriptor", "desc": "probe.control/echo", "hex": "a55a01" },
+                { "call": "readDescriptor", "desc": "probe.control/echo" }]""",
+            """{ "result": ["connect ok", "readDescriptor probe.value/cpf ok 19000027010000",
+                "writeDescriptor probe.control/echo ok", "readDescriptor probe.control/echo ok A55A01"] }""",
+        )
+        assertTrue(report.toString(), report.passed)
+    }
+
+    @Test
     fun `pattern write 와 rxCheck 는 받은 바이트 수와 순서를 peer 레인에 남긴다`() {
         val report = run(
             """[$connectToReady, $nusPattern, { "device": "rxCheck" }]""",

@@ -59,4 +59,19 @@ public interface BleSession {
      */
     public fun notifications(characteristic: CharacteristicRef): Flow<ByteArray>
     public suspend fun unsubscribe(characteristic: CharacteristicRef)
+
+    /**
+     * Reads [descriptor] once and returns its raw bytes. Runs in the same GATT queue as [read], with the
+     * same deadline, poison and link-loss rules. A reference missing from the discovered services fails
+     * with `CHARACTERISTIC_NOT_FOUND`.
+     */
+    public suspend fun readDescriptor(descriptor: DescriptorRef): ByteArray
+
+    /**
+     * Writes [value] to [descriptor] as one write with response; it is never chunked. More than 512 bytes
+     * fails with `PAYLOAD_TOO_LARGE` and sends nothing. On Android a CCCD (0x2902) write is sent as given,
+     * and after the peripheral acknowledges it the core aligns [activeSubscriptions] and the reconnect
+     * restore intent with the value: nonzero subscribes (restore rewrites this exact value), zero unsubscribes.
+     */
+    public suspend fun writeDescriptor(descriptor: DescriptorRef, value: ByteArray)
 }

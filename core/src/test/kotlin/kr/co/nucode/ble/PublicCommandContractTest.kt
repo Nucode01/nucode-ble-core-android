@@ -59,6 +59,8 @@ class PublicCommandContractTest {
         "BleSession.write" to CommandProbe(Kind.Gated) { _, s -> s.write(ref, byteArrayOf(1), BleWriteOptions()) },
         "BleSession.subscribe" to CommandProbe(Kind.Gated) { _, s -> s.subscribe(ref) },
         "BleSession.unsubscribe" to CommandProbe(Kind.LocalOnly) { _, s -> s.unsubscribe(ref) },
+        "BleSession.readDescriptor" to CommandProbe(Kind.Gated) { _, s -> s.readDescriptor(DescriptorRef(ref, ref.uuid)) },
+        "BleSession.writeDescriptor" to CommandProbe(Kind.Gated) { _, s -> s.writeDescriptor(DescriptorRef(ref, ref.uuid), byteArrayOf(1)) },
     )
 
     /** 덤프에서 `BleClient.`/`BleSession.` 의 abstract 공개 명령(getter·notifications 제외)을 뽑는다. */

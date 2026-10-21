@@ -43,7 +43,39 @@ internal class SubscriptionState {
      */
     fun confirmSubscribed(characteristic: CharacteristicRef, generation: Long): Boolean {
         desired.add(characteristic)
+        cccdValues.remove(characteristic)
         return markActive(characteristic, generation)
+    }
+
+    /**
+     * 앱이 쓴 CCCD 값 — 의도가 기억하는 마지막 값이다. subscribe 가 켠 의도는 값이 없다(null: 복원 때 코어가 properties 로
+     * 다시 고른다).
+     */
+    private val cccdValues = hashMapOf<CharacteristicRef, ByteArray>()
+
+    fun cccdValueFor(characteristic: CharacteristicRef): ByteArray? = cccdValues[characteristic]?.copyOf()
+
+    /**
+     * 0 이 아닌 앱 CCCD write 가 성공한 뒤. [mark] 이후 요청 순간 해제(unsubscribe)가 없었을 때만 의도·값·활성을 남긴다.
+     * 반환값은 활성 집합이 바뀌었는가.
+     */
+    fun confirmCccdWritten(characteristic: CharacteristicRef, value: ByteArray, generation: Long, mark: Long): Boolean {
+        if (removalMark(characteristic) != mark) return false
+        desired.add(characteristic)
+        cccdValues[characteristic] = value.copyOf()
+        return markActive(characteristic, generation)
+    }
+
+    /**
+     * 0 인 앱 CCCD write 가 성공한 뒤 — 의도·값·활성을 뺀다. 큐 순서대로 적용되므로 해제 표식은 올리지 않는다(그 뒤에 접수된
+     * subscribe 가 이긴다). 반환값은 활성 집합이 바뀌었는가.
+     */
+    fun clearByCccdWrite(characteristic: CharacteristicRef): Boolean {
+        desired.remove(characteristic)
+        cccdValues.remove(characteristic)
+        val removed = active.remove(characteristic)
+        if (removed) publishActive()
+        return removed
     }
 
     /**
@@ -61,6 +93,7 @@ internal class SubscriptionState {
     /** Removing intent must also prevent a late completion from restoring active state. */
     fun removeDesired(characteristic: CharacteristicRef): Boolean {
         removals[characteristic] = (removals[characteristic] ?: 0L) + 1
+        cccdValues.remove(characteristic)
         if (active.remove(characteristic)) publishActive()
         return desired.remove(characteristic)
     }
@@ -73,6 +106,7 @@ internal class SubscriptionState {
     fun clearDesired() {
         clearEpoch++
         desired.clear()
+        cccdValues.clear()
         active.clear()
         publishActive()
     }

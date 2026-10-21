@@ -4,6 +4,7 @@ import kr.co.nucode.ble.BleFailure
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.DescriptorRef
 import kr.co.nucode.ble.GattCharacteristic
 import kr.co.nucode.ble.GattService
 import kr.co.nucode.ble.ServiceRef
@@ -141,6 +142,7 @@ internal class LinkCallbacks(
                 GattCharacteristic(
                     ref = charRef,
                     properties = mapProperties(scopedCharacteristic.propertyMask),
+                    descriptors = descriptorRefs(charRef, scopedCharacteristic.descriptorUuids),
                 )
             }
             GattService(
@@ -212,5 +214,15 @@ internal class LinkCallbacks(
             properties += CharacteristicProperty.Indicate
         }
         return properties
+    }
+
+    /** 탐색 순서의 descriptor UUID 목록 → [DescriptorRef] 목록. instanceIndex 는 같은 UUID 사이의 순번이다. */
+    private fun descriptorRefs(charRef: CharacteristicRef, uuids: List<java.util.UUID>): List<DescriptorRef> {
+        val ordinals = mutableMapOf<java.util.UUID, Int>()
+        return uuids.map { uuid ->
+            val index = ordinals.getOrDefault(uuid, 0)
+            ordinals[uuid] = index + 1
+            DescriptorRef(charRef, BleUuid(uuid), index)
+        }
     }
 }

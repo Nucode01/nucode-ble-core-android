@@ -318,6 +318,45 @@ internal class RuntimeCommands(
         }
     }
 
+    /** descriptor 값을 한 번 읽는다. 진입 검사는 read 와 같다(states.md §5). */
+    internal suspend fun readDescriptor(requestedId: PeripheralId, descriptor: DescriptorRef): ByteArray {
+        val deviceId = requestedId.normalized()
+        return descriptorCommand(descriptor) {
+            onCore {
+                adapterReaction.ensureAdapterReady(AndroidApiOperation.ReadDescriptor)
+                val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
+                if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+                gattBridge.readDescriptor(deviceId, descriptor)
+            }
+        }
+    }
+
+    /**
+     * descriptor 에 응답 있는 쓰기 한 번. 크기 검사는 3(Ready) 뒤·큐 접수 전이다 — Android 는 참조 확인(4)이 큐 시작 때라
+     * 크기가 먼저다(write 와 같다).
+     */
+    internal suspend fun writeDescriptor(requestedId: PeripheralId, descriptor: DescriptorRef, value: ByteArray) {
+        val deviceId = requestedId.normalized()
+        descriptorCommand(descriptor) {
+            onCore {
+                adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteDescriptor)
+                val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
+                if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+                if (value.size > MAX_ATTRIBUTE_VALUE_BYTES) {
+                    throw BleException(GattFailureFactory.payloadTooLarge(session, OperationKind.WriteDescriptor))
+                }
+                gattBridge.writeDescriptor(deviceId, descriptor, value)
+            }
+        }
+    }
+
+    /** descriptor 명령이 던지는 실패의 문맥에 그 descriptor 를 싣는다. */
+    private suspend fun <T> descriptorCommand(descriptor: DescriptorRef, block: suspend () -> T): T = try {
+        block()
+    } catch (e: BleException) {
+        throw BleException(e.failure.copy(context = e.failure.context.copy(descriptor = descriptor)))
+    }
+
     /**
      * 구독 해제 — D8 best-effort(plan design decisions v1, review L-1). 유일한 throw 는
      * `UNKNOWN_DEVICE` typed failure다. [GattBridge.unsubscribe] 는 더 이상 throw 하지 않는다 —
@@ -338,5 +377,10 @@ internal class RuntimeCommands(
             gattBridge.unsubscribe(deviceId, charRef)
         }
         }
+    }
+
+    private companion object {
+        /** ATT 속성 값의 최대 길이(Core Spec Vol 3 Part F 3.2.9). descriptor write 는 나누지 않으므로 이것이 상한이다. */
+        const val MAX_ATTRIBUTE_VALUE_BYTES = 512
     }
 }

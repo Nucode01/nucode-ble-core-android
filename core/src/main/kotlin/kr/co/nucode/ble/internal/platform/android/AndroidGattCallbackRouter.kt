@@ -59,12 +59,21 @@ internal fun descriptorWriteEvent(
     status: Int,
     characteristic: GattCharacteristicSnapshot?,
     descriptorUuid: java.util.UUID,
+    descriptorInstanceIndex: Int = 0,
 ): GattDriverEvent.DescriptorWrite = GattDriverEvent.DescriptorWrite(
     deviceId,
     source,
     status,
-    characteristic?.toIdentity()?.let { GattDescriptorIdentity(it, descriptorUuid) },
+    characteristic?.toIdentity()?.let { GattDescriptorIdentity(it, descriptorUuid, descriptorInstanceIndex) },
 )
+
+internal fun descriptorReadEvent(
+    deviceId: PeripheralId,
+    source: GattCallbackSource,
+    status: Int,
+    identity: GattDescriptorIdentity?,
+    value: ByteArray,
+): GattDriverEvent.DescriptorRead = GattDriverEvent.DescriptorRead(deviceId, source, status, identity, value.copyOf())
 
 /** Converts Android callbacks to driver facts and serializes delivery through the core mailbox. */
 internal class AndroidGattCallbackRouter(
@@ -172,9 +181,43 @@ internal class AndroidGattCallbackRouter(
                 descriptorWriteEvent(
                     deviceIdOf(gatt), sourceOf(gatt), status,
                     snapshotCharacteristic(gatt, descriptor.characteristic), descriptor.uuid,
+                    descriptorIndexOf(descriptor) ?: 0,
                 ),
             )
         }
+
+        @Suppress("DEPRECATION")
+        override fun onDescriptorRead(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                forward(
+                    descriptorReadEvent(
+                        deviceIdOf(gatt), sourceOf(gatt), status, descriptorIdentity(gatt, descriptor),
+                        descriptor.value ?: ByteArray(0),
+                    ),
+                )
+            }
+        }
+
+        override fun onDescriptorRead(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int,
+            value: ByteArray,
+        ) {
+            forward(descriptorReadEvent(deviceIdOf(gatt), sourceOf(gatt), status, descriptorIdentity(gatt, descriptor), value))
+        }
+    }
+
+    /** 같은 characteristic 아래 같은 UUID descriptor 사이의 순번. 그 컬렉션에 없는 객체면 null. */
+    private fun descriptorIndexOf(descriptor: BluetoothGattDescriptor): Int? {
+        val characteristic = descriptor.characteristic ?: return null
+        return identityIndexOrNull(characteristic.descriptors.filter { it.uuid == descriptor.uuid }, descriptor)
+    }
+
+    private fun descriptorIdentity(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor): GattDescriptorIdentity? {
+        val characteristic = snapshotCharacteristic(gatt, descriptor.characteristic ?: return null) ?: return null
+        val index = descriptorIndexOf(descriptor) ?: return null
+        return GattDescriptorIdentity(characteristic.toIdentity(), descriptor.uuid, index)
     }
 
     private fun deviceIdOf(gatt: BluetoothGatt): PeripheralId = PeripheralId(gatt.device.address)
@@ -230,6 +273,7 @@ internal class AndroidGattCallbackRouter(
             propertyMask = characteristic.properties,
             platformCharacteristic = AndroidCharacteristic(characteristic),
             serviceInstanceIndex = serviceInstanceIndex,
+            descriptorUuids = characteristic.descriptors.map { it.uuid },
         )
     }
 }

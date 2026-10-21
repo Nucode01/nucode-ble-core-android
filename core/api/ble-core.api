@@ -27,8 +27,8 @@ CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Number(long) throws=
 CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Payload(byte[],int,boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.DiagnosticValue$Text(java.lang.String) throws=
 CONSTRUCTOR public kr.co.nucode.ble.FailureContext() throws=
-CONSTRUCTOR public kr.co.nucode.ble.FailureContext(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason) throws=
-CONSTRUCTOR public kr.co.nucode.ble.GattCharacteristic(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>) throws=
+CONSTRUCTOR public kr.co.nucode.ble.FailureContext(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason,kr.co.nucode.ble.DescriptorRef) throws=
+CONSTRUCTOR public kr.co.nucode.ble.GattCharacteristic(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>,java.util.List<kr.co.nucode.ble.DescriptorRef>) throws=
 CONSTRUCTOR public kr.co.nucode.ble.GattService(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
 CONSTRUCTOR public kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
 CONSTRUCTOR public kr.co.nucode.ble.PlatformDetail$Android(java.lang.String,java.lang.Integer,java.lang.Integer,java.lang.String,java.lang.String) throws=
@@ -72,9 +72,11 @@ FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.Fa
 FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Scan
 FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Validation
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Read
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.ReadDescriptor
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.RequestMtu
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Subscribe
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Unsubscribe
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.WriteDescriptor
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.WriteWithResponse
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.WriteWithoutResponse
 FIELD public static final enum kr.co.nucode.ble.Retryability kr.co.nucode.ble.Retryability.AfterEnvironmentChange
@@ -130,9 +132,11 @@ METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleClient.stopScan(k
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.connect(kr.co.nucode.ble.BleConnectOptions,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.disconnect(kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.read(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super byte[]>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.readDescriptor(kr.co.nucode.ble.DescriptorRef,kotlin.coroutines.Continuation<? super byte[]>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.subscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.unsubscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.write(kr.co.nucode.ble.CharacteristicRef,byte[],kr.co.nucode.ble.BleWriteOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.WriteReceipt>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.writeDescriptor(kr.co.nucode.ble.DescriptorRef,byte[],kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.android.AndroidBondController.createBond-bxWR3DE(java.lang.String,long,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.android.AndroidBondResult>) throws=
 METHOD public abstract <> java.lang.String kr.co.nucode.ble.BleSession.getPeripheralId-f9B3WOg() throws=
 METHOD public abstract <> kotlinx.coroutines.flow.Flow<byte[]> kr.co.nucode.ble.BleSession.notifications(kr.co.nucode.ble.CharacteristicRef) throws=
@@ -173,6 +177,8 @@ METHOD public final <> int kr.co.nucode.ble.BleConfig.getEventBufferCapacity() t
 METHOD public final <> int kr.co.nucode.ble.BleManufacturerDataFilter.getCompanyId() throws=
 METHOD public final <> int kr.co.nucode.ble.CharacteristicRef.component3() throws=
 METHOD public final <> int kr.co.nucode.ble.CharacteristicRef.getInstanceIndex() throws=
+METHOD public final <> int kr.co.nucode.ble.DescriptorRef.component3() throws=
+METHOD public final <> int kr.co.nucode.ble.DescriptorRef.getInstanceIndex() throws=
 METHOD public final <> int kr.co.nucode.ble.DiagnosticOptions.getMaxRawPayloadBytes() throws=
 METHOD public final <> int kr.co.nucode.ble.DiagnosticOptions.getQueueCapacity() throws=
 METHOD public final <> int kr.co.nucode.ble.DiagnosticValue$Payload.getOriginalLength() throws=
@@ -292,6 +298,8 @@ METHOD public final <> java.util.List<kr.co.nucode.ble.BleServiceDataFilter> kr.
 METHOD public final <> java.util.List<kr.co.nucode.ble.BleUuid> kr.co.nucode.ble.BleScanFilter.getServiceUuids() throws=
 METHOD public final <> java.util.List<kr.co.nucode.ble.GattCharacteristic> kr.co.nucode.ble.GattService.component2() throws=
 METHOD public final <> java.util.List<kr.co.nucode.ble.GattCharacteristic> kr.co.nucode.ble.GattService.getCharacteristics() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.DescriptorRef> kr.co.nucode.ble.GattCharacteristic.component3() throws=
+METHOD public final <> java.util.List<kr.co.nucode.ble.DescriptorRef> kr.co.nucode.ble.GattCharacteristic.getDescriptors() throws=
 METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.OfficialBleClientEvent$Services.component2() throws=
 METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.OfficialBleClientEvent$Services.getServices() throws=
 METHOD public final <> java.util.List<kr.co.nucode.ble.GattService> kr.co.nucode.ble.SessionSnapshot.component3() throws=
@@ -312,6 +320,8 @@ METHOD public final <> java.util.UUID kr.co.nucode.ble.BleServiceDataFilter.getS
 METHOD public final <> java.util.UUID kr.co.nucode.ble.BleUuid.getValue() throws=
 METHOD public final <> java.util.UUID kr.co.nucode.ble.CharacteristicRef.component2-YZPGo4Q() throws=
 METHOD public final <> java.util.UUID kr.co.nucode.ble.CharacteristicRef.getUuid-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.DescriptorRef.component2-YZPGo4Q() throws=
+METHOD public final <> java.util.UUID kr.co.nucode.ble.DescriptorRef.getUuid-YZPGo4Q() throws=
 METHOD public final <> java.util.UUID kr.co.nucode.ble.ServiceRef.component1-YZPGo4Q() throws=
 METHOD public final <> java.util.UUID kr.co.nucode.ble.ServiceRef.getUuid-YZPGo4Q() throws=
 METHOD public final <> kotlin.coroutines.CoroutineContext kr.co.nucode.ble.BleConfig.component1() throws=
@@ -354,6 +364,11 @@ METHOD public final <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteOp
 METHOD public final <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteOptions.getMode() throws=
 METHOD public final <> kr.co.nucode.ble.BleWriteOptions kr.co.nucode.ble.BleWriteOptions.copy(kr.co.nucode.ble.BleWriteMode,kr.co.nucode.ble.BleChunking) throws=
 METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.CharacteristicRef.copy-3nOLlxo(kr.co.nucode.ble.ServiceRef,java.util.UUID,int) throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.DescriptorRef.component1() throws=
+METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.DescriptorRef.getCharacteristic() throws=
+METHOD public final <> kr.co.nucode.ble.DescriptorRef kr.co.nucode.ble.DescriptorRef.copy-3nOLlxo(kr.co.nucode.ble.CharacteristicRef,java.util.UUID,int) throws=
+METHOD public final <> kr.co.nucode.ble.DescriptorRef kr.co.nucode.ble.FailureContext.component6() throws=
+METHOD public final <> kr.co.nucode.ble.DescriptorRef kr.co.nucode.ble.FailureContext.getDescriptor() throws=
 METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.GattCharacteristic.component1() throws=
 METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.GattCharacteristic.getRef() throws=
 METHOD public final <> kr.co.nucode.ble.CharacteristicRef kr.co.nucode.ble.OfficialBleClientEvent$SubscriptionRestoreFailed.component2() throws=
@@ -384,12 +399,12 @@ METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.BleFailu
 METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.BleFailure.getContext() throws=
 METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.DiagnosticFailure.component5() throws=
 METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.DiagnosticFailure.getContext() throws=
-METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.FailureContext.copy(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason) throws=
+METHOD public final <> kr.co.nucode.ble.FailureContext kr.co.nucode.ble.FailureContext.copy(java.lang.String,java.lang.Long,java.lang.String,kr.co.nucode.ble.OperationKind,kr.co.nucode.ble.ConnectionInvalidationReason,kr.co.nucode.ble.DescriptorRef) throws=
 METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.BleFailure.component3() throws=
 METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.BleFailure.getPhase() throws=
 METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.DiagnosticFailure.component3() throws=
 METHOD public final <> kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.DiagnosticFailure.getPhase() throws=
-METHOD public final <> kr.co.nucode.ble.GattCharacteristic kr.co.nucode.ble.GattCharacteristic.copy(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>) throws=
+METHOD public final <> kr.co.nucode.ble.GattCharacteristic kr.co.nucode.ble.GattCharacteristic.copy(kr.co.nucode.ble.CharacteristicRef,java.util.Set<? extends kr.co.nucode.ble.CharacteristicProperty>,java.util.List<kr.co.nucode.ble.DescriptorRef>) throws=
 METHOD public final <> kr.co.nucode.ble.GattService kr.co.nucode.ble.GattService.copy(kr.co.nucode.ble.ServiceRef,java.util.List<kr.co.nucode.ble.GattCharacteristic>) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Connection kr.co.nucode.ble.OfficialBleClientEvent$Connection.copy-hhuSfVg(java.lang.String,kr.co.nucode.ble.ConnectionState) throws=
 METHOD public final <> kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic kr.co.nucode.ble.OfficialBleClientEvent$Diagnostic.copy(kr.co.nucode.ble.Severity,kr.co.nucode.ble.BleFailure) throws=
@@ -534,6 +549,7 @@ TYPE public final kr.co.nucode.ble.CharacteristicRef extends=java.lang.Object im
 TYPE public final kr.co.nucode.ble.ClientSnapshot extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.ConnectionInvalidationReason extends=java.lang.Enum<kr.co.nucode.ble.ConnectionInvalidationReason> implements=
 TYPE public final kr.co.nucode.ble.DeliverySemantics extends=java.lang.Enum<kr.co.nucode.ble.DeliverySemantics> implements=
+TYPE public final kr.co.nucode.ble.DescriptorRef extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.DiagnosticFailure extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.DiagnosticOptions extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.DiagnosticRecord extends=java.lang.Object implements=

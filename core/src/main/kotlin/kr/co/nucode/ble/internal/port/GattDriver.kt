@@ -60,6 +60,12 @@ internal interface GattDriver {
         characteristic: PlatformCharacteristic,
     ): Boolean = false
 
+    fun readDescriptor(
+        deviceId: PeripheralId,
+        gatt: GattHandle?,
+        descriptor: PlatformDescriptor,
+    ): Boolean = false
+
     fun writeCharacteristic(
         deviceId: PeripheralId,
         gatt: GattHandle?,
@@ -82,8 +88,12 @@ internal interface GattDriver {
 
 /** driver 가 판정한 operation target 해석 결과. */
 internal sealed interface TargetResolution {
-    /** 현재 handle 의 서비스 그래프에서 같은 객체를 찾았다. */
-    data class Resolved(val propertyMask: Int, val cccdDescriptor: PlatformDescriptor?) : TargetResolution
+    /** 현재 handle 의 서비스 그래프에서 같은 객체를 찾았다. [descriptors] 는 그 characteristic 의 descriptor(탐색 순서)다. */
+    data class Resolved(
+        val propertyMask: Int,
+        val cccdDescriptor: PlatformDescriptor?,
+        val descriptors: List<PlatformDescriptorEntry> = emptyList(),
+    ) : TargetResolution
 
     /** 해석할 handle 이 없다. */
     data object NotConnected : TargetResolution
@@ -104,7 +114,7 @@ internal data class GattServiceSnapshot(
     val instanceIndex: Int = 0,
 )
 
-/** Raw characteristic snapshot. The platform handle is absent in JVM fakes. */
+/** Raw characteristic snapshot. The platform handle is absent in JVM fakes. [descriptorUuids] keep discovery order. */
 internal data class GattCharacteristicSnapshot(
     val serviceUuid: UUID,
     val charUuid: UUID,
@@ -112,7 +122,11 @@ internal data class GattCharacteristicSnapshot(
     val propertyMask: Int,
     val platformCharacteristic: PlatformCharacteristic? = null,
     val serviceInstanceIndex: Int = 0,
+    val descriptorUuids: List<UUID> = emptyList(),
 )
+
+/** 해석된 characteristic 아래 descriptor 하나 — 시작 때 (uuid, 순번)으로 고르는 플랫폼 객체. */
+internal class PlatformDescriptorEntry(val uuid: UUID, val descriptor: PlatformDescriptor)
 
 internal fun GattCharacteristicSnapshot.toIdentity(): GattCharacteristicIdentity =
     GattCharacteristicIdentity(
@@ -181,5 +195,13 @@ internal sealed interface GattDriverEvent {
         override val source: GattCallbackSource,
         val status: Int,
         val attributeIdentity: GattDescriptorIdentity? = null,
+    ) : GattDriverEvent
+
+    class DescriptorRead(
+        override val deviceId: PeripheralId,
+        override val source: GattCallbackSource,
+        val status: Int,
+        val attributeIdentity: GattDescriptorIdentity?,
+        val value: ByteArray,
     ) : GattDriverEvent
 }

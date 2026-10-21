@@ -2,9 +2,26 @@
 
 ## Unreleased
 
-공개 API 추가 하나(Android 전용 확장). 동작 변경: `AdvertisementData` 의 같음 판정이 원본 바이트를 반영한다(CANDIDATE-31).
+공개 API 추가: Android 전용 광고 원본 확장(CANDIDATE-31), 공통 descriptor 탐색·read·write(CANDIDATE-32).
+동작 변경: `AdvertisementData` 의 같음 판정이 원본 바이트를 반영한다. 소스 호환이 깨지는 변경이 있다(Breaking).
+
+### Breaking
+
+- `OperationKind` 에 `ReadDescriptor`·`WriteDescriptor` 를 더했다. `OperationKind` 를 exhaustive `when` 으로 가르는 코드는 컴파일되지 않는다.
+- `BleSession` 에 `readDescriptor`·`writeDescriptor` 를 더했다. `BleSession` 을 직접 구현한 코드(시험용 fake 등)는 두 함수를 구현해야 한다.
+- data class 시그니처: `GattCharacteristic` 에 `descriptors`(기본 `emptyList()`), `FailureContext` 에 `descriptor`(기본 `null`, 맨 끝)를 더했다.
+  기본값이 있어 이름 인자·기존 위치 인자 생성은 그대로 컴파일되지만 생성자·`copy` 의 JVM 시그니처가 바뀌어 다시 컴파일해야 한다.
 
 ### Added
+
+- `DescriptorRef(characteristic, uuid, instanceIndex = 0)` 와 `GattCharacteristic.descriptors`(탐색 순서, CCCD 포함).
+- `BleSession.readDescriptor(descriptor): ByteArray`, `BleSession.writeDescriptor(descriptor, value)`. characteristic 작업과 같은 GATT 큐·기한·poison·끊김 규칙.
+  write 는 응답 있는 쓰기 한 번이고 나누지 않는다. 512바이트 초과는 `PAYLOAD_TOO_LARGE`, 없는 ref 는 `CHARACTERISTIC_NOT_FOUND`, 플랫폼 동기 거절은
+  `GATT_OPERATION_START_FAILED` 다. 실패 문맥에 `FailureContext.descriptor` 를 싣는다.
+- Android CCCD(0x2902) 직접 쓰기: 받은 값을 그대로 쓰고, 기기가 성공으로 응답한 뒤 `activeSubscriptions`·구독 의도를 그 값에 맞춘다(0 이 아니면 켜짐,
+  0 이면 꺼짐). 재연결 복원은 마지막으로 쓴 값을 다시 쓴다. `subscribe`·`unsubscribe` 와 같은 큐에서 나중 작업이 상태를 정한다.
+- 진단: descriptor payload 는 `GATT_PAYLOAD_OBSERVED` 로 관측하고 safe·sensitive 는 그 characteristic 의 판정을 따른다. 앱 CCCD 쓰기가 활성 구독을
+  바꾸면 logger 에 값 키 `subscription_change`(`enabled`·`disabled`) 기록이 하나 남는다(문맥 종류 `Subscribe`·`Unsubscribe`). 실패 코드 수는 그대로다.
 
 - `kr.co.nucode.ble.android.androidScanRecordBytes`: `AdvertisementData` 의 Android 전용 확장 속성. 스캔 결과의 원본 광고 바이트
   (`ScanRecord.getBytes()`)를 복사본으로 준다. 플랫폼이 scan record 를 주지 않으면 `null` 이다.
@@ -21,11 +38,16 @@
 
 - 계약 러너에 `adTypes` 확장 레인(원본 바이트의 AD type 누적 집합, `await adTypes is`)을 더하고, sim 가짜 기기가 원본 바이트
   (Flags · Complete Local Name · scan response 의 128-bit 서비스 UUID)를 낸다. 시나리오 `scan-exposes-raw-advertisement` 가 sim 에서 통과한다.
+- 계약 러너가 `readDescriptor`(결과 줄에 값 16진수)·`writeDescriptor` 호출, `descriptors` 값 레인(CONTRACT 순서 properties → descriptors → adTypes),
+  기기 정의의 `descriptors` 를 읽는다. sim 가짜 기기가 descriptor 값·쓰기·CCCD 구독 상태(0100 일 때만 알림)를 흉내 낸다.
+  draft 시나리오 `descriptors-discovered`·`descriptor-read-write`·`descriptor-read-during-link-loss`·`descriptor-cccd-write-syncs-subscription`·
+  `descriptor-cccd-write-restored` 가 sim 에서 통과한다. 기기 실행은 펌웨어 재플래시 뒤다.
 
 ### Internal
 
 - `AdvertisementData` 를 `PublicModels.kt` 에서 `AdvertisementData.kt` 로 옮겼다(같은 패키지, 공개 시그니처 불변).
   공개 API 덤프 시험이 top-level 공개 선언(확장 속성)의 facade 클래스도 덤프에 넣는다.
+- descriptor 시작과 CCCD 시작을 `DescriptorStart.kt` 로, 러너 읽기 도우미를 `ContractReading.kt` 로 옮겼다. 실패 종류 매핑을 큐 Core 한 곳에 둔다.
 
 ## 0.3.1 (2026-10-20)
 

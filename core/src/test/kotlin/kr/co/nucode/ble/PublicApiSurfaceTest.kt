@@ -29,13 +29,17 @@ class PublicApiSurfaceTest {
             "^public (?:(?:data|sealed|value|fun) )?(?:class|interface|object|enum class) ([A-Za-z0-9_]+)",
             RegexOption.MULTILINE,
         )
+        val topLevelMember = Regex("^public (?:(?:val|var) |fun (?!interface))", RegexOption.MULTILINE)
         val topLevelTypes = sourceRoot.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .flatMap { file ->
                 val source = file.readText()
                 val packageName = Regex("^package ([A-Za-z0-9_.]+)", RegexOption.MULTILINE)
                     .find(source)?.groupValues?.get(1).orEmpty()
-                declaration.findAll(source).map { match -> "$packageName.${match.groupValues[1]}" }
+                val types = declaration.findAll(source).map { match -> "$packageName.${match.groupValues[1]}" }
+                // top-level 공개 함수·속성(확장 포함)은 파일 facade 클래스 `<파일>Kt` 에 정적 멤버로 들어간다.
+                val facade = "$packageName.${file.nameWithoutExtension}Kt".takeIf { topLevelMember.containsMatchIn(source) }
+                types + listOfNotNull(facade)
             }
             .distinct()
             .toList()
@@ -107,7 +111,7 @@ class PublicApiSurfaceTest {
 
     @Test
     fun `official source files do not expose Android or legacy identifiers`() {
-        val sources = listOf("PublicModels.kt", "BleClient.kt", "BleSession.kt").map { name ->
+        val sources = listOf("PublicModels.kt", "AdvertisementData.kt", "BleClient.kt", "BleSession.kt").map { name ->
             java.io.File("src/main/kotlin/kr/co/nucode/ble/$name").readText()
         }.joinToString("\n")
 

@@ -29,7 +29,7 @@ class LegacyBleCoreCompatibilityTest {
     fun `raw advertisement is absent from all event and public sources`() {
         val eventSource = listOf("internal/model/BleEvent.kt", "ClientEvents.kt")
             .joinToString("\n") { java.io.File("src/main/kotlin/kr/co/nucode/ble/$it").readText() }
-        val publicSource = listOf("PublicModels.kt", "BleClient.kt", "BleSession.kt")
+        val publicSource = listOf("PublicModels.kt", "AdvertisementData.kt", "BleClient.kt", "BleSession.kt")
             .joinToString("\n") { java.io.File("src/main/kotlin/kr/co/nucode/ble/$it").readText() }
 
         assertFalse("raw scan event must not exist", eventSource.contains("ScanResult("))

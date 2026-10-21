@@ -187,6 +187,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         val name: String,
         val serviceUuids: Set<BleUuid>,
         val visible: () -> Boolean,
+        val scanRecord: ByteArray? = null, // Android ScanRecord.getBytes() 자리(README §sim 원본 바이트)
     )
 
     var advertiser: Advertiser? = null
@@ -238,7 +239,8 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
                                     ScanObservation(
                                         adv.id,
                                         -50,
-                                        AdvertisementData(adv.name, adv.serviceUuids, emptyMap(), emptyMap(), null, true),
+                                        AdvertisementData(adv.name, adv.serviceUuids, emptyMap(), emptyMap(), null, true)
+                                            .withScanRecordBytes(adv.scanRecord),
                                     ),
                                 )
                             }

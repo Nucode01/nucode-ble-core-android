@@ -15,6 +15,7 @@ internal data class AndroidAdvertisementFacts(
     val serviceData: Map<BleUuid, ByteArray>,
     val txPower: Int?,
     val isConnectable: Boolean?,
+    val scanRecordBytes: ByteArray? = null,
 )
 
 internal object AndroidAdvertisementMapper {
@@ -25,7 +26,7 @@ internal object AndroidAdvertisementMapper {
         serviceData = facts.serviceData.mapValues { (_, bytes) -> bytes.copyOf() },
         txPower = facts.txPower,
         isConnectable = facts.isConnectable,
-    )
+    ).withScanRecordBytes(facts.scanRecordBytes)
 
     fun facts(result: ScanResult): AndroidAdvertisementFacts {
         val record = result.scanRecord
@@ -51,6 +52,8 @@ internal object AndroidAdvertisementMapper {
             serviceData = serviceData,
             txPower = txPower,
             isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) result.isConnectable else null,
+            // 받은 그대로 복사한다. 자르거나(0 채움 포함) 정규화하지 않는다.
+            scanRecordBytes = record?.bytes?.copyOf(),
         )
     }
 }

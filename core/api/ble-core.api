@@ -500,6 +500,7 @@ METHOD public static final <> boolean kr.co.nucode.ble.BleUuid.equals-impl0(java
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCategory.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCode.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.PeripheralId.equals-impl0(java.lang.String,java.lang.String) throws=
+METHOD public static final <> byte[] kr.co.nucode.ble.android.AndroidAdvertisementDataKt.getAndroidScanRecordBytes(kr.co.nucode.ble.AdvertisementData) throws=
 METHOD public static final <> kr.co.nucode.ble.BleClient kr.co.nucode.ble.android.AndroidBleClientFactory.create(android.content.Context,kr.co.nucode.ble.BleConfig) throws=
 METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
 TYPE public abstract interface kr.co.nucode.ble.AdapterState extends=- implements=
@@ -554,6 +555,7 @@ TYPE public final kr.co.nucode.ble.SessionSnapshot extends=java.lang.Object impl
 TYPE public final kr.co.nucode.ble.Severity extends=java.lang.Enum<kr.co.nucode.ble.Severity> implements=
 TYPE public final kr.co.nucode.ble.WriteProgress extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.WriteReceipt extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.android.AndroidAdvertisementDataKt extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBleClientFactory extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=

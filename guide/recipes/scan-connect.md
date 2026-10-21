@@ -65,6 +65,12 @@ fun scanStopReasons(client: BleClient): Flow<BleFailure> =
 - 블루투스가 꺼지면 스캔은 `Idle(SCAN_STOPPED_BY_ADAPTER)` 로 멈추고, 다시 켜져도 **자동으로 다시 시작하지 않습니다.**
 - RSSI 는 순간값이라 흔들립니다. "가장 가까운"은 그 순간 신호가 가장 센 기기라는 뜻입니다.
 - `advertisement.serviceData` 에는 광고에 실린 서비스 데이터가 전부 들어옵니다. 서비스 UUID 목록에 없고 서비스 데이터로만 실린 UUID(비콘 등)도 포함되므로, 그런 UUID 로 `BleServiceDataFilter` 를 걸어도 됩니다. 이 동작은 코드로 확인했고 실기기 재확인은 아직입니다(아래 [7장](../troubleshooting.md#7-한계와-검증-범위)).
+- 원본 광고 바이트는 Android 전용 확장 속성으로 읽습니다. `import kr.co.nucode.ble.android.androidScanRecordBytes` 뒤 `result.advertisement.androidScanRecordBytes` 를 씁니다. 공통 필드에 없는 AD 구조(Appearance, 비표준 type 등)를 앱이 직접 읽을 때 씁니다.
+  - 값은 `ScanRecord.getBytes()` 의 복사본입니다. 플랫폼이 scan record 를 주지 않으면 `null` 입니다.
+  - legacy 광고를 active 스캔으로 받으면 광고 데이터와 scan response 가 한 바이트열로 합쳐져 옵니다.
+  - 라이브러리는 바이트를 자르거나 정규화하지 않습니다. 뒤쪽 0 채움이 오면 그대로 둡니다. AD 구조(길이 · type · 값) 디코딩은 앱 몫이고, 길이 바이트 0 을 끝으로 읽으면 0 채움을 건너뜁니다.
+  - iOS 는 원본 바이트를 주지 않습니다. 공통 코드에서는 플랫폼 분기가 필요합니다.
+  - `AdvertisementData` 의 같음 판정에 원본 바이트가 들어갑니다. 원본만 다른 결과도 다른 값이라 `distinctUntilChanged` 가 거르지 않습니다.
 
 ## 5.2 연결하고 `Ready` 까지 기다리기
 

@@ -21,12 +21,12 @@
 - **`android.bluetooth` 의존은 플랫폼 어댑터 패키지에만 있다.** 이 패키지와 공개 `kr.co.nucode.ble.android` 밖에는 `android.bluetooth` import 가 없다(`PackageStructureFitnessTest` 가 강제). GATT 포트(`GattDriver`)는
   불투명 핸들 `GattHandle`·`PlatformCharacteristic`·`PlatformDescriptor`(`internal/model/`)만 주고받고, 상태·쓰기 상수는
   `gatt/GattPlatformTypes.kt`(`GattStatus`·`LinkState`·`GattWriteTypes`)에 둔다. 어댑터 조회는 `AdapterSource` 포트(`AndroidAdapterSource` 구현)로 받는다.
-- 공개 Android 진입점(`AndroidBleClientFactory`, `AndroidBondController`)은 `kr.co.nucode.ble.android`
-  에 둔다. 이 패키지는 internal 전용이다.
+- 공개 Android 진입점(`AndroidBleClientFactory`, `AndroidBondController`)과 Android 전용 확장 속성
+  (`AndroidAdvertisementData.kt` 의 `androidScanRecordBytes`)은 `kr.co.nucode.ble.android` 에 둔다. 이 패키지는 internal 전용이다.
 
 ## 파일을 옮기거나 개명하기 전에
 
 루트 README 규칙 10번(grep 게이트)을 따른다. 이 저장소의 테스트는 소스를 **경로 문자열로
 읽는다** — `GattDriverSeamTest` 가 `AndroidGattCallbackRouter.kt` 를, `PublicApiSurfaceTest` 와
-`LegacyBleCoreCompatibilityTest` 가 `PublicModels.kt`·`BleClient.kt`·`BleSession.kt`·`ClientEvents.kt`·`internal/event/BleEvent.kt` 를,
+`LegacyBleCoreCompatibilityTest` 가 `PublicModels.kt`·`AdvertisementData.kt`·`BleClient.kt`·`BleSession.kt`·`ClientEvents.kt`·`internal/event/BleEvent.kt` 를,
 `BleClientContractTest` 가 `kr/co/nucode/ble/` 아래 상대 경로로 받은 파일을 텍스트로 검사한다.

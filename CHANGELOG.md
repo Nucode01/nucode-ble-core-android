@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+공개 API 추가 하나(Android 전용 확장). 동작 변경: `AdvertisementData` 의 같음 판정이 원본 바이트를 반영한다(CANDIDATE-31).
+
+### Added
+
+- `kr.co.nucode.ble.android.androidScanRecordBytes`: `AdvertisementData` 의 Android 전용 확장 속성. 스캔 결과의 원본 광고 바이트
+  (`ScanRecord.getBytes()`)를 복사본으로 준다. 플랫폼이 scan record 를 주지 않으면 `null` 이다.
+  - legacy 광고의 active 스캔에서는 광고 데이터와 scan response 가 한 바이트열로 합쳐져 온다. 라이브러리는 자르거나(0 채움 포함)
+    정규화하거나 디코딩하지 않는다.
+  - 공통 API(`AdvertisementData` 공개 생성자·멤버)와 iOS 는 그대로다. iOS 는 원본 바이트를 주지 않는다.
+
+### Behavior
+
+- `AdvertisementData.equals`·`hashCode` 가 원본 바이트를 반영한다. 다른 필드가 같고 원본만 다른 스캔 결과는 이제 다른 값이다.
+  `distinctUntilChanged` 같은 같음 기반 거르기를 쓰는 소비자는 결과를 더 자주 받는다. 공개 생성자로 만든 값은 원본이 `null` 이다.
+
+### Contract
+
+- 계약 러너에 `adTypes` 확장 레인(원본 바이트의 AD type 누적 집합, `await adTypes is`)을 더하고, sim 가짜 기기가 원본 바이트
+  (Flags · Complete Local Name · scan response 의 128-bit 서비스 UUID)를 낸다. 시나리오 `scan-exposes-raw-advertisement` 가 sim 에서 통과한다.
+
+### Internal
+
+- `AdvertisementData` 를 `PublicModels.kt` 에서 `AdvertisementData.kt` 로 옮겼다(같은 패키지, 공개 시그니처 불변).
+  공개 API 덤프 시험이 top-level 공개 선언(확장 속성)의 facade 클래스도 덤프에 넣는다.
+
 ## 0.3.1 (2026-10-20)
 
 공개 API 변경 없음. 동작 변경: Android 첫 직접 연결의 빠른 GATT status 133 을 라이브러리가 다시 건다(contract/states.md §2, 2026-10-13).

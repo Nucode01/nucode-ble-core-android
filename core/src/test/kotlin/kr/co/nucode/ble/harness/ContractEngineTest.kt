@@ -220,6 +220,61 @@ class ContractEngineTest {
         assertTrue(report.toString(), report.passed)
     }
 
+    private val scanUntilAdTypes = """{ "call": "startScan", "filter": { "name": "Nordic_UART_Service" } },
+        { "await": "adTypes", "is": "{01,07,09}", "timeoutMs": 2000 }, { "call": "stopScan" }"""
+
+    @Test
+    fun `adTypes 레인은 시작할 때 빈 집합을 남기고 expect 에 없으면 기록하지 않는다`() {
+        val idle = run("""[{ "sleep": 300 }]""", """{ "adTypes": ["{}"] }""")
+        assertTrue(idle.toString(), idle.passed)
+        val plain = run(
+            """[{ "call": "startScan", "filter": { "name": "Nordic_UART_Service" } }, { "sleep": 500 }, { "call": "stopScan" }]""",
+            """{ "found": ["probe"] }""",
+        )
+        assertTrue(plain.toString(), plain.passed)
+        assertFalse(plain.toString(), plain.toString().contains("|adTypes|"))
+    }
+
+    @Test
+    fun `adTypes 레인은 sim 원본의 Flags·Name·128-bit UUID 를 모으고 startScan 마다 비운다`() {
+        val report = run(
+            "[$scanUntilAdTypes, $scanUntilAdTypes]",
+            """{ "adTypes": ["{}", "{01,07,09}", "{}", "{01,07,09}"] }""",
+        )
+        assertTrue(report.toString(), report.passed)
+    }
+
+    @Test
+    fun `adTypes 줄은 properties 다음 peer 앞에 낸다`() {
+        val report = run(
+            """[$scanUntilAdTypes, $connectToReady, $nusPattern, { "device": "rxCheck" }]""",
+            """{ "peer": ["*"], "adTypes": ["*"], "properties": ["*"] }""",
+        )
+        val lanes = report.lines().map { it.split('|')[3] }
+        assertTrue(report.toString(), lanes.lastIndexOf("properties") < lanes.indexOf("adTypes"))
+        assertTrue(report.toString(), lanes.lastIndexOf("adTypes") < lanes.indexOf("peer"))
+    }
+
+    @Test
+    fun `adTypes 읽기는 길이 0 에서 끝내고 남은 바이트를 넘는 구조는 버린다`() {
+        fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
+        val cases = listOf(
+            bytes() to emptySet(),
+            bytes(0x02, 0x01, 0x06, 0x03, 0x09, 0x41, 0x42, 0x11, 0x07) + ByteArray(16) to setOf(0x01, 0x09, 0x07),
+            bytes(0x02, 0x01, 0x06, 0x00, 0x05, 0xFF, 0, 0, 0, 0) to setOf(0x01),
+            bytes(0x02, 0x01, 0x06, 0x09, 0x09, 0x41) to setOf(0x01),
+            bytes(0x02, 0x01, 0x06, 0x02) to setOf(0x01),
+            bytes(0x01, 0xFF) to setOf(0xFF),
+        )
+        for ((raw, expected) in cases) assertEquals(raw.joinToString(), expected, ContractLog.adTypes(raw))
+    }
+
+    @Test
+    fun `adTypes 줄은 두 자리 대문자 16진수를 정렬해 쉼표로 잇는다`() {
+        assertEquals("{}", ContractLog.renderAdTypes(emptySet()))
+        assertEquals("{01,07,09,FF}", ContractLog.renderAdTypes(setOf(0xFF, 0x09, 0x01, 0x07)))
+    }
+
     @Test
     fun `광고하지 않는 서비스로 거른 스캔에는 결과가 없다`() {
         val report = run(

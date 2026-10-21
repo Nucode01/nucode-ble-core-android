@@ -56,7 +56,8 @@ Android 의 `BluetoothGatt` 를 직접 쓰면 한 번에 GATT 작업 하나만 �
 - **권한 선언과 권한 요청 UI.** 앱이 선언하고 요청합니다.
 - **라이브러리 자체 재연결 시간표(백오프 · 재시도 횟수).** 0.2.0 에서 없앴습니다. OS autoConnect(`autoReconnect = true`)나 앱이 맡습니다.
   예외 하나: `autoReconnect = false` 첫 연결이 요청 직후 GATT status 133 으로 실패하면 라이브러리가 같은 link 시간 제한 안에서 최대 2번 다시 겁니다([5.3](recipes/scan-connect.md#53-앱이-다시-시도하는-연결)).
-- **MTU 값 지정, 광고 원본 바이트, Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
+- **MTU 값 지정, Android `autoConnect` 플래그 직접 노출.** 공통 API 에 없습니다.
+  광고 원본 바이트는 Android 전용 확장으로 제공(공통 API 에는 없음)합니다. iOS 는 원본 바이트를 주지 않습니다([5.1](recipes/scan-connect.md#51-스캔-필터로-찾고-가장-가까운-기기-고르기)).
 - **Maven Central 배포.** JitPack 으로만 냅니다([설치](install.md)).
 
 ### 지원 환경

@@ -44,50 +44,6 @@ public data class CharacteristicRef(
     }
 }
 
-/**
- * Structured advertisement fields shared by Android and iOS.
- *
- * Byte values cross the boundary by copy in both directions so callers cannot mutate a stored
- * advertisement after construction or through a property getter.
- */
-public class AdvertisementData(
-    public val localName: String?,
-    serviceUuids: Set<BleUuid>,
-    manufacturerData: Map<Int, ByteArray>,
-    serviceData: Map<BleUuid, ByteArray>,
-    public val txPower: Int?,
-    public val isConnectable: Boolean?,
-) {
-    public val serviceUuids: Set<BleUuid> = serviceUuids.toSet()
-    private val manufacturerDataCopy: Map<Int, ByteArray> = manufacturerData.copyByteMap()
-    private val serviceDataCopy: Map<BleUuid, ByteArray> = serviceData.copyByteMap()
-
-    public val manufacturerData: Map<Int, ByteArray>
-        get() = manufacturerDataCopy.copyByteMap()
-
-    public val serviceData: Map<BleUuid, ByteArray>
-        get() = serviceDataCopy.copyByteMap()
-
-    override fun equals(other: Any?): Boolean =
-        other is AdvertisementData &&
-            localName == other.localName &&
-            serviceUuids == other.serviceUuids &&
-            manufacturerDataCopy.byteMapEquals(other.manufacturerDataCopy) &&
-            serviceDataCopy.byteMapEquals(other.serviceDataCopy) &&
-            txPower == other.txPower &&
-            isConnectable == other.isConnectable
-
-    override fun hashCode(): Int {
-        var result = localName?.hashCode() ?: 0
-        result = 31 * result + serviceUuids.hashCode()
-        result = 31 * result + manufacturerDataCopy.byteMapHashCode()
-        result = 31 * result + serviceDataCopy.byteMapHashCode()
-        result = 31 * result + (txPower ?: 0)
-        result = 31 * result + (isConnectable?.hashCode() ?: 0)
-        return result
-    }
-}
-
 public data class ScanResult(
     val peripheralId: PeripheralId,
     val rssi: Int,
@@ -402,14 +358,5 @@ public data class BleConfig public constructor(
 
 private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean =
     if (this == null || other == null) this == other else this.contentEquals(other)
-
-private fun <K> Map<K, ByteArray>.copyByteMap(): Map<K, ByteArray> =
-    entries.associate { (key, value) -> key to value.copyOf() }
-
-private fun <K> Map<K, ByteArray>.byteMapEquals(other: Map<K, ByteArray>): Boolean =
-    size == other.size && entries.all { (key, value) -> other[key]?.contentEquals(value) == true }
-
-private fun <K> Map<K, ByteArray>.byteMapHashCode(): Int =
-    entries.fold(0) { result, (key, value) -> result + (key.hashCode() xor value.contentHashCode()) }
 
 private fun <T> List<T>.immutableCopy(): List<T> = Collections.unmodifiableList(toList())

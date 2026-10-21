@@ -24,6 +24,7 @@ import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.android.androidScanRecordBytes
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** 시나리오를 돌릴 자리: sim(가짜 플랫폼, 가상 시간) 또는 device(실기기). */
@@ -64,6 +65,13 @@ internal class ScenarioEngine(
 
     /** found 레인: startScan 을 부르기 직전에 켜지고, 대상 기기의 첫 결과를 남기면 꺼진다. */
     private val foundArmed = AtomicBoolean(false)
+
+    /**
+     * adTypes 레인: 대상 기기 결과에서 읽은 AD type 의 누적 집합. startScan 을 부르기 직전에 비운다(found 와 같은 구간).
+     * 수집기와 startScan 호출이 함께 만지므로 집합 갱신과 기록을 [adTypesLock] 안에서 한다.
+     */
+    private val adTypesLock = Any()
+    private val adTypesSeen = mutableSetOf<Int>()
 
     suspend fun run(scenario: Scenario): ScenarioReport = coroutineScope {
         val log = ContractLog(scenario.expect.keys)
@@ -114,12 +122,12 @@ internal class ScenarioEngine(
             // 시간 초과면 결과 줄 없이 null — `await result` 나 끝의 판정이 실패로 잡는다.
             val claimed = AtomicBoolean(false)
             pending[step.name!!] = Pending(step.label, scope.async {
-                withTimeoutOrNull(step.timeoutMs) { invoke(step, session) }
+                withTimeoutOrNull(step.timeoutMs) { invoke(step, session, log) }
                     ?.also { if (claimed.compareAndSet(false, true)) log.add(Lanes.RESULT, it) }
             }, claimed)
             null
         } else {
-            val result = withTimeoutOrNull(step.timeoutMs) { invoke(step, session) }
+            val result = withTimeoutOrNull(step.timeoutMs) { invoke(step, session, log) }
             if (result == null) "${step.label} 호출이 ${step.timeoutMs}ms 안에 끝나지 않음" else { log.add(Lanes.RESULT, result); null }
         }
         is Step.AwaitLane -> withTimeoutOrNull(step.timeoutMs) {
@@ -187,13 +195,14 @@ internal class ScenarioEngine(
     }
 
     /** 공개 API 한 번. result 레인 한 줄을 돌려준다. */
-    private suspend fun invoke(call: Step.Call, session: BleSession): String {
+    private suspend fun invoke(call: Step.Call, session: BleSession, log: ContractLog): String {
         val ref = call.char?.let { profile.spec(it).ref }
         return try {
             when (call.op) {
                 CallOp.Snapshot -> return snapshotLine()
                 CallOp.StartScan -> {
                     foundArmed.set(true)
+                    clearAdTypes(log)
                     target.client.startScan(toScanRequest(call.filter))
                 }
                 CallOp.StopScan -> target.client.stopScan()
@@ -222,6 +231,18 @@ internal class ScenarioEngine(
         }
     }
 
+    /** adTypes 집합을 비우고 `{}` 를 남긴다(시작할 때와 startScan 직전). */
+    private fun clearAdTypes(log: ContractLog) = synchronized(adTypesLock) {
+        adTypesSeen.clear()
+        log.add(Lanes.AD_TYPES, ContractLog.renderAdTypes(adTypesSeen))
+    }
+
+    /** 대상 기기 결과 하나의 원본에서 읽은 AD type 을 집합에 더하고 남긴다(바뀌지 않았으면 기록이 합친다). */
+    private fun addAdTypes(log: ContractLog, raw: ByteArray) = synchronized(adTypesLock) {
+        adTypesSeen += ContractLog.adTypes(raw)
+        log.add(Lanes.AD_TYPES, ContractLog.renderAdTypes(adTypesSeen))
+    }
+
     /** 기록 원천을 첫 단계 전에 모두 구독한다(UNDISPATCHED — 첫 게시를 놓치지 않게). */
     private fun kotlinx.coroutines.CoroutineScope.startRecorders(log: ContractLog, session: BleSession): List<Job> {
         val id = target.peripheralId
@@ -243,6 +264,16 @@ internal class ScenarioEngine(
                     if (it.peripheralId.value.equals(id.value, ignoreCase = true) && foundArmed.compareAndSet(true, false)) {
                         log.add(Lanes.FOUND, profile.name)
                     }
+                }
+            }
+        }
+        if (log.records(Lanes.AD_TYPES)) {
+            // Android 전용 공개 확장으로 원본을 읽는다. found 와 같은 대상 기기만, 원본이 null 인 결과는 건너뛴다.
+            clearAdTypes(log)
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                target.client.scanResults.collect {
+                    if (!it.peripheralId.value.equals(id.value, ignoreCase = true)) return@collect
+                    it.advertisement.androidScanRecordBytes?.let { raw -> addAdTypes(log, raw) }
                 }
             }
         }

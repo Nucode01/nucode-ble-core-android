@@ -21,22 +21,23 @@ internal object Lanes {
     const val FOUND = "found"
     const val SERVICES = "services"
     const val PROPERTIES = "properties"
+    const val AD_TYPES = "adTypes"
     const val PEER = "peer"
 
     val BASE = listOf(STATE, RESULT, NOTIFY, ACTIVE)
-    val EXTENSION = listOf(ADAPTER, SCAN, FOUND, SERVICES, PROPERTIES, PEER)
+    val EXTENSION = listOf(ADAPTER, SCAN, FOUND, SERVICES, PROPERTIES, AD_TYPES, PEER)
 
     /** CONTRACT 줄의 출력 순서. */
     val ALL = BASE + EXTENSION
 
     /** `await <레인> is` 를 쓸 수 있는 레인. */
-    val AWAIT_IS = listOf(STATE, ACTIVE, ADAPTER, SCAN, SERVICES)
+    val AWAIT_IS = listOf(STATE, ACTIVE, ADAPTER, SCAN, SERVICES, AD_TYPES)
 
     /** `await <레인> count` 를 쓸 수 있는 레인. */
     val AWAIT_COUNT = listOf(NOTIFY, FOUND)
 
     /** 연속으로 같은 값은 하나로 합치는 레인(현재 값 레인). */
-    val COALESCED = listOf(ACTIVE, ADAPTER, SCAN, SERVICES, PROPERTIES)
+    val COALESCED = listOf(ACTIVE, ADAPTER, SCAN, SERVICES, PROPERTIES, AD_TYPES)
 }
 
 internal data class ServiceSpec(val symbol: String, val uuid: UUID, val advertised: Boolean)

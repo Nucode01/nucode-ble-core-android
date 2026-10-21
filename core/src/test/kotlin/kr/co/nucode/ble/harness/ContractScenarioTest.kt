@@ -4,6 +4,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import android.bluetooth.BluetoothGattCharacteristic
 import kotlinx.coroutines.delay
+import java.nio.ByteBuffer
+import java.util.UUID
 import kr.co.nucode.ble.AdapterState
 import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleUuid
@@ -88,10 +90,12 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
         h.fake.mtuResult = SIM_MTU
         h.fake.onWrite = CallbackVariant.Late(WRITE_ACK_MILLIS)
         // 실기기 펌웨어처럼 연결되어 있지 않고 숨지 않았을 때 광고한다(이름과, advertised 인 서비스 UUID).
+        val advertised = profile.services.values.filter { it.advertised }.map { it.uuid }
         h.fake.advertiser = FakeAndroidPlatform.Advertiser(
             id = peripheralId,
             name = profile.advertisedName,
-            serviceUuids = profile.services.values.filter { it.advertised }.map { BleUuid(it.uuid) }.toSet(),
+            serviceUuids = advertised.map { BleUuid(it) }.toSet(),
+            scanRecord = scanRecord(profile.advertisedName, advertised),
             // 링크가 없을 때(연결 전·연결 시도 중·OS 재연결 대기 중) 광고한다. Connecting 중에도 광고해야 connect 의 확보 스캔이 찾는다.
             visible = {
                 when (client.session(peripheralId).connectionState.value) {
@@ -100,6 +104,19 @@ internal class SimTarget(private val h: Harness, profile: PeripheralProfile) : S
                 }
             },
         )
+    }
+
+    /**
+     * Android 원본 바이트(README §sim): 실기기 펌웨어 기본 배치처럼 광고 데이터 Flags(0x01, 0x06)·Complete Local Name(0x09) 뒤에
+     * scan response 의 Complete List of 128-bit Service UUIDs(0x07, little-endian)를 붙인다. 0 채움은 붙이지 않는다.
+     */
+    private fun scanRecord(name: String, services: List<UUID>): ByteArray {
+        fun ad(type: Int, value: ByteArray) = byteArrayOf((value.size + 1).toByte(), type.toByte()) + value
+        val uuids = services.fold(ByteArray(0)) { acc, uuid ->
+            acc + ByteBuffer.allocate(16).putLong(uuid.mostSignificantBits).putLong(uuid.leastSignificantBits).array().reversedArray()
+        }
+        return ad(0x01, byteArrayOf(0x06)) + ad(0x09, name.toByteArray(Charsets.UTF_8)) +
+            (if (services.isEmpty()) ByteArray(0) else ad(0x07, uuids))
     }
 
     private fun propertyMask(properties: Set<String>): Int = properties.fold(0) { mask, p ->

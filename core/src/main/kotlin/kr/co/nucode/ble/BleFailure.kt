@@ -46,6 +46,8 @@ public value class FailureCode(public val value: String) {
         public val NOT_READY: FailureCode = FailureCode("NOT_READY")
         public val NOT_CONNECTED: FailureCode = FailureCode("NOT_CONNECTED")
         public val CHARACTERISTIC_NOT_FOUND: FailureCode = FailureCode("CHARACTERISTIC_NOT_FOUND")
+        /** iOS 전용. */
+        public val DESCRIPTOR_WRITE_NOT_ALLOWED: FailureCode = FailureCode("DESCRIPTOR_WRITE_NOT_ALLOWED")
         /** Android 전용. */
         public val GATT_OPERATION_START_FAILED: FailureCode = FailureCode("GATT_OPERATION_START_FAILED")
         public val GATT_STATUS_FAILED: FailureCode = FailureCode("GATT_STATUS_FAILED")

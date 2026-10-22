@@ -106,6 +106,8 @@ class FailureCatalogTest {
             "DEPRECATION",
             "UNCHECKED_CAST",
             "UNUSED_PARAMETER",
+            // iOS 전용 공개 상수. Android 는 이 코드를 내지 않아 카탈로그 경로가 없다. Android 가 내게 되면 지우고 경로를 더한다
+            "DESCRIPTOR_WRITE_NOT_ALLOWED",
             // platformDetail 에 싣는 GATT status 기호 이름이며 실패 코드가 아님
             "GATT_INSUFFICIENT_AUTHENTICATION",
             "GATT_INSUFFICIENT_AUTHORIZATION",

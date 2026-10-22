@@ -26,7 +26,7 @@ class FailureCodeConstantsTest {
     @Test
     fun `constant set equals the contract code set`() {
         val expected = contractCodes()
-        assertEquals(38, expected.size)
+        assertEquals(39, expected.size)
         assertEquals(expected, constants().keys)
     }
 

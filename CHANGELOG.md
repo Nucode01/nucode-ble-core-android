@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `FailureCode.DESCRIPTOR_WRITE_NOT_ALLOWED`(attribute, Never): 계약 failure-codes.json 의 iOS 전용 코드에 맞춘 공개 상수.
+  iOS 가 CCCD(0x2902) `writeDescriptor` 를 거절할 때 쓴다. Android 는 이 코드를 내지 않고 CCCD write 를 계속 허용한다.
+
 ## 0.4.0 (2026-10-22)
 
 공개 API 추가: Android 전용 광고 원본 확장(CANDIDATE-31), 공통 descriptor 탐색·read·write(CANDIDATE-32),

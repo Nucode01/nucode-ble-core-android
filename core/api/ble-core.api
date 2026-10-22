@@ -244,6 +244,7 @@ METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.g
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONFIGURATION_TIMEOUT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECTION_OPTIONS_CONFLICT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECT_DURING_DISCONNECT-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDESCRIPTOR_WRITE_NOT_ALLOWED-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_CLEANUP_TIMEOUT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_START_FAILED-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDUPLICATE_CHARACTERISTIC_REFERENCE-L9ILcWU() throws=

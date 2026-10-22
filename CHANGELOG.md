@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-22)
 
 공개 API 추가: Android 전용 광고 원본 확장(CANDIDATE-31), 공통 descriptor 탐색·read·write(CANDIDATE-32),
 Android 요청 MTU 와 write 한도·협상 MTU 조회(CANDIDATE-33·CANDIDATE-5).
 동작 변경: `AdvertisementData` 의 같음 판정이 원본 바이트를 반영한다. 소스 호환이 깨지는 변경이 있다(Breaking).
+Android 기기 계약: Pixel 5a(Android 14) + nRF52840(펌웨어 17ee332)에서 32/32 통과(lab/out/20261022-090225). 같은 기기에서 `requestedMtu = 23` 요청이 무시되고 협상값이 65 였다.
 
 ### Breaking
 

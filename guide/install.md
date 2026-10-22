@@ -5,7 +5,7 @@
 라이브러리는 JitPack(`https://jitpack.io`)에서 받습니다. JitPack 은 GitHub 저장소 `Nucode01/nucode-ble-core-android` 의 릴리스 태그를 빌드해 냅니다.
 저장소가 public 이라 인증 없이 받습니다.
 
-좌표는 `com.github.Nucode01:nucode-ble-core-android:0.3.1` 입니다. JitPack 빌드를 확인한 버전은 0.3.0 과 0.3.1 입니다. 0.2.x 태그는 JitPack 에서 빌드해 보지 않았습니다.
+좌표는 `com.github.Nucode01:nucode-ble-core-android:0.4.0` 입니다. JitPack 빌드를 확인한 버전은 0.3.0 과 0.3.1 입니다. 0.2.x 태그는 JitPack 에서 빌드해 보지 않았습니다.
 
 ## 2.2 앱에 추가하기
 
@@ -23,7 +23,7 @@ dependencyResolutionManagement {
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.Nucode01:nucode-ble-core-android:0.3.1")
+    implementation("com.github.Nucode01:nucode-ble-core-android:0.4.0")
 }
 ```
 

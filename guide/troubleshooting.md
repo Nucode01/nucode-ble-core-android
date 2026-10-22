@@ -45,7 +45,7 @@
 **Q. MTU 를 직접 정할 수 있나요?**
 Android 에서만 요청 값을 고릅니다: `session.connect(BleConnectOptions(requestedMtu = 185))`(23..517, 생략하면 247). iOS 에는 없습니다.
 요청은 요청일 뿐이고 기기와 플랫폼이 실제 값을 정합니다. 협상에 실패하면 23 으로 진행합니다(`CONFIGURATION_FAILED` 진단).
-Android 14 이상은 요청 값과 다르게 협상할 수 있다고 알려져 있으나 이 라이브러리에서 실기기로 확인하지는 않았습니다.
+Android 14 는 요청 값을 무시할 수 있습니다. Pixel 5a(Android 14)에서 `requestedMtu = 23` 으로 연결하자 코어는 23 을 요청했지만 스택이 517 을 요청했고, 협상값은 기기 최대인 65 였습니다(2026-10-22). 다른 기기는 확인하지 않았습니다.
 실제 값은 Ready 뒤 `session.writeLimits`(mode 별 한 번에 쓸 수 있는 바이트, Android 는 MTU − 3)와 Android 전용 `session.androidMtu` 로 읽습니다.
 같은 기기에 다른 `requestedMtu` 로 다시 `connect()` 하면 `CONNECTION_OPTIONS_CONFLICT` 입니다. 바꾸려면 먼저 `disconnect()` 합니다.
 
@@ -95,7 +95,7 @@ OS 가 기기를 다시 찾을 때까지 기한 없이 기다립니다. 기기�
 
 ### 배포 · 난독화
 
-- **배포:** JitPack(`https://jitpack.io`)에서 `com.github.Nucode01:nucode-ble-core-android:0.3.1` 로 받습니다. 인증은 필요 없습니다([설치](install.md)). JitPack 빌드를 확인한 버전은 0.3.0 과 0.3.1 입니다. `0.2.0` · `0.2.1` · `0.2.2` 는 JitPack 에서 빌드해 보지 않았습니다.
+- **배포:** JitPack(`https://jitpack.io`)에서 `com.github.Nucode01:nucode-ble-core-android:0.4.0` 로 받습니다. 인증은 필요 없습니다([설치](install.md)). JitPack 빌드를 확인한 버전은 0.3.0 과 0.3.1 입니다. `0.2.0` · `0.2.1` · `0.2.2` 는 JitPack 에서 빌드해 보지 않았습니다.
 - **라이브러리는 난독화하지 않습니다.** `isMinifyEnabled = false`, `consumer-rules.pro` 는 비어 있고 sources.jar 를 함께 배포합니다. 난독화는 앱의 R8 에 맡깁니다.
 - **앱 R8 호환은 빌드 단계만 확인했습니다.** sample release 를 `isMinifyEnabled = true`(`proguard-android-optimize.txt`)로 빌드해 R8 경고 · 누락 클래스 없이 통과했고, core 클래스가 난독화됐습니다. core 에 리플렉션 · 직렬화 · ServiceLoader 가 없어 keep 규칙이 필요 없었습니다.
 - **검증 필요:** 난독화된 release APK 의 **런타임** 동작(스캔 · 연결 · read/write · 구독)은 아직 확인하지 않았습니다. R8 을 켠 앱은 release 빌드로 실기기에서 한 번 확인하세요.

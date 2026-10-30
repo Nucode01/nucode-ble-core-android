@@ -81,4 +81,13 @@ public interface BleSession {
      * restore intent with the value: nonzero subscribes (restore rewrites this exact value), zero unsubscribes.
      */
     public suspend fun writeDescriptor(descriptor: DescriptorRef, value: ByteArray)
+
+    /**
+     * Reads the connected peripheral's RSSI once, in dBm. It is not a GATT queue operation: it neither waits for
+     * nor delays an in-flight write. One platform RSSI request runs at a time in the process; overlapping calls
+     * for this peripheral share one request. The deadline is `operationTimeoutMillis`, counted from the platform
+     * request; no answer fails with `RSSI_READ_TIMEOUT` and the connection stays as is. Cancelling the caller
+     * detaches only the caller.
+     */
+    public suspend fun readRssi(): Int
 }

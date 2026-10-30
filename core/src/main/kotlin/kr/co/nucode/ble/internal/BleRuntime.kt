@@ -32,6 +32,8 @@ import kr.co.nucode.ble.internal.event.ClientEventBus
 import kr.co.nucode.ble.internal.gatt.GattBridge
 import kr.co.nucode.ble.internal.gatt.GattOperationTargetResolver
 import kr.co.nucode.ble.internal.gatt.OperationQueue
+import kr.co.nucode.ble.internal.rssi.RssiReader
+import kr.co.nucode.ble.internal.rssi.RssiTurn
 import kr.co.nucode.ble.internal.scan.PeripheralRediscovery
 import kr.co.nucode.ble.internal.model.ScanObservation
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
@@ -72,6 +74,8 @@ internal class BleRuntime internal constructor(
      * 실제 기기에서 미허용 상태를 Ready 로 오판할 수 있다.
      */
     private val adapterStateProbe: (() -> AdapterState)? = null,
+    /** 플랫폼 RSSI 요청 차례 — null 이면 이 런타임 전용. Factory 조립만 프로세스 공유본을 넘긴다(어댑터 슬롯이 하나). */
+    rssiTurn: RssiTurn? = null,
 ) {
 
     /** 테스트 전용 관측 지점 — 소유는 [RuntimeCloser.closeFailure]. */
@@ -270,6 +274,15 @@ internal class BleRuntime internal constructor(
             onRestoreFailed = eventBus::emitRestoreFailure,
             failureOf = { e, deviceId, ref -> commands.failureFromInternalException(e, FailurePhase.Configure, deviceId, ref) },
         ),
+        onRemoteRssi = { rssiReader.onRemoteRssi(it) },
+        onOperationsInvalidated = { rssiReader.invalidate(it) },
+    )
+
+    /** 큐 밖 RSSI 읽기(CANDIDATE-34). */
+    private val rssiReader = RssiReader(
+        scope = coreScope, driver = gattDriver, clock = clock, turn = rssiTurn ?: RssiTurn(),
+        timeoutMillis = config.operationTimeoutMillis,
+        isClosed = { closer.isClosed() }, clientClosed = { commands.clientClosed().failure },
     )
 
     /**
@@ -304,6 +317,7 @@ internal class BleRuntime internal constructor(
         gattBridge = gattBridge,
         operationQueue = operationQueue,
         adapterReaction = adapterReaction,
+        rssiReader = rssiReader,
         emit = ::emit,
     )
 
@@ -368,6 +382,8 @@ internal class BleRuntime internal constructor(
 
     internal suspend fun writeDescriptor(deviceId: PeripheralId, descriptor: DescriptorRef, value: ByteArray): Unit =
         commands.writeDescriptor(deviceId, descriptor, value)
+
+    internal suspend fun readRssi(deviceId: PeripheralId): Int = commands.readRssi(deviceId)
 
 
     /** [close] 가 예약한 정리가 끝났는지 기다린다(plan `runtime-no-runblocking` task 2(B)). */

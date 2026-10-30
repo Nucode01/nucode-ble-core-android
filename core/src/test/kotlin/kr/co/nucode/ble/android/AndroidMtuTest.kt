@@ -285,6 +285,7 @@ class AndroidMtuTest {
             override suspend fun unsubscribe(characteristic: CharacteristicRef) = Unit
             override suspend fun readDescriptor(descriptor: DescriptorRef) = ByteArray(0)
             override suspend fun writeDescriptor(descriptor: DescriptorRef, value: ByteArray) = Unit
+            override suspend fun readRssi() = -50
         }
         assertNull(foreign.androidMtu.value)
     }

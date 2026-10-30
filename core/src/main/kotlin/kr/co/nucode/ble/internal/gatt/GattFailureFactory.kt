@@ -244,6 +244,30 @@ internal object GattFailureFactory {
         context = operationContext(session, kind = kind),
     )
 
+    /** readRssi 의 플랫폼 요청이 기한 안에 답하지 않았다. 세션은 그대로다(CANDIDATE-34, states.md §8). */
+    fun rssiReadTimeout(session: Session): BleFailure = failure(
+        code = "RSSI_READ_TIMEOUT",
+        phase = FailurePhase.Operation,
+        retryability = Retryability.TransientMayHelp,
+        context = operationContext(session, kind = OperationKind.ReadRssi),
+    )
+
+    fun rssiStartRejected(session: Session): BleFailure =
+        startRejected(session, FailurePhase.Operation, AndroidApiOperation.ReadRemoteRssi, OperationKind.ReadRssi)
+
+    fun rssiStatusFailed(session: Session, status: Int): BleFailure = FailureMapper.gattStatusFailed(
+        statusCode = status,
+        phase = FailurePhase.Operation,
+        operation = AndroidApiOperation.OnReadRemoteRssi,
+        context = operationContext(session, kind = OperationKind.ReadRssi),
+    )
+
+    fun rssiPermissionDenied(session: Session): BleFailure =
+        permissionDenied(session, FailurePhase.Operation, AndroidApiOperation.ReadRemoteRssi, OperationKind.ReadRssi)
+
+    /** 대기·진행 중 readRssi 가 해제·링크 유실로 끝났다. */
+    fun rssiInvalidated(session: Session): BleFailure = invalidated(session, OperationKind.ReadRssi)
+
     /** 나누기를 끄거나 고정 크기가 한 번에 보낼 수 있는 크기를 넘을 때 — 아무것도 보내지 않는다(writeProgress 없음). */
     fun payloadTooLarge(session: Session, kind: OperationKind): BleFailure = failure(
         code = "PAYLOAD_TOO_LARGE",

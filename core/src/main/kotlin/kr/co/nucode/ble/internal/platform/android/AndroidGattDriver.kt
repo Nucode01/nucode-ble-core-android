@@ -166,6 +166,11 @@ internal class AndroidGattDriver(
         operation = AndroidApiOperation.ReadDescriptor,
     ) { gatt.bluetoothGatt?.readDescriptor(descriptor.bluetoothDescriptor) ?: false }
 
+    override fun readRemoteRssi(deviceId: PeripheralId, gatt: GattHandle?): Boolean = startOrPermissionDenied(
+        phase = FailurePhase.Operation,
+        operation = AndroidApiOperation.ReadRemoteRssi,
+    ) { gatt.bluetoothGatt?.readRemoteRssi() ?: false }
+
     override fun writeCharacteristic(
         deviceId: PeripheralId,
         gatt: GattHandle?,

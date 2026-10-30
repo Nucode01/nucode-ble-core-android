@@ -227,6 +227,8 @@ internal class ScenarioEngine(
                     return if (value.isEmpty()) "${call.label} ok" else "${call.label} ok ${ContractLog.hex(value)}"
                 }
                 CallOp.WriteDescriptor -> session.writeDescriptor(ContractDescriptors.ref(call.desc!!, profile), call.bytes!!)
+                // dBm 은 기기·실행마다 달라 시나리오는 `readRssi ok -*` 로 대조한다(README RSSI 호출).
+                CallOp.ReadRssi -> return "${call.label} ok ${session.readRssi()}"
             }
             "${call.label} ok"
         } catch (e: BleException) {

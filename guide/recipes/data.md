@@ -158,7 +158,18 @@ suspend fun stopReceiving(session: BleSession, characteristic: CharacteristicRef
 - 쓰기가 실패하면 로컬 수신·`activeSubscriptions`·구독 의도가 쓰기 전 상태입니다. 그래서 0 쓰기가 거절되면 알림이 계속 옵니다.
 - 구독 의도는 마지막으로 쓴 값을 기억하고 재연결 복원 때 그 값을 그대로 다시 씁니다. `subscribe()`·`unsubscribe()` 와 같은 큐에서 나중에 끝난 작업이 상태를 정합니다.
 - 진단 logger 에는 이 쓰기로 구독이 켜지거나 꺼질 때 값 키 `subscription_change`(`enabled`·`disabled`)가 든 기록이 하나 남습니다.
-- 구독만 필요하면 `subscribe()` 를 쓰세요. iOS 는 OS 제약으로 CCCD 쓰기를 할 수 없습니다(iOS 구현 때 거절 코드가 생깁니다). 읽기(`readDescriptor`)는 두 플랫폼이 같습니다.
+- 구독만 필요하면 `subscribe()` 를 쓰세요. iOS 는 OS 제약으로 CCCD 쓰기를 할 수 없어 `DESCRIPTOR_WRITE_NOT_ALLOWED` 로 거절합니다. 읽기(`readDescriptor`)는 두 플랫폼이 같습니다.
+
+### 연결 중 RSSI 읽기
+
+**언제 쓰나.** 연결된 기기와의 신호 세기를 화면에 보이거나 거리 판단에 쓸 때. 연결 전 RSSI 는 스캔 결과에 있습니다.
+
+- `session.readRssi()` 는 Ready 일 때 RSSI 를 dBm 정수로 한 번 돌려줍니다. Ready 가 아니면 `NOT_READY` 입니다.
+- 주기 읽기는 앱이 정합니다. 코어는 스스로 반복해서 읽지 않습니다.
+- GATT 큐 밖에서 돌아 진행 중인 write 를 기다리지 않고 write 를 늦추지 않습니다.
+- 플랫폼 요청은 프로세스 전체에서 한 번에 하나입니다. 같은 기기에 겹쳐 부르면 요청 하나의 결과를 함께 받고, 다른 기기는 차례를 기다립니다.
+- 기한은 `operationTimeoutMillis` 이고 요청을 보낸 때부터 셉니다. 응답이 없으면 `RSSI_READ_TIMEOUT` 이고 연결은 그대로입니다. 다른 앱이 어댑터의 RSSI 슬롯을 쥐고 있어도 이 코드가 납니다.
+- 대기·진행 중 해제나 링크 유실은 `OPERATION_INVALIDATED`, close 는 `CLIENT_CLOSED` 입니다. 호출자를 취소하면 그 호출만 끝납니다.
 
 ## 5.8 요청-응답 (write 하고 notify 로 답 받기, 예: NUS)
 

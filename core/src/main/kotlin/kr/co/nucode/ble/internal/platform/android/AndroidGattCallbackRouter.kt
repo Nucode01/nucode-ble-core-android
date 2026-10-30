@@ -110,6 +110,10 @@ internal class AndroidGattCallbackRouter(
             forward(GattDriverEvent.MtuChanged(deviceIdOf(gatt), sourceOf(gatt), mtu, status))
         }
 
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+            forward(GattDriverEvent.RemoteRssiRead(deviceIdOf(gatt), sourceOf(gatt), rssi, status))
+        }
+
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {

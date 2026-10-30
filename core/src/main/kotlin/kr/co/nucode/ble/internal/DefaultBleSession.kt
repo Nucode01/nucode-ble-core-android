@@ -107,4 +107,9 @@ internal class DefaultBleSession(
         runtime.checkOpen()
         runtime.writeDescriptor(peripheralId, descriptor, value.copyOf())
     }
+
+    override suspend fun readRssi(): Int {
+        runtime.checkOpen()
+        return runtime.readRssi(peripheralId)
+    }
 }

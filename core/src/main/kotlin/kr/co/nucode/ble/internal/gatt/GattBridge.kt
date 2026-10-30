@@ -99,6 +99,10 @@ internal class GattBridge(
     private val rediscovery: PeripheralRediscovery? = null,
     private val linkCacheWarm: ((PeripheralId) -> Boolean)? = null,
     private val linkSetupWiring: LinkSetupWiring? = null,
+    /** RSSI 콜백 사실을 받는 곳 — RSSI 는 큐 밖 작업이라 operation 절반을 거치지 않는다(CANDIDATE-34). */
+    private val onRemoteRssi: (GattDriverEvent.RemoteRssiRead) -> Unit = {},
+    /** 세션의 대기·진행 중 작업을 무효화한 뒤 부른다. 큐 밖 작업(RSSI)도 같은 때 끝난다. */
+    private val onOperationsInvalidated: (Session) -> Unit = {},
 ) {
     /**
      * 두 절반은 서로를 hook 인터페이스로만 안다. 순환은 여기서 끊는다: [lifecycle]에 넘기는
@@ -123,8 +127,10 @@ internal class GattBridge(
         linkCacheWarm,
         linkSetup = { linkSetup },
         operations = object : GattOperationHooks {
-            override fun invalidateAll(session: Session, failure: BleFailure) =
+            override fun invalidateAll(session: Session, failure: BleFailure) {
                 operations.invalidateAll(session, failure)
+                onOperationsInvalidated(session)
+            }
 
             override fun beginGenerationIfPoisoned(session: Session) =
                 operations.beginGenerationIfPoisoned(session)
@@ -164,6 +170,7 @@ internal class GattBridge(
             is GattDriverEvent.CharacteristicWrite -> operations.handleCharacteristicWrite(event)
             is GattDriverEvent.DescriptorWrite -> operations.handleDescriptorWrite(event)
             is GattDriverEvent.DescriptorRead -> operations.handleDescriptorRead(event)
+            is GattDriverEvent.RemoteRssiRead -> onRemoteRssi(event)
         }
     }
 

@@ -9,6 +9,7 @@ import kr.co.nucode.ble.internal.model.BleEvent
 import kr.co.nucode.ble.internal.model.ConnectOptions
 import kr.co.nucode.ble.internal.model.WriteResult
 import kr.co.nucode.ble.internal.model.WriteType
+import kr.co.nucode.ble.internal.rssi.RssiReader
 import kr.co.nucode.ble.internal.scan.Scanner
 import kr.co.nucode.ble.internal.session.Session
 import kr.co.nucode.ble.internal.session.SessionRegistry
@@ -31,6 +32,7 @@ internal class RuntimeCommands(
     private val gattBridge: GattBridge,
     private val operationQueue: OperationQueue,
     private val adapterReaction: AdapterReaction,
+    private val rssiReader: RssiReader,
     private val emit: (BleEvent) -> Unit,
 ) {
     /** Converts remaining internal migration errors at the public command boundary only. */
@@ -271,9 +273,7 @@ internal class RuntimeCommands(
         val deviceId = requestedId.normalized()
         return transportCommand(FailurePhase.Operation, deviceId, charRef) {
             onCore {
-        adapterReaction.ensureAdapterReady(AndroidApiOperation.ReadCharacteristic)
-        val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-        if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+        readySession(deviceId, AndroidApiOperation.ReadCharacteristic)
         gattBridge.read(deviceId, charRef)
     }
         }
@@ -294,9 +294,7 @@ internal class RuntimeCommands(
         val deviceId = requestedId.normalized()
         return transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
-        adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteCharacteristic)
-        val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-        if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+        readySession(deviceId, AndroidApiOperation.WriteCharacteristic)
         operationQueue.write(deviceId, charRef, bytes, writeType, chunking)
     }
     }
@@ -306,9 +304,7 @@ internal class RuntimeCommands(
         val deviceId = requestedId.normalized()
         transportCommand(FailurePhase.Operation, deviceId, charRef) {
         onCore {
-            adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteDescriptor)
-            val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-            if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+            val session = readySession(deviceId, AndroidApiOperation.WriteDescriptor)
             // 구독 의도·활성 표시는 큐 완료 쪽(SubscriptionCommands.subscribe)이 ack 성공 때만 남긴다 —
             // 호출자가 취소돼도 접수된 subscribe 는 끝까지 가서 남는다. 여기서는 살아 있는 호출자에게만 결과를 판정한다.
             val startGeneration = session.connectionCoordinator.generation
@@ -326,9 +322,7 @@ internal class RuntimeCommands(
         val deviceId = requestedId.normalized()
         return descriptorCommand(descriptor) {
             onCore {
-                adapterReaction.ensureAdapterReady(AndroidApiOperation.ReadDescriptor)
-                val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-                if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+                readySession(deviceId, AndroidApiOperation.ReadDescriptor)
                 gattBridge.readDescriptor(deviceId, descriptor)
             }
         }
@@ -342,15 +336,25 @@ internal class RuntimeCommands(
         val deviceId = requestedId.normalized()
         descriptorCommand(descriptor) {
             onCore {
-                adapterReaction.ensureAdapterReady(AndroidApiOperation.WriteDescriptor)
-                val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
-                if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+                val session = readySession(deviceId, AndroidApiOperation.WriteDescriptor)
                 if (value.size > MAX_ATTRIBUTE_VALUE_BYTES) {
                     throw BleException(GattFailureFactory.payloadTooLarge(session, OperationKind.WriteDescriptor))
                 }
                 gattBridge.writeDescriptor(deviceId, descriptor, value)
             }
         }
+    }
+
+    /** 연결된 기기의 RSSI 한 번. 진입 검사는 1~3 만 보고 세션 큐가 아니라 RSSI 차례에 접수한다(states.md §5·§8). */
+    internal suspend fun readRssi(requestedId: PeripheralId): Int =
+        onCore { rssiReader.read(readySession(requestedId.normalized(), AndroidApiOperation.ReadRemoteRssi)) }
+
+    /** GATT 명령 진입 검사 2·3(1 은 [onCore]): 어댑터 → 모르는 기기 → Ready 아님(states.md §5). */
+    private suspend fun readySession(deviceId: PeripheralId, operation: AndroidApiOperation): Session {
+        adapterReaction.ensureAdapterReady(operation)
+        val session = registry.get(deviceId) ?: throw unknownDevice(deviceId)
+        if (!session.canStartPublicGattOperation()) throw notReady(deviceId)
+        return session
     }
 
     /** descriptor 명령이 던지는 실패의 문맥에 그 descriptor 를 싣는다. */

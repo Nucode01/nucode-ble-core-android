@@ -106,9 +106,17 @@ class FailureRouteVerificationTest {
         const val AUTO_REDISCOVERY = "kr.co.nucode.ble.harness.AutoReconnectRediscoveryTest"
         const val CORE_SCOPE = "kr.co.nucode.ble.harness.CoreScopeExceptionTest"
         const val COMMAND_CONTRACT = "kr.co.nucode.ble.PublicCommandContractTest"
+        const val RSSI = "kr.co.nucode.ble.rssi.RssiReadTest"
 
         /** "CODE | context" → "fqcn#JVM 메서드 이름". */
         val ROUTE_VERIFIED_BY: Map<String, String> = mapOf(
+            "RSSI_READ_TIMEOUT | readRssi command" to "$RSSI#무응답은 기한 뒤 RSSI_READ_TIMEOUT 이고 세션은 Ready 다",
+            "OPERATION_INVALIDATED | readRssi command" to "$RSSI#해제와 링크 유실은 OPERATION_INVALIDATED 이고 차례는 앞 응답까지 쥔다",
+            "GATT_OPERATION_START_FAILED | readRssi command" to
+                "$RSSI#플랫폼이 요청을 거절하면 GATT_OPERATION_START_FAILED 이고 다음 호출은 성공한다",
+            "GATT_STATUS_FAILED | readRssi command" to "$RSSI#status 실패는 GATT_STATUS_FAILED 다",
+            "CLIENT_CLOSED | readRssi waiting at close" to "$RSSI#대기 중 close 는 CLIENT_CLOSED 다",
+            "PERMISSION_DENIED | readRssi command" to "$RSSI#권한 예외는 PERMISSION_DENIED 이고 세션은 Ready 다",
             "ADAPTER_UNAVAILABLE | command adapter preflight" to
                 "$ADAPTER#b PoweredOff에서 connect·startScan·read·write·subscribe 모두 ADAPTER_UNAVAILABLE을 던진다",
             "ADAPTER_UNAVAILABLE | connect command driver start" to

@@ -9,6 +9,7 @@ import kr.co.nucode.ble.internal.platform.android.AndroidCentral
 import kr.co.nucode.ble.internal.platform.android.AndroidClock
 import kr.co.nucode.ble.internal.platform.android.AndroidGattDriver
 import kr.co.nucode.ble.internal.platform.android.AndroidScanner
+import kr.co.nucode.ble.internal.rssi.RssiTurn
 import kr.co.nucode.ble.internal.scan.ScanStartLedger
 
 /**
@@ -16,6 +17,9 @@ import kr.co.nucode.ble.internal.scan.ScanStartLedger
  * deep sleep 에도 진행한다(nanoTime 은 멈춰 창이 늘어나 false throttle).
  */
 private val processScanStartLedger = ScanStartLedger { SystemClock.elapsedRealtime() }
+
+/** 프로세스 공유 RSSI 요청 차례 — Android 스택의 RSSI 대기 슬롯이 어댑터 전체에 하나라서(CANDIDATE-34). */
+private val processRssiTurn = RssiTurn()
 
 /**
  * 운영 조립 — 구체 Driver 를 만드는 유일한 곳이다. [AndroidCentral] 은 applicationContext 로 하나만 만든다
@@ -31,5 +35,6 @@ internal fun androidRuntime(context: Context, config: BleConfig): BleRuntime {
         clock = AndroidClock(),
         scanStartLedger = processScanStartLedger,
         scannerRediscovery = true,
+        rssiTurn = processRssiTurn,
     )
 }

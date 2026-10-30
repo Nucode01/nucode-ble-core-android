@@ -69,6 +69,7 @@ internal object FailureCatalog {
             "CLIENT_CLOSED",
             listOf(
                 Route("any command after close", TriggerKind.SyncCommand, setOf(Channel.Throw), "RuntimeCommands.kt:onCore, RuntimeCommands.kt:checkOpen"),
+                Route("readRssi waiting at close", TriggerKind.SyncCommand, setOf(Channel.Throw), "RssiReader.kt:invalidate, RuntimeCommands.kt:clientClosed"),
             ),
         ),
         FailureSpec(
@@ -130,6 +131,7 @@ internal object FailureCatalog {
             "GATT_OPERATION_START_FAILED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:startOperation"),
+                Route("readRssi command", TriggerKind.SyncCommand, setOf(Channel.Throw), "RssiReader.kt:send, GattFailureFactory.kt:rssiStartRejected"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe, SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
                 Route("link lifecycle (requestMtu start, fallback)", TriggerKind.AsyncInfo, setOf(Channel.Event), "GattConnectionLifecycle.kt:requestMtu"),
@@ -145,6 +147,7 @@ internal object FailureCatalog {
             "GATT_STATUS_FAILED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:complete, OperationCallbacks.kt:handleCharacteristicRead, OperationQueue.kt:write"),
+                Route("readRssi command", TriggerKind.SyncCommand, setOf(Channel.Throw), "RssiReader.kt:send, GattFailureFactory.kt:rssiStatusFailed"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "LinkSetup.kt:restoreSubscriptions, SubscriptionState.kt:markActive(성공 시에만) — ActiveSubscriptionsTest"),
             ),
@@ -196,6 +199,7 @@ internal object FailureCatalog {
             "OPERATION_INVALIDATED",
             listOf(
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw), "OperationExecutor.kt:invalidateScheduledOperations, OperationQueue.kt:write"),
+                Route("readRssi command", TriggerKind.SyncCommand, setOf(Channel.Throw), "RssiReader.kt:invalidate, GattFailureFactory.kt:rssiInvalidated"),
                 Route("unsubscribe command", TriggerKind.AsyncInfo, setOf(Channel.Event), "SubscriptionCommands.kt:unsubscribe"),
                 Route("connect command (user disconnect during rediscovery)", TriggerKind.SyncCommand, setOf(Channel.Throw), "GattConnectionLifecycle.kt:disconnect(Scanner.kt:endRediscovery) → ConnectStarter.kt:connect(재발견 뒤 종결 판정, Disconnected(Requested) 는 그대로)"),
             ),
@@ -206,6 +210,12 @@ internal object FailureCatalog {
                 Route("read/write/subscribe command (started)", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "GattQueueCore.kt:deadlineJudged, OperationExecutor.kt:execute, ConnectionCleanup.kt:operationInvalidated"),
                 Route("unsubscribe command", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "SubscriptionCommands.kt:emitUnsubscribeFailure, GattQueueCore.kt:deadlineJudged"),
                 Route("subscription restore", TriggerKind.AsyncResource, setOf(Channel.State, Channel.Event), "GattQueueCore.kt:deadlineJudged, ConnectionCleanup.kt:operationInvalidated"),
+            ),
+        ),
+        FailureSpec(
+            "RSSI_READ_TIMEOUT",
+            listOf(
+                Route("readRssi command", TriggerKind.SyncCommand, setOf(Channel.Throw), "RssiReader.kt:send, GattFailureFactory.kt:rssiReadTimeout"),
             ),
         ),
         FailureSpec(
@@ -225,6 +235,7 @@ internal object FailureCatalog {
             "PERMISSION_DENIED",
             listOf(
                 Route("command adapter preflight", TriggerKind.SyncCommand, setOf(Channel.Throw), "AdapterMonitor.kt:ensureAdapterReady"),
+                Route("readRssi command", TriggerKind.SyncCommand, setOf(Channel.Throw), "AndroidGattDriver.kt:readRemoteRssi, RssiReader.kt:send, GattFailureFactory.kt:rssiPermissionDenied"),
                 Route("startScan command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.Event), "AndroidScanner.kt:start, Scanner.kt:startScan — ScanContractTest"),
                 Route("connect command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State), "AndroidGattDriver.kt:connect, ConnectStarter.kt:connect, RuntimeCommands.kt:connect"),
                 Route("read/write/subscribe command", TriggerKind.SyncCommand, setOf(Channel.Throw, Channel.State, Channel.Event), "OperationExecutor.kt:startOperation, ConnectionCleanup.kt:beginCleanup"),

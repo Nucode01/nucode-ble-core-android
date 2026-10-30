@@ -74,6 +74,7 @@ FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.Fa
 FIELD public static final enum kr.co.nucode.ble.FailurePhase kr.co.nucode.ble.FailurePhase.Validation
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Read
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.ReadDescriptor
+FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.ReadRssi
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.RequestMtu
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Subscribe
 FIELD public static final enum kr.co.nucode.ble.OperationKind kr.co.nucode.ble.OperationKind.Unsubscribe
@@ -134,6 +135,7 @@ METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.connect(k
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.disconnect(kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.read(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super byte[]>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.readDescriptor(kr.co.nucode.ble.DescriptorRef,kotlin.coroutines.Continuation<? super byte[]>) throws=
+METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.readRssi(kotlin.coroutines.Continuation<? super java.lang.Integer>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.subscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.unsubscribe(kr.co.nucode.ble.CharacteristicRef,kotlin.coroutines.Continuation<? super kotlin.Unit>) throws=
 METHOD public abstract <> java.lang.Object kr.co.nucode.ble.BleSession.write(kr.co.nucode.ble.CharacteristicRef,byte[],kr.co.nucode.ble.BleWriteOptions,kotlin.coroutines.Continuation<? super kr.co.nucode.ble.WriteReceipt>) throws=
@@ -245,6 +247,7 @@ METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.g
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECTION_OPTIONS_CONFLICT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getCONNECT_DURING_DISCONNECT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDESCRIPTOR_WRITE_NOT_ALLOWED-L9ILcWU() throws=
+METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getRSSI_READ_TIMEOUT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_CLEANUP_TIMEOUT-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDISCONNECT_START_FAILED-L9ILcWU() throws=
 METHOD public final <> java.lang.String kr.co.nucode.ble.FailureCode$Companion.getDUPLICATE_CHARACTERISTIC_REFERENCE-L9ILcWU() throws=

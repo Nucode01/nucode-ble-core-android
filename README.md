@@ -20,7 +20,7 @@ GATT 작업 직렬화, 연결·끊김·재연결, 실패 분류를 코루틴 API
 
 ## 설치
 
-JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. JitPack 빌드를 확인한 버전은 0.3.0 과 0.3.1 입니다.
+JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. JitPack 빌드를 확인한 버전은 0.3.0, 0.3.1, 0.4.0 입니다.
 
 ```kotlin
 // settings.gradle.kts
@@ -61,7 +61,7 @@ dependencies {
 
 ### 알려진 문제
 
-- 실기기 첫 연결이 GATT status 133 으로 실패할 수 있습니다(HCI 0x3E). 첫 직접 연결의 빠른 133 은 라이브러리가 최대 2번 다시 겁니다(CHANGELOG Unreleased). 이 재시도가 실기기에서 실제로 동작한 것은 아직 관측하지 못했습니다.
+- 실기기 첫 연결이 GATT status 133 으로 실패할 수 있습니다(HCI 0x3E). 첫 직접 연결의 빠른 133 은 라이브러리가 최대 2번 다시 겁니다(CHANGELOG 0.3.1). 이 재시도가 실기기에서 실제로 동작한 것은 아직 관측하지 못했습니다.
 - 여러 OEM · API level 조합은 검증하지 않았습니다. 범위는 [문제 해결과 한계](guide/troubleshooting.md)에 있습니다.
 
 ## 개발

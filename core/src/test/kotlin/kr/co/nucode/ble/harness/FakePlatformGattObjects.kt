@@ -5,6 +5,7 @@ import java.util.UUID
 import kr.co.nucode.ble.CharacteristicRef
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
+import kr.co.nucode.ble.internal.model.PlatformScanSpec
 import kr.co.nucode.ble.internal.model.PlatformCharacteristic
 import kr.co.nucode.ble.internal.model.PlatformDescriptor
 import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
@@ -41,6 +42,24 @@ internal class FakeDescriptorTable {
             PlatformDescriptorEntry(uuid, register(GattDescriptorIdentity(GattCharacteristicIdentity.from(ref), uuid, index)))
         }
     }
+}
+
+/** [FakeAndroidPlatform] 콜백이 싣는 characteristic 스냅샷(read·notify 속성). */
+internal fun snapshotOf(ref: CharacteristicRef) = GattCharacteristicSnapshot(
+    serviceUuid = ref.service.uuid.value,
+    charUuid = ref.uuid.value,
+    instanceIndex = ref.instanceIndex,
+    propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+    serviceInstanceIndex = ref.service.instanceIndex,
+)
+
+/** 플랫폼처럼 스캔 요청의 주소·필터(서비스 UUID·이름)로 광고자를 거른다. */
+internal fun advertiserAccepts(adv: FakeAndroidPlatform.Advertiser, spec: PlatformScanSpec): Boolean {
+    if (spec.addresses.any { it.value.equals(adv.id.value, ignoreCase = true) }) return true
+    val filter = spec.userFilter ?: return spec.addresses.isEmpty()
+    val services = filter.serviceUuids.isEmpty() || filter.serviceUuids.any { it in adv.serviceUuids }
+    val name = filter.namePrefix == null || adv.name.startsWith(filter.namePrefix!!)
+    return services && name
 }
 
 /** GAP 서비스(0x1800) + Device Name(0x2A00, read) 스냅샷 — 실기기에서 항상 보이는 최소 토폴로지. */

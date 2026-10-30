@@ -66,6 +66,9 @@ internal interface GattDriver {
         descriptor: PlatformDescriptor,
     ): Boolean = false
 
+    /** 연결된 기기의 RSSI 를 한 번 요청한다(HCI Read RSSI, GATT 큐 밖). 결과는 [GattDriverEvent.RemoteRssiRead]. */
+    fun readRemoteRssi(deviceId: PeripheralId, gatt: GattHandle?): Boolean = false
+
     fun writeCharacteristic(
         deviceId: PeripheralId,
         gatt: GattHandle?,
@@ -195,6 +198,13 @@ internal sealed interface GattDriverEvent {
         override val source: GattCallbackSource,
         val status: Int,
         val attributeIdentity: GattDescriptorIdentity? = null,
+    ) : GattDriverEvent
+
+    data class RemoteRssiRead(
+        override val deviceId: PeripheralId,
+        override val source: GattCallbackSource,
+        val rssi: Int,
+        val status: Int,
     ) : GattDriverEvent
 
     class DescriptorRead(

@@ -43,7 +43,7 @@ internal data class PeripheralProfile(
 internal enum class CallOp(val key: String) {
     Connect("connect"), Disconnect("disconnect"), Read("read"), Write("write"),
     Subscribe("subscribe"), Unsubscribe("unsubscribe"), ReadDescriptor("readDescriptor"), WriteDescriptor("writeDescriptor"),
-    StartScan("startScan"), StopScan("stopScan"), Snapshot("snapshot"), Close("close"),
+    StartScan("startScan"), StopScan("stopScan"), Snapshot("snapshot"), Close("close"), ReadRssi("readRssi"),
 }
 
 internal sealed interface DeviceEvent {
@@ -301,7 +301,7 @@ internal object ContractLoader {
             CallOp.Read, CallOp.Subscribe, CallOp.Unsubscribe -> s.onlyKeys(where, *common, "char")
             CallOp.ReadDescriptor -> s.onlyKeys(where, *common, "desc")
             CallOp.WriteDescriptor -> s.onlyKeys(where, *common, "desc", "text", "hex")
-            CallOp.Disconnect, CallOp.StopScan, CallOp.Snapshot, CallOp.Close -> s.onlyKeys(where, *common)
+            CallOp.Disconnect, CallOp.StopScan, CallOp.Snapshot, CallOp.Close, CallOp.ReadRssi -> s.onlyKeys(where, *common)
         }
         val desc = if (op == CallOp.ReadDescriptor || op == CallOp.WriteDescriptor) s.string("desc") else null
         if (desc != null) ContractDescriptors.check(where, desc, op, profile)

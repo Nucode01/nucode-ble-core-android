@@ -54,6 +54,7 @@ public value class FailureCode(public val value: String) {
         public val GATT_OPERATION_CALLBACK_MISMATCH: FailureCode = FailureCode("GATT_OPERATION_CALLBACK_MISMATCH")
         public val GATT_OPERATION_DUPLICATE_CALLBACK: FailureCode = FailureCode("GATT_OPERATION_DUPLICATE_CALLBACK")
         public val OPERATION_TIMEOUT: FailureCode = FailureCode("OPERATION_TIMEOUT")
+        public val RSSI_READ_TIMEOUT: FailureCode = FailureCode("RSSI_READ_TIMEOUT")
         public val OPERATION_INVALIDATED: FailureCode = FailureCode("OPERATION_INVALIDATED")
         public val PAYLOAD_TOO_LARGE: FailureCode = FailureCode("PAYLOAD_TOO_LARGE")
         public val CLIENT_CLOSED: FailureCode = FailureCode("CLIENT_CLOSED")
@@ -98,6 +99,7 @@ public enum class OperationKind {
     RequestMtu,
     ReadDescriptor,
     WriteDescriptor,
+    ReadRssi,
 }
 
 /** Why pending work was invalidated with the active connection generation. */
@@ -223,6 +225,7 @@ internal object FailureCategories {
         "GATT_OPERATION_CALLBACK_MISMATCH" to "operation",
         "GATT_OPERATION_DUPLICATE_CALLBACK" to "operation",
         "OPERATION_TIMEOUT" to "operation",
+        "RSSI_READ_TIMEOUT" to "operation",
         "OPERATION_INVALIDATED" to "operation",
         "PAYLOAD_TOO_LARGE" to "operation",
         "CLIENT_CLOSED" to "connection",

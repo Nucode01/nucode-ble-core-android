@@ -16,6 +16,7 @@ internal enum class AndroidApiOperation(internal val wireName: String) {
     ReadDescriptor("readDescriptor"),
     WriteDescriptor("writeDescriptor"),
     RequestMtu("requestMtu"),
+    ReadRemoteRssi("readRemoteRssi"),
     OnConnectionStateChange("onConnectionStateChange"),
     OnServicesDiscovered("onServicesDiscovered"),
     OnMtuChanged("onMtuChanged"),
@@ -23,4 +24,5 @@ internal enum class AndroidApiOperation(internal val wireName: String) {
     OnCharacteristicWrite("onCharacteristicWrite"),
     OnDescriptorRead("onDescriptorRead"),
     OnDescriptorWrite("onDescriptorWrite"),
+    OnReadRemoteRssi("onReadRemoteRssi"),
 }

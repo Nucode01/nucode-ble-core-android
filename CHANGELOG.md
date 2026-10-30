@@ -2,8 +2,20 @@
 
 ## Unreleased
 
+### Breaking
+
+- `BleSession` 에 `readRssi` 를 더했다. `BleSession` 을 직접 구현한 코드(시험용 fake 등)는 이 함수를 구현해야 한다.
+- `OperationKind` 에 `ReadRssi` 를 더했다. `OperationKind` 를 exhaustive `when` 으로 가르는 코드는 컴파일되지 않는다.
+
 ### Added
 
+- `BleSession.readRssi(): Int`(CANDIDATE-34): 연결된 기기의 RSSI 를 dBm 으로 한 번 읽는다. Ready 일 때만 되고 아니면 `NOT_READY` 다.
+  - GATT 큐 밖이라 진행 중인 write 를 기다리지 않고 write 를 늦추지 않는다.
+  - 플랫폼 요청(`readRemoteRssi`)은 프로세스 전체에서 한 번에 하나다. 같은 기기에 겹친 호출은 요청 하나의 결과를 나눠 받고, 다른 기기의 호출은 차례를 기다린다.
+  - 기한은 `operationTimeoutMillis` 이고 요청을 보낸 때부터 센다. 응답이 없으면 `RSSI_READ_TIMEOUT` 이고 연결은 그대로다.
+  - 대기·진행 중 해제·링크 유실은 `OPERATION_INVALIDATED`, close 는 `CLIENT_CLOSED` 다. 요청 거절은 `GATT_OPERATION_START_FAILED`, status 실패는 `GATT_STATUS_FAILED` 다.
+  - 호출자 취소는 호출자만 뗀다. 자동 재시도는 하지 않는다. 주기 읽기는 앱이 정한다.
+- `FailureCode.RSSI_READ_TIMEOUT`(operation, TransientMayHelp): 플랫폼 RSSI 요청이 기한 안에 답하지 않았다. 다른 앱이 어댑터의 RSSI 슬롯을 쥔 경우도 이 코드다.
 - `FailureCode.DESCRIPTOR_WRITE_NOT_ALLOWED`(attribute, Never): 계약 failure-codes.json 의 iOS 전용 코드에 맞춘 공개 상수.
   iOS 가 CCCD(0x2902) `writeDescriptor` 를 거절할 때 쓴다. Android 는 이 코드를 내지 않고 CCCD write 를 계속 허용한다.
 

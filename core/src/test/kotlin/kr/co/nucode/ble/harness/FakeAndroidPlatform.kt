@@ -1,7 +1,6 @@
 package kr.co.nucode.ble.harness
 
 import kr.co.nucode.ble.internal.port.GattCallbackSource
-import kr.co.nucode.ble.internal.port.GattCharacteristicSnapshot
 import kr.co.nucode.ble.internal.port.GattDriverEvent
 import kr.co.nucode.ble.internal.port.GattServiceSnapshot
 import kr.co.nucode.ble.internal.port.PlatformScanPort
@@ -92,19 +91,26 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
     var beforeRead: ((CharacteristicRef?) -> Unit)? = null
     var onWrite: CallbackVariant = CallbackVariant.Arrive()
 
+    // 근거(README §sim RSSI 읽기): 15ms(가상 시간) 뒤 -50. 어댑터 RSSI 슬롯이 하나라 답하기 전에 온 요청은 응답 없이 버린다.
+    var onRssi: CallbackVariant = CallbackVariant.Late(15)
+    var rssiValue: Int = -50
+    var rssiThrows: Exception? = null
+    private var rssiSlotBusy = false
+
     /** 명령 시작 반환값(Android 의 boolean 반환). false 면 콜백도 내지 않는다. */
     var discoverStarts: Boolean = true
     var mtuStarts: Boolean = true
     var descriptorStarts: Boolean = true
     var readStarts: Boolean = true
     var writeStarts: Boolean = true
+    var rssiStarts: Boolean = true
 
     // ── 기록 ────────────────────────────────────────────────────────────────
 
     /** 현재 platform handle 의 세대. driver [close] 가 올린다(위 클래스 KDoc 의 출처 식별). */
     var epoch: Long = 0
 
-    /** 모든 driver 호출 기록 — "connect", "disconnect", "close", "discover", "mtu", "descriptor", "read", "write". */
+    /** 모든 driver 호출 기록 — "connect", "disconnect", "close", "discover", "mtu", "descriptor", "read", "write", "rssi". */
     val calls: MutableList<String> = mutableListOf()
 
     /** connect 호출마다 받은 autoConnect 값. */
@@ -213,14 +219,6 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     val advertisingHidden: Boolean get() = hiddenCount > 0
 
-    private fun accepts(adv: Advertiser, spec: PlatformScanSpec): Boolean {
-        if (spec.addresses.any { it.value.equals(adv.id.value, ignoreCase = true) }) return true
-        val filter = spec.userFilter ?: return spec.addresses.isEmpty()
-        val services = filter.serviceUuids.isEmpty() || filter.serviceUuids.any { it in adv.serviceUuids }
-        val name = filter.namePrefix == null || adv.name.startsWith(filter.namePrefix!!)
-        return services && name
-    }
-
     /** 플랫폼 정지 횟수(AndroidScanner.stop 자리). */
     var scanStops: Int = 0
 
@@ -238,7 +236,7 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
             return scanStartFailure ?: run {
                 scanStarts += ScanStart(spec, onFailure, onResult)
                 scanLoop?.cancel()
-                scanLoop = advertiser?.takeIf { accepts(it, spec) }?.let { adv ->
+                scanLoop = advertiser?.takeIf { advertiserAccepts(it, spec) }?.let { adv ->
                     scope.launch {
                         while (true) {
                             delay(ADVERTISING_INTERVAL_MILLIS)
@@ -410,6 +408,16 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         return true
     }
 
+    override fun readRemoteRssi(deviceId: PeripheralId, gatt: GattHandle?): Boolean {
+        calls += "rssi"
+        rssiThrows?.let { throw it }
+        if (!rssiStarts || rssiSlotBusy) return rssiStarts
+        rssiSlotBusy = true
+        val source = sourceAt(epoch)
+        schedule(onRssi) { status -> GattDriverEvent.RemoteRssiRead(deviceId, source, rssiValue, status).also { rssiSlotBusy = false } }
+        return true
+    }
+
     /** 테스트 driver 는 handle 을 돌려주지 않는다(connect 는 null). handle 이 없으면 production 과 같이 NotConnected. */
     override fun resolveTarget(
         deviceId: PeripheralId,
@@ -489,14 +497,6 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
             sink(event())
         }
     }
-
-    private fun snapshotOf(ref: CharacteristicRef) = GattCharacteristicSnapshot(
-        serviceUuid = ref.service.uuid.value,
-        charUuid = ref.uuid.value,
-        instanceIndex = ref.instanceIndex,
-        propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-        serviceInstanceIndex = ref.service.instanceIndex,
-    )
 
     companion object {
         // 근거(Android ScanCallback 상수): SCAN_FAILED_INTERNAL_ERROR = 3.

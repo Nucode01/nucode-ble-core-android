@@ -20,7 +20,7 @@ GATT 작업 직렬화, 연결·끊김·재연결, 실패 분류를 코루틴 API
 
 ## 설치
 
-JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. JitPack 빌드를 확인한 버전은 0.3.0, 0.3.1, 0.4.0 입니다.
+JitPack(`https://jitpack.io`)에서 받습니다. 저장소가 public 이라 인증 없이 받습니다. JitPack 빌드를 확인한 버전은 0.3.0, 0.3.1, 0.4.0, 0.5.0 입니다.
 
 ```kotlin
 // settings.gradle.kts

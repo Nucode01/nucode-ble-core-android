@@ -4,6 +4,7 @@
 
 공개 API 추가: 연결 중 RSSI 읽기 `BleSession.readRssi` 와 실패 코드 `RSSI_READ_TIMEOUT`(CANDIDATE-34), iOS 전용 실패 코드 상수 `DESCRIPTOR_WRITE_NOT_ALLOWED`(CANDIDATE-32).
 소스 호환이 깨지는 변경이 있다(Breaking).
+Android 기기 계약: Pixel 5a 에서 34/34 통과(lab/out/20261030-182509). `read-rssi-during-write` 에서 `readRssi` 결과(-67)가 8192 바이트 write 결과보다 먼저 왔다. RSSI 응답 시간은 재지 않았다.
 
 ### Breaking
 

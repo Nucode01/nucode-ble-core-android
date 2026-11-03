@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-03)
+
+공개 API 추가: 연결 중 RSSI 읽기 `BleSession.readRssi` 와 실패 코드 `RSSI_READ_TIMEOUT`(CANDIDATE-34), iOS 전용 실패 코드 상수 `DESCRIPTOR_WRITE_NOT_ALLOWED`(CANDIDATE-32).
+소스 호환이 깨지는 변경이 있다(Breaking).
 
 ### Breaking
 

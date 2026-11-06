@@ -951,7 +951,7 @@ class BleHardwareIntegrationTest {
         const val PAIRING_UI_TIMEOUT_MILLIS = 30_000L
         const val PAIRING_UI_POLL_MILLIS = 1_000L
         const val PAIRING_DIALOG_TIMEOUT_MILLIS = 3_000L
-        const val PERIPHERAL_NAME = "Nordic_UART_Service"
+        const val PERIPHERAL_NAME = "BLE_LAB_TEST"
         /** 알림 셰이드의 행은 게시한 앱(Settings)이 아니라 SystemUI 가 그린다 — 기기 UI 덤프로 확인. */
         const val NOTIFICATION_SHADE_PACKAGE = "com.android.systemui"
         val PAIRING_NOTIFICATION_TEXT: Pattern = Pattern.compile("(?is).*(pairing request|pair request|페어링\\s*요청).*")
@@ -964,7 +964,7 @@ class BleHardwareIntegrationTest {
         val GAP_DEVICE_NAME = BleUuid(UUID.fromString("00002a00-0000-1000-8000-00805f9b34fb"))
 
         /** 펌웨어 `prj.conf` 의 `CONFIG_BT_DEVICE_NAME`. */
-        const val EXPECTED_DEVICE_NAME = "Nordic_UART_Service"
+        const val EXPECTED_DEVICE_NAME = "BLE_LAB_TEST"
         val NUS_RX = BleUuid(UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e"))
         val NUS_TX = BleUuid(UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e"))
 

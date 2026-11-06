@@ -362,7 +362,7 @@ internal class DeviceChecklist(private val item: String) : AutoCloseable {
         const val OFF_FINAL = "Disconnected(Failed:ADAPTER_UNAVAILABLE)"
         const val LINK_FAILED = "Recovering(LINK_FAILED)"
         const val SCAN_STOPPED = "Idle(Failed:SCAN_STOPPED_BY_ADAPTER)"
-        const val ADVERTISED_NAME = "Nordic_UART_Service"
+        const val ADVERTISED_NAME = "BLE_LAB_TEST"
         private const val DISCOVER_TIMEOUT_MILLIS = 30_000L
         private const val SCAN_WINDOW_MILLIS = 31_000L
 

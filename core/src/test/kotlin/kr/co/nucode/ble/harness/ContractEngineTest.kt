@@ -256,14 +256,14 @@ class ContractEngineTest {
     @Test
     fun `이름 필터 스캔은 대상 기기를 첫 결과 하나만 found 로 남긴다`() {
         val report = run(
-            """[{ "call": "startScan", "filter": { "name": "Nordic_UART_Service" } }, { "await": "found", "count": 1, "timeoutMs": 2000 },
+            """[{ "call": "startScan", "filter": { "name": "BLE_LAB_TEST" } }, { "await": "found", "count": 1, "timeoutMs": 2000 },
                 { "sleep": 500 }, { "call": "stopScan" }, { "await": "scan", "is": "Idle", "timeoutMs": 1000 }]""",
             """{ "scan": ["Idle", "Scanning", "Idle"], "found": ["probe"], "result": ["startScan ok", "stopScan ok"] }""",
         )
         assertTrue(report.toString(), report.passed)
     }
 
-    private val scanUntilAdTypes = """{ "call": "startScan", "filter": { "name": "Nordic_UART_Service" } },
+    private val scanUntilAdTypes = """{ "call": "startScan", "filter": { "name": "BLE_LAB_TEST" } },
         { "await": "adTypes", "is": "{01,07,09}", "timeoutMs": 2000 }, { "call": "stopScan" }"""
 
     @Test
@@ -271,7 +271,7 @@ class ContractEngineTest {
         val idle = run("""[{ "sleep": 300 }]""", """{ "adTypes": ["{}"] }""")
         assertTrue(idle.toString(), idle.passed)
         val plain = run(
-            """[{ "call": "startScan", "filter": { "name": "Nordic_UART_Service" } }, { "sleep": 500 }, { "call": "stopScan" }]""",
+            """[{ "call": "startScan", "filter": { "name": "BLE_LAB_TEST" } }, { "sleep": 500 }, { "call": "stopScan" }]""",
             """{ "found": ["probe"] }""",
         )
         assertTrue(plain.toString(), plain.passed)

@@ -9,6 +9,8 @@ package kr.co.nucode.ble
  * The Android platform adapter also keeps the raw scan record bytes here. They are not part of the common
  * surface: Android apps read them through the Android-only extension `androidScanRecordBytes`, and iOS never
  * sets them. Equality includes them, so two results that differ only in raw bytes are different values.
+ * The same holds for the platform device type code (`BluetoothDevice.getType()`), read through the Android-only
+ * extension `androidDeviceType` on `ScanResult`.
  */
 public class AdvertisementData private constructor(
     public val localName: String?,
@@ -18,6 +20,7 @@ public class AdvertisementData private constructor(
     public val txPower: Int?,
     public val isConnectable: Boolean?,
     scanRecordBytes: ByteArray?,
+    platformDeviceType: Int?,
 ) {
     public constructor(
         localName: String?,
@@ -26,12 +29,16 @@ public class AdvertisementData private constructor(
         serviceData: Map<BleUuid, ByteArray>,
         txPower: Int?,
         isConnectable: Boolean?,
-    ) : this(localName, serviceUuids, manufacturerData, serviceData, txPower, isConnectable, null)
+    ) : this(localName, serviceUuids, manufacturerData, serviceData, txPower, isConnectable, null, null)
 
     public val serviceUuids: Set<BleUuid> = serviceUuids.toSet()
     private val manufacturerDataCopy: Map<Int, ByteArray> = manufacturerData.copyByteMap()
     private val serviceDataCopy: Map<BleUuid, ByteArray> = serviceData.copyByteMap()
     private val scanRecordBytesCopy: ByteArray? = scanRecordBytes?.copyOf()
+
+    /** Platform device type code as the adapter read it, or null when it was not read. Synthetic like [scanRecordBytes]. */
+    @get:JvmSynthetic
+    internal val platformDeviceType: Int? = platformDeviceType
 
     public val manufacturerData: Map<Int, ByteArray>
         get() = manufacturerDataCopy.copyByteMap()
@@ -47,7 +54,13 @@ public class AdvertisementData private constructor(
     /** The same advertisement with [bytes] (copied) as its raw scan record. Only the platform adapter calls this. */
     @JvmSynthetic
     internal fun withScanRecordBytes(bytes: ByteArray?): AdvertisementData = AdvertisementData(
-        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, bytes,
+        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, bytes, platformDeviceType,
+    )
+
+    /** The same advertisement with [code] as its platform device type. Only the platform adapter calls this. */
+    @JvmSynthetic
+    internal fun withPlatformDeviceType(code: Int?): AdvertisementData = AdvertisementData(
+        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, scanRecordBytesCopy, code,
     )
 
     override fun equals(other: Any?): Boolean =
@@ -58,7 +71,8 @@ public class AdvertisementData private constructor(
             serviceDataCopy.byteMapEquals(other.serviceDataCopy) &&
             txPower == other.txPower &&
             isConnectable == other.isConnectable &&
-            scanRecordBytesCopy.contentEquals(other.scanRecordBytesCopy)
+            scanRecordBytesCopy.contentEquals(other.scanRecordBytesCopy) &&
+            platformDeviceType == other.platformDeviceType
 
     override fun hashCode(): Int {
         var result = localName?.hashCode() ?: 0
@@ -68,6 +82,7 @@ public class AdvertisementData private constructor(
         result = 31 * result + (txPower ?: 0)
         result = 31 * result + (isConnectable?.hashCode() ?: 0)
         result = 31 * result + scanRecordBytesCopy.contentHashCode()
+        result = 31 * result + (platformDeviceType ?: 0)
         return result
     }
 }

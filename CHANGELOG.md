@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `kr.co.nucode.ble.android.androidDeviceType`: `ScanResult` 의 Android 전용 확장 속성(CANDIDATE-36a). 스캔 결과를 받은 때
+  `BluetoothDevice.getType()` 을 한 번 읽어 `AndroidDeviceType`(`Classic`·`Le`·`Dual`·`Unknown`)으로 준다.
+  - Android 12 이상에서 `BLUETOOTH_CONNECT` 가 없으면 예외 없이 `Unknown` 이다. 공개 생성자로 만든 결과와 iOS 도 `Unknown` 이다.
+  - 값은 OS 가 기기마다 캐시한 종류라 같은 기기도 처음엔 `Unknown` 일 수 있다.
+  - 공통 API(`ScanResult`·`AdvertisementData` 공개 생성자·멤버)와 iOS 는 그대로다.
+- `kr.co.nucode.ble.android.AndroidDeviceType`: 위 값의 enum.
+
+### Behavior
+
+- `ScanResult`(`AdvertisementData`)의 `equals`·`hashCode` 가 Android 기기 종류를 반영한다. 다른 필드가 같고 기기 종류만 다른 스캔 결과는 다른 값이다.
+
 ## 0.5.0 (2026-11-03)
 
 공개 API 추가: 연결 중 RSSI 읽기 `BleSession.readRssi` 와 실패 코드 `RSSI_READ_TIMEOUT`(CANDIDATE-34), iOS 전용 실패 코드 상수 `DESCRIPTOR_WRITE_NOT_ALLOWED`(CANDIDATE-32).

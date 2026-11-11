@@ -71,6 +71,11 @@ fun scanStopReasons(client: BleClient): Flow<BleFailure> =
   - 라이브러리는 바이트를 자르거나 정규화하지 않습니다. 뒤쪽 0 채움이 오면 그대로 둡니다. AD 구조(길이 · type · 값) 디코딩은 앱 몫이고, 길이 바이트 0 을 끝으로 읽으면 0 채움을 건너뜁니다.
   - iOS 는 원본 바이트를 주지 않습니다. 공통 코드에서는 플랫폼 분기가 필요합니다.
   - `AdvertisementData` 의 같음 판정에 원본 바이트가 들어갑니다. 원본만 다른 결과도 다른 값이라 `distinctUntilChanged` 가 거르지 않습니다.
+- 기기 종류(Classic · LE · Dual)는 Android 전용 확장 속성으로 읽습니다. `import kr.co.nucode.ble.android.androidDeviceType` 뒤 `result.androidDeviceType` 을 씁니다. 값은 `AndroidDeviceType` 입니다.
+  - 스캔 결과를 받은 때 `BluetoothDevice.getType()` 을 한 번 읽은 값입니다. OS 가 캐시한 값이라 같은 기기도 처음엔 `Unknown` 일 수 있습니다.
+  - Android 12 이상에서 `BLUETOOTH_CONNECT` 권한이 없으면 예외 없이 `Unknown` 입니다.
+  - iOS 에는 없습니다. 공통 코드에서는 플랫폼 분기가 필요합니다.
+  - 스캔 결과의 같음 판정에 기기 종류도 들어갑니다. 기기 종류만 다른 결과도 다른 값입니다.
 
 ## 5.2 연결하고 `Ready` 까지 기다리기
 

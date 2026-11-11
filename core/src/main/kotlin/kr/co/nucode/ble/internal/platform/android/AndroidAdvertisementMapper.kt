@@ -1,5 +1,6 @@
 package kr.co.nucode.ble.internal.platform.android
 
+import android.annotation.SuppressLint
 import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.os.Build
@@ -16,6 +17,8 @@ internal data class AndroidAdvertisementFacts(
     val txPower: Int?,
     val isConnectable: Boolean?,
     val scanRecordBytes: ByteArray? = null,
+    /** `BluetoothDevice.getType()` 값. 읽지 못했으면(권한 없음) null. */
+    val deviceType: Int? = null,
 )
 
 internal object AndroidAdvertisementMapper {
@@ -26,10 +29,21 @@ internal object AndroidAdvertisementMapper {
         serviceData = facts.serviceData.mapValues { (_, bytes) -> bytes.copyOf() },
         txPower = facts.txPower,
         isConnectable = facts.isConnectable,
-    ).withScanRecordBytes(facts.scanRecordBytes)
+    ).withScanRecordBytes(facts.scanRecordBytes).withPlatformDeviceType(facts.deviceType)
 
-    fun facts(result: ScanResult): AndroidAdvertisementFacts {
-        val record = result.scanRecord
+    @SuppressLint("MissingPermission") // 권한 없음은 아래 오버로드가 SecurityException 으로 받는다.
+    fun facts(result: ScanResult): AndroidAdvertisementFacts = facts(
+        record = result.scanRecord,
+        isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) result.isConnectable else null,
+        readDeviceType = { result.device.type },
+    )
+
+    /** [readDeviceType] 는 결과마다 한 번 부른다. API 31+ 에서 BLUETOOTH_CONNECT 가 없으면 SecurityException 이라 null 로 둔다. */
+    fun facts(
+        record: ScanRecord?,
+        isConnectable: Boolean?,
+        readDeviceType: () -> Int,
+    ): AndroidAdvertisementFacts {
         val manufacturer = buildMap {
             val data = record?.manufacturerSpecificData
             for (index in 0 until (data?.size() ?: 0)) {
@@ -51,9 +65,14 @@ internal object AndroidAdvertisementMapper {
             manufacturerData = manufacturer,
             serviceData = serviceData,
             txPower = txPower,
-            isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) result.isConnectable else null,
+            isConnectable = isConnectable,
             // 받은 그대로 복사한다. 자르거나(0 채움 포함) 정규화하지 않는다.
             scanRecordBytes = record?.bytes?.copyOf(),
+            deviceType = try {
+                readDeviceType()
+            } catch (_: SecurityException) {
+                null
+            },
         )
     }
 }

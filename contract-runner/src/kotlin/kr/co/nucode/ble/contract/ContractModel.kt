@@ -46,27 +46,6 @@ internal enum class CallOp(val key: String) {
     StartScan("startScan"), StopScan("stopScan"), Snapshot("snapshot"), Close("close"), ReadRssi("readRssi"),
 }
 
-internal sealed interface DeviceEvent {
-    /** probe.control 에 쓸 펌웨어 명령. */
-    val command: String
-
-    data object LinkDrop : DeviceEvent {
-        override val command = "LINK_DROP"
-    }
-
-    data class LinkDropHide(val ms: Long) : DeviceEvent {
-        override val command get() = "LINK_DROP_HIDE $ms"
-    }
-
-    data class Notify(val count: Int) : DeviceEvent {
-        override val command get() = "NOTIFY $count"
-    }
-
-    data class ReadNotify(val on: Boolean) : DeviceEvent {
-        override val command get() = if (on) "READ_NOTIFY ON" else "READ_NOTIFY OFF"
-    }
-}
-
 internal sealed interface Step {
     data class Call(
         val op: CallOp,
@@ -83,6 +62,8 @@ internal sealed interface Step {
         val desc: String? = null,
         /** connect 의 Android 요청 MTU(23..517). 없으면 코어 기본. */
         val requestedMtu: Int? = null,
+        /** startScan 의 Android extended 광고 옵션. 없으면 null(공개 API 기본 false). */
+        val extendedAdvertising: Boolean? = null,
     ) : Step {
         /** result 레인 한 줄의 앞부분: "read probe.value", "readDescriptor probe.control/cud". */
         val label: String get() = (desc ?: char)?.let { "${op.key} $it" } ?: op.key
@@ -200,8 +181,18 @@ internal object ContractLoader {
         val steps = root.req("steps").asList("steps").mapIndexed { index, raw ->
             parseStep("steps[$index]", raw.asObject("steps[$index]"), profile, names, cancelled, expect.keys, runsOn)
         }
-        if (platforms != setOf("android") && steps.any { it is Step.Call && it.requestedMtu != null }) {
-            throw ContractFormatException("requestedMtu 는 platforms 가 정확히 [\"android\"] 인 시나리오에서만 쓴다")
+        if (platforms != setOf("android")) {
+            val androidOnly = steps.firstNotNullOfOrNull { step ->
+                when {
+                    step is Step.Call && step.requestedMtu != null -> "requestedMtu"
+                    step is Step.Call && step.extendedAdvertising != null -> "extendedAdvertising"
+                    step is Step.Device && step.event is DeviceEvent.ExtAdv -> "extAdv"
+                    else -> null
+                }
+            } ?: Lanes.ANDROID_ADV.takeIf { it in expect }
+            if (androidOnly != null) {
+                throw ContractFormatException("$androidOnly 는 platforms 가 정확히 [\"android\"] 인 시나리오에서만 쓴다")
+            }
         }
         val diffIgnore = root["diffIgnore"]?.let { root.stringList("diffIgnore") }.orEmpty().onEach {
             val lane = it.substringBefore('|', "")
@@ -265,6 +256,12 @@ internal object ContractLoader {
                     "linkDropHide" -> { s.onlyKeys(where, "device", "ms"); DeviceEvent.LinkDropHide(s.long("ms").also { it.toInt().positive(where) }) }
                     "notify" -> { s.onlyKeys(where, "device", "count"); DeviceEvent.Notify(s.long("count").toInt().also { it.positive(where) }) }
                     "readNotify" -> { s.onlyKeys(where, "device", "on"); DeviceEvent.ReadNotify(s.bool("on")) }
+                    "extAdv" -> {
+                        s.onlyKeys(where, "device", "ms")
+                        val ms = s.long("ms")
+                        if (ms !in 1L..60_000L) throw ContractFormatException("$where: extAdv 의 ms 는 1..60000 이어야 한다(실제 $ms)")
+                        DeviceEvent.ExtAdv(ms)
+                    }
                     else -> throw ContractFormatException("$where: 모르는 기기 사건 '$what'")
                 }
                 Step.Device(event)
@@ -297,7 +294,7 @@ internal object ContractLoader {
         when (op) {
             CallOp.Connect -> s.onlyKeys(where, *common, "autoReconnect", "requestedMtu")
             CallOp.Write -> s.onlyKeys(where, *common, "char", "text", "hex", "pattern", "mode", "chunking", "chunkBytes")
-            CallOp.StartScan -> s.onlyKeys(where, *common, "filter")
+            CallOp.StartScan -> s.onlyKeys(where, *common, "filter", "extendedAdvertising")
             CallOp.Read, CallOp.Subscribe, CallOp.Unsubscribe -> s.onlyKeys(where, *common, "char")
             CallOp.ReadDescriptor -> s.onlyKeys(where, *common, "desc")
             CallOp.WriteDescriptor -> s.onlyKeys(where, *common, "desc", "text", "hex")
@@ -359,6 +356,7 @@ internal object ContractLoader {
                 s.long("requestedMtu").takeIf { it in 23L..517L }?.toInt()
                     ?: throw ContractFormatException("$where: requestedMtu 는 23..517 이어야 한다(실제 $it)")
             },
+            extendedAdvertising = if ("extendedAdvertising" in s) s.bool("extendedAdvertising") else null,
         )
     }
 

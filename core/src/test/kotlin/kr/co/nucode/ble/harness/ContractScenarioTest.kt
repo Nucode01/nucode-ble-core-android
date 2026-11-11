@@ -113,6 +113,8 @@ internal class SimTarget(private val h: Harness, private val profile: Peripheral
                 }
             },
         )
+        // 펌웨어의 두 번째 광고 세트. extAdv 창 안에서 extended 스캔에만 보인다.
+        h.fake.extendedAdvertiser = extendedSetAdvertiser()
     }
 
     /**
@@ -184,6 +186,7 @@ internal class SimTarget(private val h: Harness, private val profile: Peripheral
             } else {
                 null
             }
+            is DeviceEvent.ExtAdv -> h.fake.advertiseExtended(event.ms)
         }
     }
 

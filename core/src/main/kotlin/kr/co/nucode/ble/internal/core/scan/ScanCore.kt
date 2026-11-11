@@ -297,8 +297,9 @@ internal object ScanCore {
         return when {
             user == null && addresses.isEmpty() -> null
             user == null -> PlatformScanSpec(userFilter = null, addresses = addresses, mode = BleScanMode.LowLatency)
-            user.filter.scansAll() -> PlatformScanSpec(user.filter, emptySet(), jointMode(user, addresses))
-            else -> PlatformScanSpec(user.filter, addresses, jointMode(user, addresses))
+            user.filter.scansAll() ->
+                PlatformScanSpec(user.filter, emptySet(), jointMode(user, addresses), user.options.extendedAdvertising)
+            else -> PlatformScanSpec(user.filter, addresses, jointMode(user, addresses), user.options.extendedAdvertising)
         }
     }
 
@@ -309,10 +310,12 @@ internal object ScanCore {
     /**
      * 도는 스캔이 [desired] 의 모든 소비자를 담는가 — 남는 주소·사용자 필터는 라우팅에서 버리므로 덮음으로 친다.
      * 모드는 도는 쪽이 같거나 높아야 덮는다(재발견이 끝나 원하는 모드가 내려가도 재시작하지 않는다).
+     * 사용자 소비자가 있으면 extended 여부도 같아야 한다 — legacy 요청에 extended 결과가 섞이면 안 된다.
      */
     private fun PlatformScanSpec.covers(desired: PlatformScanSpec): Boolean {
         if (mode.rank() < desired.mode.rank()) return false
         if (desired.userFilter != null && userFilter != desired.userFilter) return false
+        if (desired.userFilter != null && extendedAdvertising != desired.extendedAdvertising) return false
         return userFilter?.scansAll() == true || addresses.containsAll(desired.addresses)
     }
 

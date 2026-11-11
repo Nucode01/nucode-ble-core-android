@@ -16,6 +16,7 @@ import kr.co.nucode.ble.BleClient
 import kr.co.nucode.ble.BleConnectOptions
 import kr.co.nucode.ble.BleException
 import kr.co.nucode.ble.BleScanFilter
+import kr.co.nucode.ble.BleScanOptions
 import kr.co.nucode.ble.BleSession
 import kr.co.nucode.ble.BleUuid
 import kr.co.nucode.ble.BleWriteMode
@@ -24,6 +25,7 @@ import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.OfficialBleClientEvent
 import kr.co.nucode.ble.PeripheralId
 import kr.co.nucode.ble.ScanRequest
+import kr.co.nucode.ble.android.androidAdvertisingInfo
 import kr.co.nucode.ble.android.androidMtu
 import kr.co.nucode.ble.android.androidScanRecordBytes
 import java.util.concurrent.atomic.AtomicBoolean
@@ -67,6 +69,9 @@ internal class ScenarioEngine(
     /** found 레인: startScan 을 부르기 직전에 켜지고, 대상 기기의 첫 결과를 남기면 꺼진다. */
     private val foundArmed = AtomicBoolean(false)
 
+    /** androidAdv 레인: startScan 직전에 none 을 남기고 켜지며, 필터를 통과한 첫 결과(어느 기기든)를 남기면 꺼진다. */
+    private val advArmed = AtomicBoolean(false)
+
     /**
      * adTypes 레인: 대상 기기 결과에서 읽은 AD type 의 누적 집합. startScan 을 부르기 직전에 비운다(found 와 같은 구간).
      * 수집기와 startScan 호출이 함께 만지므로 집합 갱신과 기록을 [adTypesLock] 안에서 한다.
@@ -77,6 +82,7 @@ internal class ScenarioEngine(
     suspend fun run(scenario: Scenario): ScenarioReport = coroutineScope {
         val log = ContractLog(scenario.expect.keys)
         foundArmed.set(false)
+        advArmed.set(false)
         val session = target.client.session(target.peripheralId)
         val recorders = startRecorders(log, session)
         val pending = mutableMapOf<String, Pending>()
@@ -178,11 +184,12 @@ internal class ScenarioEngine(
     }
 
     /** 형식의 filter `name` 은 공개 API `BleScanFilter.namePrefix` 에 그 글자열을 넣는 것이다(README, 전달 계획 CANDIDATE-19). */
-    private fun toScanRequest(filter: ScanFilterSpec?): ScanRequest = ScanRequest(
+    private fun toScanRequest(filter: ScanFilterSpec?, extendedAdvertising: Boolean): ScanRequest = ScanRequest(
         filter = BleScanFilter(
             serviceUuids = filter?.services.orEmpty().map { BleUuid(it.uuid) },
             namePrefix = filter?.name,
         ),
+        options = BleScanOptions(extendedAdvertising = extendedAdvertising),
     )
 
     private suspend fun snapshotLine(): String {
@@ -204,7 +211,9 @@ internal class ScenarioEngine(
                 CallOp.StartScan -> {
                     foundArmed.set(true)
                     clearAdTypes(log)
-                    target.client.startScan(toScanRequest(call.filter))
+                    log.add(Lanes.ANDROID_ADV, NO_ADV)
+                    advArmed.set(true)
+                    target.client.startScan(toScanRequest(call.filter, call.extendedAdvertising ?: false))
                 }
                 CallOp.StopScan -> target.client.stopScan()
                 CallOp.Close -> target.client.close()
@@ -286,6 +295,17 @@ internal class ScenarioEngine(
                 }
             }
         }
+        if (log.records(Lanes.ANDROID_ADV)) {
+            // Android 전용 공개 확장으로 광고 정보와 원본을 읽는다. 대상 기기가 아니어도 된다(extended 세트는 다른 주소).
+            log.add(Lanes.ANDROID_ADV, NO_ADV)
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                target.client.scanResults.collect {
+                    if (advArmed.compareAndSet(true, false)) {
+                        log.add(Lanes.ANDROID_ADV, ContractLog.renderAndroidAdv(it.androidAdvertisingInfo, it.advertisement.androidScanRecordBytes))
+                    }
+                }
+            }
+        }
         if (log.records(Lanes.WRITE_LIMITS)) {
             // 공통 write 한도: `<withResponse>/<withoutResponse>`, 없으면 null(README §기록).
             jobs += launch(start = CoroutineStart.UNDISPATCHED) {
@@ -358,5 +378,8 @@ internal class ScenarioEngine(
     companion object {
         /** 마지막 단계 뒤 늦게 오는 기록을 받는 시간(README §단계). */
         const val SETTLE_MILLIS = 500L
+
+        /** androidAdv 레인의 시작 값과 startScan 직전 값. */
+        const val NO_ADV = "none"
     }
 }

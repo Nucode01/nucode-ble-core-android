@@ -164,7 +164,12 @@ public class BleScanFilter(
     }
 }
 
-public data class BleScanOptions(val mode: BleScanMode = BleScanMode.Balanced)
+/**
+ * [extendedAdvertising] is Android only, iOS ignores it. When true and the adapter supports LE extended advertising
+ * (Android 8.0+), the core scans with `setLegacy(false)` on all supported PHYs; otherwise it scans legacy advertising
+ * only. Read each result's advertising details from the Android extension `androidAdvertisingInfo`.
+ */
+public data class BleScanOptions(val mode: BleScanMode = BleScanMode.Balanced, val extendedAdvertising: Boolean = false)
 
 public enum class BleScanMode { LowPower, Balanced, LowLatency }
 

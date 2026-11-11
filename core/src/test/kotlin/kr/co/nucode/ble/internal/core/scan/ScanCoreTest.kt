@@ -422,6 +422,75 @@ class ScanCoreTest {
         assertEquals(ScanState.Idle(null), userWhileRediscovering.state.published)
     }
 
+    // ── CANDIDATE-36b: extended 광고 옵션 ───────────────────────────────
+
+    private fun extendedRequest(mode: BleScanMode = BleScanMode.Balanced) =
+        ScanRequest(BleScanFilter(), BleScanOptions(mode, extendedAdvertising = true))
+
+    @Test
+    fun `extended 요청은 플랫폼 스캔에 extended 를 싣는다`() {
+        val begun = step(ScanCoreState(), ScanEvent.StartRequested(extendedRequest()))
+        assertEquals(
+            listOf(
+                ScanEffect.StartPlatform(
+                    PlatformScanSpec(all.filter, emptySet(), BleScanMode.Balanced, extendedAdvertising = true),
+                    1L,
+                    stopFirst = false,
+                ),
+            ),
+            begun.effects,
+        )
+    }
+
+    @Test
+    fun `필터가 있는 extended 요청도 재발견 주소와 함께 extended 를 싣는다`() {
+        val filtered = ScanRequest(serviceRequest.filter, BleScanOptions(BleScanMode.Balanced, extendedAdvertising = true))
+        val user = step(withRediscovery(ScanCoreState()), ScanEvent.StartRequested(filtered))
+        assertEquals(
+            listOf(
+                ScanEffect.StartPlatform(
+                    PlatformScanSpec(serviceRequest.filter, setOf(addrA), BleScanMode.LowLatency, extendedAdvertising = true),
+                    2L,
+                    stopFirst = true,
+                ),
+            ),
+            user.effects,
+        )
+    }
+
+    @Test
+    fun `extended 사용자 요청은 도는 legacy 재발견 스캔을 다시 시작한다`() {
+        val user = step(withRediscovery(ScanCoreState()), ScanEvent.StartRequested(extendedRequest()))
+        assertEquals(
+            listOf(
+                ScanEffect.StartPlatform(
+                    PlatformScanSpec(all.filter, emptySet(), BleScanMode.LowLatency, extendedAdvertising = true),
+                    2L,
+                    stopFirst = true,
+                ),
+            ),
+            user.effects,
+        )
+    }
+
+    @Test
+    fun `extended 스캔은 재발견을 덮고 legacy 사용자 요청은 다시 시작한다`() {
+        val joined = withRediscovery(scanning(extendedRequest(BleScanMode.LowLatency)))
+        assertEquals(1L, joined.generation)
+        assertEquals(true, joined.platform?.extendedAdvertising)
+
+        // 사용자가 멈춰 재발견만 남으면 extended 스캔이 그대로 덮는다(재시작 없음).
+        val stopped = step(joined, ScanEvent.StopRequested)
+        assertFalse(stopped.effects.any { it is ScanEffect.StartPlatform || it is ScanEffect.StopPlatform })
+        assertTrue(step(stopped.state, ScanEvent.ReconcileDue).effects.isEmpty())
+
+        // legacy 요청에 extended 결과가 섞이면 안 되므로 같은 필터·모드여도 다시 시작한다.
+        val legacy = step(stopped.state, ScanEvent.StartRequested(request(mode = BleScanMode.LowLatency)))
+        val restart = legacy.effects.filterIsInstance<ScanEffect.StartPlatform>().single()
+        assertEquals(false, restart.spec.extendedAdvertising)
+        assertTrue(restart.stopFirst)
+    }
+
     @Test
     fun SP05_invalidAddressIsRefusedWithoutRegistering() {
         val refused = step(ScanCoreState(), ScanEvent.RediscoveryRequested(PeripheralId("not-a-mac")))

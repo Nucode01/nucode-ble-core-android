@@ -3,6 +3,8 @@ package kr.co.nucode.ble.harness
 import android.bluetooth.BluetoothGattCharacteristic
 import java.util.UUID
 import kr.co.nucode.ble.CharacteristicRef
+import kr.co.nucode.ble.PeripheralId
+import kr.co.nucode.ble.PlatformAdvertising
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.model.PlatformScanSpec
@@ -52,6 +54,29 @@ internal fun snapshotOf(ref: CharacteristicRef) = GattCharacteristicSnapshot(
     propertyMask = BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
     serviceInstanceIndex = ref.service.instanceIndex,
 )
+
+/**
+ * 시험 기기의 extended 광고 세트(contract/README.md §sim, CANDIDATE-36b): 대상 기기와 다른 주소, 연결 불가, 이름 BLE_LAB_EXT,
+ * primary 1M · secondary 2M · SID 3 · Complete. 원본은 Flags(0x01, 04) · Complete Local Name(0x09) · Manufacturer Specific
+ * Data(0xFF, `FF FF` 뒤 00..63) 로 120 바이트다.
+ */
+internal fun extendedSetAdvertiser(): FakeAndroidPlatform.Advertiser {
+    val name = "BLE_LAB_EXT"
+    val payload = ByteArray(100) { it.toByte() }
+    fun ad(type: Int, value: ByteArray) = byteArrayOf((value.size + 1).toByte(), type.toByte()) + value
+    return FakeAndroidPlatform.Advertiser(
+        id = PeripheralId("C0:DE:00:00:EE:03"),
+        name = name,
+        serviceUuids = emptySet(),
+        visible = { true },
+        scanRecord = ad(0x01, byteArrayOf(0x04)) + ad(0x09, name.toByteArray(Charsets.UTF_8)) +
+            ad(0xFF, byteArrayOf(0xFF.toByte(), 0xFF.toByte()) + payload),
+        // 1 = PHY_LE_1M, 2 = PHY_LE_2M, 0 = DATA_COMPLETE.
+        advertising = PlatformAdvertising(isLegacy = false, primaryPhy = 1, secondaryPhy = 2, advertisingSid = 3, dataStatus = 0),
+        manufacturerData = mapOf(0xFFFF to payload),
+        isConnectable = false,
+    )
+}
 
 /** 플랫폼처럼 스캔 요청의 주소·필터(서비스 UUID·이름)로 광고자를 거른다. */
 internal fun advertiserAccepts(adv: FakeAndroidPlatform.Advertiser, spec: PlatformScanSpec): Boolean {

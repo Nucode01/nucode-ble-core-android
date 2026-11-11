@@ -10,7 +10,8 @@ package kr.co.nucode.ble
  * surface: Android apps read them through the Android-only extension `androidScanRecordBytes`, and iOS never
  * sets them. Equality includes them, so two results that differ only in raw bytes are different values.
  * The same holds for the platform device type code (`BluetoothDevice.getType()`), read through the Android-only
- * extension `androidDeviceType` on `ScanResult`.
+ * extension `androidDeviceType` on `ScanResult`, and for the advertising details (legacy or extended, PHYs, SID,
+ * data status), read through `androidAdvertisingInfo`.
  */
 public class AdvertisementData private constructor(
     public val localName: String?,
@@ -21,6 +22,7 @@ public class AdvertisementData private constructor(
     public val isConnectable: Boolean?,
     scanRecordBytes: ByteArray?,
     platformDeviceType: Int?,
+    platformAdvertising: PlatformAdvertising?,
 ) {
     public constructor(
         localName: String?,
@@ -29,7 +31,7 @@ public class AdvertisementData private constructor(
         serviceData: Map<BleUuid, ByteArray>,
         txPower: Int?,
         isConnectable: Boolean?,
-    ) : this(localName, serviceUuids, manufacturerData, serviceData, txPower, isConnectable, null, null)
+    ) : this(localName, serviceUuids, manufacturerData, serviceData, txPower, isConnectable, null, null, null)
 
     public val serviceUuids: Set<BleUuid> = serviceUuids.toSet()
     private val manufacturerDataCopy: Map<Int, ByteArray> = manufacturerData.copyByteMap()
@@ -39,6 +41,10 @@ public class AdvertisementData private constructor(
     /** Platform device type code as the adapter read it, or null when it was not read. Synthetic like [scanRecordBytes]. */
     @get:JvmSynthetic
     internal val platformDeviceType: Int? = platformDeviceType
+
+    /** Advertising details as the adapter read them (API 26+), or null when not read. Synthetic like [scanRecordBytes]. */
+    @get:JvmSynthetic
+    internal val platformAdvertising: PlatformAdvertising? = platformAdvertising
 
     public val manufacturerData: Map<Int, ByteArray>
         get() = manufacturerDataCopy.copyByteMap()
@@ -54,13 +60,22 @@ public class AdvertisementData private constructor(
     /** The same advertisement with [bytes] (copied) as its raw scan record. Only the platform adapter calls this. */
     @JvmSynthetic
     internal fun withScanRecordBytes(bytes: ByteArray?): AdvertisementData = AdvertisementData(
-        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, bytes, platformDeviceType,
+        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, bytes,
+        platformDeviceType, platformAdvertising,
     )
 
     /** The same advertisement with [code] as its platform device type. Only the platform adapter calls this. */
     @JvmSynthetic
     internal fun withPlatformDeviceType(code: Int?): AdvertisementData = AdvertisementData(
-        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, scanRecordBytesCopy, code,
+        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, scanRecordBytesCopy,
+        code, platformAdvertising,
+    )
+
+    /** The same advertisement with [info] as its advertising details. Only the platform adapter calls this. */
+    @JvmSynthetic
+    internal fun withPlatformAdvertising(info: PlatformAdvertising?): AdvertisementData = AdvertisementData(
+        localName, serviceUuids, manufacturerDataCopy, serviceDataCopy, txPower, isConnectable, scanRecordBytesCopy,
+        platformDeviceType, info,
     )
 
     override fun equals(other: Any?): Boolean =
@@ -72,7 +87,8 @@ public class AdvertisementData private constructor(
             txPower == other.txPower &&
             isConnectable == other.isConnectable &&
             scanRecordBytesCopy.contentEquals(other.scanRecordBytesCopy) &&
-            platformDeviceType == other.platformDeviceType
+            platformDeviceType == other.platformDeviceType &&
+            platformAdvertising == other.platformAdvertising
 
     override fun hashCode(): Int {
         var result = localName?.hashCode() ?: 0
@@ -83,6 +99,7 @@ public class AdvertisementData private constructor(
         result = 31 * result + (isConnectable?.hashCode() ?: 0)
         result = 31 * result + scanRecordBytesCopy.contentHashCode()
         result = 31 * result + (platformDeviceType ?: 0)
+        result = 31 * result + (platformAdvertising?.hashCode() ?: 0)
         return result
     }
 }

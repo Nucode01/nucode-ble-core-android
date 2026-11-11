@@ -12,7 +12,7 @@ CONSTRUCTOR public kr.co.nucode.ble.BleManufacturerDataFilter(int,byte[],byte[])
 CONSTRUCTOR public kr.co.nucode.ble.BleScanFilter() throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleScanFilter(java.util.List<kr.co.nucode.ble.BleUuid>,java.lang.String,java.util.List<kr.co.nucode.ble.BleManufacturerDataFilter>,java.util.List<kr.co.nucode.ble.BleServiceDataFilter>) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleScanOptions() throws=
-CONSTRUCTOR public kr.co.nucode.ble.BleScanOptions(kr.co.nucode.ble.BleScanMode) throws=
+CONSTRUCTOR public kr.co.nucode.ble.BleScanOptions(kr.co.nucode.ble.BleScanMode,boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleWriteOptions() throws=
 CONSTRUCTOR public kr.co.nucode.ble.BleWriteOptions(kr.co.nucode.ble.BleWriteMode,kr.co.nucode.ble.BleChunking) throws=
 CONSTRUCTOR public kr.co.nucode.ble.ClientSnapshot(kr.co.nucode.ble.AdapterState,boolean,java.util.List<kr.co.nucode.ble.SessionSnapshot>) throws=
@@ -40,6 +40,7 @@ CONSTRUCTOR public kr.co.nucode.ble.ScanState$Scanning(kr.co.nucode.ble.ScanRequ
 CONSTRUCTOR public kr.co.nucode.ble.WriteLimits(int,int) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteProgress(int,int,int,int,java.lang.Integer,java.lang.Integer,boolean,kr.co.nucode.ble.DeliverySemantics,boolean) throws=
 CONSTRUCTOR public kr.co.nucode.ble.WriteReceipt(int,int,kr.co.nucode.ble.DeliverySemantics) throws=
+CONSTRUCTOR public kr.co.nucode.ble.android.AndroidAdvertisingInfo(boolean,kr.co.nucode.ble.android.AndroidPhy,kr.co.nucode.ble.android.AndroidPhy,java.lang.Integer,kr.co.nucode.ble.android.AndroidAdvertisingDataStatus) throws=
 FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.Balanced
 FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.LowLatency
 FIELD public static final enum kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.LowPower
@@ -97,10 +98,15 @@ FIELD public static final enum kr.co.nucode.ble.android.AndroidBondResult kr.co.
 FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonded
 FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.Bonding
 FIELD public static final enum kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.None
+FIELD public static final enum kr.co.nucode.ble.android.AndroidAdvertisingDataStatus kr.co.nucode.ble.android.AndroidAdvertisingDataStatus.Complete
+FIELD public static final enum kr.co.nucode.ble.android.AndroidAdvertisingDataStatus kr.co.nucode.ble.android.AndroidAdvertisingDataStatus.Truncated
 FIELD public static final enum kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceType.Classic
 FIELD public static final enum kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceType.Dual
 FIELD public static final enum kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceType.Le
 FIELD public static final enum kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceType.Unknown
+FIELD public static final enum kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidPhy.Le1M
+FIELD public static final enum kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidPhy.Le2M
+FIELD public static final enum kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidPhy.LeCoded
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_MAX_RAW_PAYLOAD_BYTES
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.DEFAULT_QUEUE_CAPACITY
 FIELD public static final int kr.co.nucode.ble.DiagnosticOptions.MAX_QUEUE_CAPACITY
@@ -371,9 +377,22 @@ METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.com
 METHOD public final <> kr.co.nucode.ble.BleLogger kr.co.nucode.ble.BleConfig.getLogger() throws=
 METHOD public final <> kr.co.nucode.ble.BleScanFilter kr.co.nucode.ble.ScanRequest.component1() throws=
 METHOD public final <> kr.co.nucode.ble.BleScanFilter kr.co.nucode.ble.ScanRequest.getFilter() throws=
+METHOD public final <> boolean kr.co.nucode.ble.BleScanOptions.component2() throws=
+METHOD public final <> boolean kr.co.nucode.ble.BleScanOptions.getExtendedAdvertising() throws=
+METHOD public final <> boolean kr.co.nucode.ble.android.AndroidAdvertisingInfo.component1() throws=
+METHOD public final <> boolean kr.co.nucode.ble.android.AndroidAdvertisingInfo.isLegacy() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.android.AndroidAdvertisingInfo.component4() throws=
+METHOD public final <> java.lang.Integer kr.co.nucode.ble.android.AndroidAdvertisingInfo.getAdvertisingSid() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidAdvertisingDataStatus kr.co.nucode.ble.android.AndroidAdvertisingInfo.component5() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidAdvertisingDataStatus kr.co.nucode.ble.android.AndroidAdvertisingInfo.getDataStatus() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidAdvertisingInfo kr.co.nucode.ble.android.AndroidAdvertisingInfo.copy(boolean,kr.co.nucode.ble.android.AndroidPhy,kr.co.nucode.ble.android.AndroidPhy,java.lang.Integer,kr.co.nucode.ble.android.AndroidAdvertisingDataStatus) throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidAdvertisingInfo.component2() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidAdvertisingInfo.component3() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidAdvertisingInfo.getPrimaryPhy() throws=
+METHOD public final <> kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidAdvertisingInfo.getSecondaryPhy() throws=
 METHOD public final <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanOptions.component1() throws=
 METHOD public final <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanOptions.getMode() throws=
-METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.BleScanOptions.copy(kr.co.nucode.ble.BleScanMode) throws=
+METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.BleScanOptions.copy(kr.co.nucode.ble.BleScanMode,boolean) throws=
 METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.ScanRequest.component2() throws=
 METHOD public final <> kr.co.nucode.ble.BleScanOptions kr.co.nucode.ble.ScanRequest.getOptions() throws=
 METHOD public final <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteOptions.component1() throws=
@@ -502,7 +521,9 @@ METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Retryability> 
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.Severity> kr.co.nucode.ble.Severity.getEntries() throws=
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondResult> kr.co.nucode.ble.android.AndroidBondResult.getEntries() throws=
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidBondState> kr.co.nucode.ble.android.AndroidBondState.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidAdvertisingDataStatus> kr.co.nucode.ble.android.AndroidAdvertisingDataStatus.getEntries() throws=
 METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidDeviceType> kr.co.nucode.ble.android.AndroidDeviceType.getEntries() throws=
+METHOD public static <> kotlin.enums.EnumEntries<kr.co.nucode.ble.android.AndroidPhy> kr.co.nucode.ble.android.AndroidPhy.getEntries() throws=
 METHOD public static <> kr.co.nucode.ble.BleScanMode kr.co.nucode.ble.BleScanMode.valueOf(java.lang.String) throws=
 METHOD public static <> kr.co.nucode.ble.BleScanMode[] kr.co.nucode.ble.BleScanMode.values() throws=
 METHOD public static <> kr.co.nucode.ble.BleWriteMode kr.co.nucode.ble.BleWriteMode.valueOf(java.lang.String) throws=
@@ -529,14 +550,19 @@ METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult kr.co.nucode.
 METHOD public static <> kr.co.nucode.ble.android.AndroidBondResult[] kr.co.nucode.ble.android.AndroidBondResult.values() throws=
 METHOD public static <> kr.co.nucode.ble.android.AndroidBondState kr.co.nucode.ble.android.AndroidBondState.valueOf(java.lang.String) throws=
 METHOD public static <> kr.co.nucode.ble.android.AndroidBondState[] kr.co.nucode.ble.android.AndroidBondState.values() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidAdvertisingDataStatus kr.co.nucode.ble.android.AndroidAdvertisingDataStatus.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidAdvertisingDataStatus[] kr.co.nucode.ble.android.AndroidAdvertisingDataStatus.values() throws=
 METHOD public static <> kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceType.valueOf(java.lang.String) throws=
 METHOD public static <> kr.co.nucode.ble.android.AndroidDeviceType[] kr.co.nucode.ble.android.AndroidDeviceType.values() throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidPhy kr.co.nucode.ble.android.AndroidPhy.valueOf(java.lang.String) throws=
+METHOD public static <> kr.co.nucode.ble.android.AndroidPhy[] kr.co.nucode.ble.android.AndroidPhy.values() throws=
 METHOD public static final <> boolean kr.co.nucode.ble.BleUuid.equals-impl0(java.util.UUID,java.util.UUID) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCategory.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.FailureCode.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> boolean kr.co.nucode.ble.PeripheralId.equals-impl0(java.lang.String,java.lang.String) throws=
 METHOD public static final <> byte[] kr.co.nucode.ble.android.AndroidAdvertisementDataKt.getAndroidScanRecordBytes(kr.co.nucode.ble.AdvertisementData) throws=
 METHOD public static final <> kotlinx.coroutines.flow.StateFlow<java.lang.Integer> kr.co.nucode.ble.android.AndroidSessionMtuKt.getAndroidMtu(kr.co.nucode.ble.BleSession) throws=
+METHOD public static final <> kr.co.nucode.ble.android.AndroidAdvertisingInfo kr.co.nucode.ble.android.AndroidAdvertisingInfoKt.getAndroidAdvertisingInfo(kr.co.nucode.ble.ScanResult) throws=
 METHOD public static final <> kr.co.nucode.ble.android.AndroidDeviceType kr.co.nucode.ble.android.AndroidDeviceTypeKt.getAndroidDeviceType(kr.co.nucode.ble.ScanResult) throws=
 METHOD public static final <> kr.co.nucode.ble.BleClient kr.co.nucode.ble.android.AndroidBleClientFactory.create(android.content.Context,kr.co.nucode.ble.BleConfig) throws=
 METHOD public static final <> kr.co.nucode.ble.android.AndroidBondController kr.co.nucode.ble.android.AndroidBleClientFactory.createBondController(android.content.Context) throws=
@@ -598,8 +624,12 @@ TYPE public final kr.co.nucode.ble.android.AndroidAdvertisementDataKt extends=ja
 TYPE public final kr.co.nucode.ble.android.AndroidBleClientFactory extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondResult extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondResult> implements=
 TYPE public final kr.co.nucode.ble.android.AndroidBondState extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidBondState> implements=
+TYPE public final kr.co.nucode.ble.android.AndroidAdvertisingDataStatus extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidAdvertisingDataStatus> implements=
+TYPE public final kr.co.nucode.ble.android.AndroidAdvertisingInfo extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.android.AndroidAdvertisingInfoKt extends=java.lang.Object implements=
 TYPE public final kr.co.nucode.ble.android.AndroidDeviceType extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidDeviceType> implements=
 TYPE public final kr.co.nucode.ble.android.AndroidDeviceTypeKt extends=java.lang.Object implements=
+TYPE public final kr.co.nucode.ble.android.AndroidPhy extends=java.lang.Enum<kr.co.nucode.ble.android.AndroidPhy> implements=
 TYPE public final kr.co.nucode.ble.android.AndroidSessionMtuKt extends=java.lang.Object implements=
 TYPE public static final kr.co.nucode.ble.AdapterState$PoweredOff extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState
 TYPE public static final kr.co.nucode.ble.AdapterState$Ready extends=java.lang.Object implements=kr.co.nucode.ble.AdapterState

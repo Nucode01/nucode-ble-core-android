@@ -8,6 +8,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.os.Build
 import android.os.ParcelUuid
 import kr.co.nucode.ble.AndroidApiOperation
 import kr.co.nucode.ble.BleFailure
@@ -26,6 +27,9 @@ import kr.co.nucode.ble.internal.model.ScanObservation
 internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
     /** [central] 에서 매 호출 시 스캐너를 다시 얻는다(BT off → on 뒤 낡은 참조 금지). */
     private val scanner: () -> BluetoothLeScanner? = { central?.adapter()?.bluetoothLeScanner }
+
+    @SuppressLint("NewApi") // scansExtended 가 SDK 26 이상에서만 부른다.
+    private val extendedSupported: () -> Boolean = { central?.adapter()?.isLeExtendedAdvertisingSupported == true }
 
     private var callback: ScanCallback? = null
 
@@ -59,7 +63,7 @@ internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
             }
         }
         return try {
-            leScanner.startScan(filters, toPlatformSettings(spec.mode), platformCallback)
+            leScanner.startScan(filters, toPlatformSettings(spec), platformCallback)
             callback = platformCallback
             null
         } catch (_: SecurityException) {
@@ -107,6 +111,13 @@ internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
     }
 
     internal companion object {
+        /**
+         * extended 로 스캔하는가: 요청했고, API 26+ 이고, 어댑터가 지원할 때. [supported] 는 API 26 전용 호출이라
+         * 앞 두 조건이 참일 때만 부른다(API 24·25 에서 부르면 NoSuchMethodError).
+         */
+        fun scansExtended(spec: PlatformScanSpec, sdkInt: Int, supported: () -> Boolean): Boolean =
+            spec.extendedAdvertising && sdkInt >= Build.VERSION_CODES.O && supported()
+
         fun toPlatformFilters(filter: BleScanFilter): List<ScanFilter> = buildList {
             filter.serviceUuids.forEach { add(ScanFilter.Builder().setServiceUuid(ParcelUuid(it.value)).build()) }
             filter.manufacturerData.forEach { add(manufacturerFilter(it)) }
@@ -131,11 +142,17 @@ internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
         }.build()
     }
 
-    private fun toPlatformSettings(mode: BleScanMode): ScanSettings = ScanSettings.Builder().setScanMode(
-        when (mode) {
+    @SuppressLint("NewApi") // setLegacy·setPhy 는 scansExtended 가 참일 때(SDK 26+)만 부른다.
+    private fun toPlatformSettings(spec: PlatformScanSpec): ScanSettings = ScanSettings.Builder().setScanMode(
+        when (spec.mode) {
             BleScanMode.LowPower -> ScanSettings.SCAN_MODE_LOW_POWER
             BleScanMode.Balanced -> ScanSettings.SCAN_MODE_BALANCED
             BleScanMode.LowLatency -> ScanSettings.SCAN_MODE_LOW_LATENCY
         },
-    ).build()
+    ).apply {
+        if (scansExtended(spec, Build.VERSION.SDK_INT, extendedSupported)) {
+            setLegacy(false)
+            setPhy(ScanSettings.PHY_LE_ALL_SUPPORTED)
+        }
+    }.build()
 }

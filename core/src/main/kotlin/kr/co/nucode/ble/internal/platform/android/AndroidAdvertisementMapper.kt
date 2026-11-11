@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.ParcelUuid
 import kr.co.nucode.ble.AdvertisementData
 import kr.co.nucode.ble.BleUuid
+import kr.co.nucode.ble.PlatformAdvertising
 
 /** A platform callback is reduced to these facts once, before it crosses the Android boundary. */
 internal data class AndroidAdvertisementFacts(
@@ -19,6 +20,8 @@ internal data class AndroidAdvertisementFacts(
     val scanRecordBytes: ByteArray? = null,
     /** `BluetoothDevice.getType()` 값. 읽지 못했으면(권한 없음) null. */
     val deviceType: Int? = null,
+    /** 광고 정보(API 26+). 그 아래에서는 null. */
+    val advertising: PlatformAdvertising? = null,
 )
 
 internal object AndroidAdvertisementMapper {
@@ -30,19 +33,35 @@ internal object AndroidAdvertisementMapper {
         txPower = facts.txPower,
         isConnectable = facts.isConnectable,
     ).withScanRecordBytes(facts.scanRecordBytes).withPlatformDeviceType(facts.deviceType)
+        .withPlatformAdvertising(facts.advertising)
 
     @SuppressLint("MissingPermission") // 권한 없음은 아래 오버로드가 SecurityException 으로 받는다.
-    fun facts(result: ScanResult): AndroidAdvertisementFacts = facts(
-        record = result.scanRecord,
-        isConnectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) result.isConnectable else null,
-        readDeviceType = { result.device.type },
-    )
+    fun facts(result: ScanResult): AndroidAdvertisementFacts {
+        val oreo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        return facts(
+            record = result.scanRecord,
+            isConnectable = if (oreo) result.isConnectable else null,
+            readDeviceType = { result.device.type },
+            advertising = if (oreo) {
+                PlatformAdvertising(
+                    isLegacy = result.isLegacy,
+                    primaryPhy = result.primaryPhy,
+                    secondaryPhy = result.secondaryPhy,
+                    advertisingSid = result.advertisingSid,
+                    dataStatus = result.dataStatus,
+                )
+            } else {
+                null
+            },
+        )
+    }
 
     /** [readDeviceType] 는 결과마다 한 번 부른다. API 31+ 에서 BLUETOOTH_CONNECT 가 없으면 SecurityException 이라 null 로 둔다. */
     fun facts(
         record: ScanRecord?,
         isConnectable: Boolean?,
         readDeviceType: () -> Int,
+        advertising: PlatformAdvertising? = null,
     ): AndroidAdvertisementFacts {
         val manufacturer = buildMap {
             val data = record?.manufacturerSpecificData
@@ -73,6 +92,7 @@ internal object AndroidAdvertisementMapper {
             } catch (_: SecurityException) {
                 null
             },
+            advertising = advertising,
         )
     }
 }

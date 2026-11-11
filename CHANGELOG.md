@@ -2,7 +2,23 @@
 
 ## Unreleased
 
+### Breaking
+
+- data class 시그니처: `BleScanOptions` 에 `extendedAdvertising`(기본 `false`)를 더했다(CANDIDATE-36b). 기본값이 있어 기존 생성은 그대로
+  컴파일되지만 생성자·`copy`·`component2` 의 JVM 시그니처가 바뀌어 다시 컴파일해야 한다.
+
 ### Added
+
+- `BleScanOptions.extendedAdvertising: Boolean`(Android 전용, iOS 는 무시한다, CANDIDATE-36b). `true` 이고 어댑터가 LE extended 광고를
+  지원하면(Android 8.0 이상) `setLegacy(false)`·`setPhy(PHY_LE_ALL_SUPPORTED)` 로 스캔해 extended 광고도 받는다. 지원하지 않으면 legacy 로 스캔한다.
+  - 이미 도는 스캔과 이 값이 다른 `startScan` 은 플랫폼 스캔을 다시 시작한다(30초 5회 시작 한도에 든다).
+- `kr.co.nucode.ble.android.androidAdvertisingInfo`: `ScanResult` 의 Android 전용 확장 속성. 결과를 받은 때 읽은
+  `AndroidAdvertisingInfo(isLegacy, primaryPhy, secondaryPhy, advertisingSid, dataStatus)` 를 준다.
+  - `AndroidPhy`(`Le1M`·`Le2M`·`LeCoded`), `AndroidAdvertisingDataStatus`(`Complete`·`Truncated`). secondary PHY·SID 가 없으면 `null` 이다.
+  - Android 8.0 미만, 공개 생성자로 만든 결과, iOS 는 legacy · `Le1M` · `null` · `null` · `Complete` 다.
+  - 원본 바이트(`androidScanRecordBytes`)는 잘린 광고도 자르지 않는다.
+- 계약 러너: `startScan` 의 `extendedAdvertising`, `androidAdv` 레인, 기기 사건 `extAdv`(`ADV_EXT_FOR <ms>`)를 읽고 실행한다.
+  sim 가짜 기기는 extended 광고 세트(`BLE_LAB_EXT`, 1M/2M, SID 3, 120 바이트)를 흉내 낸다.
 
 - `kr.co.nucode.ble.android.androidDeviceType`: `ScanResult` 의 Android 전용 확장 속성(CANDIDATE-36a). 스캔 결과를 받은 때
   `BluetoothDevice.getType()` 을 한 번 읽어 `AndroidDeviceType`(`Classic`·`Le`·`Dual`·`Unknown`)으로 준다.
@@ -14,6 +30,7 @@
 ### Behavior
 
 - `ScanResult`(`AdvertisementData`)의 `equals`·`hashCode` 가 Android 기기 종류를 반영한다. 다른 필드가 같고 기기 종류만 다른 스캔 결과는 다른 값이다.
+- 같은 방식으로 Android 광고 정보(`androidAdvertisingInfo`)도 반영한다. 광고 정보만 다른 스캔 결과는 다른 값이다(CANDIDATE-36b).
 
 ## 0.5.0 (2026-11-03)
 

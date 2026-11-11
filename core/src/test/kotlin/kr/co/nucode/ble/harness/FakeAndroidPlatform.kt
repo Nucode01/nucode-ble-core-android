@@ -10,6 +10,7 @@ import kr.co.nucode.ble.internal.port.GattDriver
 import kr.co.nucode.ble.internal.model.GattCharacteristicIdentity
 import kr.co.nucode.ble.internal.model.GattDescriptorIdentity
 import kr.co.nucode.ble.internal.model.ScanObservation
+import kr.co.nucode.ble.PlatformAdvertising
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
@@ -202,9 +203,28 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
         val serviceUuids: Set<BleUuid>,
         val visible: () -> Boolean,
         val scanRecord: ByteArray? = null, // Android ScanRecord.getBytes() 자리(README §sim 원본 바이트)
+        val advertising: PlatformAdvertising? = null, // ScanResult 의 광고 정보 자리. null = legacy 기본값
+        val manufacturerData: Map<Int, ByteArray> = emptyMap(),
+        val isConnectable: Boolean = true,
     )
 
     var advertiser: Advertiser? = null
+
+    /**
+     * 두 번째 광고 세트(extended, 가짜 어댑터는 extended 를 지원한다). `extendedAdvertising` 스캔에만,
+     * [advertiseExtended] 창 안에서만 보인다. [hideAdvertising] 은 [advertiser] 만 숨긴다.
+     */
+    var extendedAdvertiser: Advertiser? = null
+    private var extendedCount = 0
+
+    /** extended 세트를 [millis] 동안 켠다(펌웨어 ADV_EXT_FOR). */
+    fun advertiseExtended(millis: Long) {
+        extendedCount++
+        scope.launch {
+            delay(millis)
+            extendedCount--
+        }
+    }
     private var scanLoop: Job? = null
     private var hiddenCount = 0
 
@@ -236,26 +256,27 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
             return scanStartFailure ?: run {
                 scanStarts += ScanStart(spec, onFailure, onResult)
                 scanLoop?.cancel()
-                scanLoop = advertiser?.takeIf { advertiserAccepts(it, spec) }?.let { adv ->
-                    scope.launch {
-                        while (true) {
-                            delay(ADVERTISING_INTERVAL_MILLIS)
-                            if (adapter.value == AdapterState.Ready && !advertisingHidden && adv.visible()) {
-                                onResult(
-                                    ScanObservation(
-                                        adv.id,
-                                        -50,
-                                        AdvertisementData(adv.name, adv.serviceUuids, emptyMap(), emptyMap(), null, true)
-                                            .withScanRecordBytes(adv.scanRecord),
-                                    ),
-                                )
-                            }
-                        }
+                val legacy = advertiser?.takeIf { advertiserAccepts(it, spec) }
+                val extended = extendedAdvertiser?.takeIf { spec.extendedAdvertising && advertiserAccepts(it, spec) }
+                scanLoop = if (legacy == null && extended == null) null else scope.launch {
+                    while (true) {
+                        delay(ADVERTISING_INTERVAL_MILLIS)
+                        if (adapter.value != AdapterState.Ready) continue
+                        if (legacy != null && !advertisingHidden && legacy.visible()) onResult(observation(legacy))
+                        if (extended != null && extendedCount > 0 && extended.visible()) onResult(observation(extended))
                     }
                 }
                 null
             }
         }
+
+        private fun observation(adv: Advertiser) = ScanObservation(
+            adv.id,
+            -50,
+            AdvertisementData(adv.name, adv.serviceUuids, adv.manufacturerData, emptyMap(), null, adv.isConnectable)
+                .withScanRecordBytes(adv.scanRecord)
+                .withPlatformAdvertising(adv.advertising),
+        )
 
         override fun stop() {
             scanStops++

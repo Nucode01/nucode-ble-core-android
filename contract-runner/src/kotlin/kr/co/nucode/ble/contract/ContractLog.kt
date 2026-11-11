@@ -7,6 +7,8 @@ import kr.co.nucode.ble.BleDisconnectReason
 import kr.co.nucode.ble.CharacteristicProperty
 import kr.co.nucode.ble.ConnectionState
 import kr.co.nucode.ble.ScanState
+import kr.co.nucode.ble.android.AndroidAdvertisingInfo
+import kr.co.nucode.ble.android.AndroidPhy
 
 /**
  * 시나리오 하나의 레인별 기록. 기록 원천은 여러 코루틴이라 잠금으로 모은다.
@@ -99,6 +101,35 @@ internal class ContractLog(private val enabled: Set<String> = emptySet()) {
                 add(raw[at + 1].toInt() and 0xFF)
                 at += 1 + length
             }
+        }
+
+        /** [adTypes] 와 같은 읽기 규칙으로 읽은 AD 구조의 바이트 합(길이 바이트 포함). 0 채움과 잘린 구조는 세지 않는다. */
+        fun adLength(raw: ByteArray): Int {
+            var at = 0
+            while (at < raw.size) {
+                val length = raw[at].toInt() and 0xFF
+                if (length == 0 || at + length >= raw.size) break
+                at += 1 + length
+            }
+            return at
+        }
+
+        /**
+         * androidAdv 레인 한 줄(README §기록): `legacy|ext <primary> <secondary|-> <SID|-> <Complete|Truncated> <AD 길이|->`.
+         */
+        fun renderAndroidAdv(info: AndroidAdvertisingInfo, raw: ByteArray?): String = listOf(
+            if (info.isLegacy) "legacy" else "ext",
+            phy(info.primaryPhy),
+            info.secondaryPhy?.let(::phy) ?: "-",
+            info.advertisingSid?.toString() ?: "-",
+            info.dataStatus.name,
+            raw?.let { adLength(it).toString() } ?: "-",
+        ).joinToString(" ")
+
+        private fun phy(phy: AndroidPhy): String = when (phy) {
+            AndroidPhy.Le1M -> "1M"
+            AndroidPhy.Le2M -> "2M"
+            AndroidPhy.LeCoded -> "Coded"
         }
 
         /** adTypes 레인 한 줄: 두 자리 대문자 16진수, 정렬, 쉼표 구분. */

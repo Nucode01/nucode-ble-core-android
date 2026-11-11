@@ -76,6 +76,13 @@ fun scanStopReasons(client: BleClient): Flow<BleFailure> =
   - Android 12 이상에서 `BLUETOOTH_CONNECT` 권한이 없으면 예외 없이 `Unknown` 입니다.
   - iOS 에는 없습니다. 공통 코드에서는 플랫폼 분기가 필요합니다.
   - 스캔 결과의 같음 판정에 기기 종류도 들어갑니다. 기기 종류만 다른 결과도 다른 값입니다.
+- Bluetooth 5 extended 광고(긴 광고, 2M · Coded PHY)를 받으려면 `ScanRequest(options = BleScanOptions(extendedAdvertising = true))` 로 스캔합니다. Android 전용이고 iOS 는 이 값을 무시합니다.
+  - 어댑터가 extended 광고를 지원하지 않거나 Android 8.0 미만이면 예외 없이 legacy 로 스캔합니다. extended 스캔도 legacy 광고를 받습니다.
+  - 이미 도는 스캔과 이 값이 다르면 플랫폼 스캔을 다시 시작합니다. 30초 5회 시작 한도에 듭니다.
+- 결과마다의 광고 정보는 `import kr.co.nucode.ble.android.androidAdvertisingInfo` 뒤 `result.androidAdvertisingInfo` 로 읽습니다. 값은 `AndroidAdvertisingInfo(isLegacy, primaryPhy, secondaryPhy, advertisingSid, dataStatus)` 입니다.
+  - legacy 광고는 `isLegacy = true` · `Le1M` · secondary 없음(`null`) · SID 없음(`null`) 입니다. Android 8.0 미만도 이 값입니다.
+  - `dataStatus` 가 `Truncated` 면 광고 일부만 받은 것입니다. 원본 바이트는 받은 그대로이고 라이브러리가 자르지 않습니다.
+  - 스캔 결과의 같음 판정에 광고 정보도 들어갑니다.
 
 ## 5.2 연결하고 `Ready` 까지 기다리기
 

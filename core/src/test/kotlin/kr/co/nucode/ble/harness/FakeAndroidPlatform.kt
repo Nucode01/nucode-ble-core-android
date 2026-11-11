@@ -15,7 +15,9 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
 import java.util.UUID
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
@@ -239,6 +241,13 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
 
     val advertisingHidden: Boolean get() = hiddenCount > 0
 
+    /**
+     * 플랫폼 스캔 시작마다 앞에서 하나씩 꺼내 쓰는 대상 기기 결과 시각 목록. 꺼낸 스캔은 그 시각들로만 결과를 내고 다 쓰면 멈춘다.
+     * 비면 결과마다 가상 시간을 싣는다.
+     */
+    val scanTimeScripts: ArrayDeque<List<Long>> = ArrayDeque()
+    private var lastScanNanos = 0L
+
     /** 플랫폼 정지 횟수(AndroidScanner.stop 자리). */
     var scanStops: Int = 0
 
@@ -258,25 +267,37 @@ internal class FakeAndroidPlatform(private val scope: CoroutineScope) : GattDriv
                 scanLoop?.cancel()
                 val legacy = advertiser?.takeIf { advertiserAccepts(it, spec) }
                 val extended = extendedAdvertiser?.takeIf { spec.extendedAdvertising && advertiserAccepts(it, spec) }
+                val script = scanTimeScripts.removeFirstOrNull()?.let { ArrayDeque(it) }
                 scanLoop = if (legacy == null && extended == null) null else scope.launch {
                     while (true) {
                         delay(ADVERTISING_INTERVAL_MILLIS)
                         if (adapter.value != AdapterState.Ready) continue
-                        if (legacy != null && !advertisingHidden && legacy.visible()) onResult(observation(legacy))
-                        if (extended != null && extendedCount > 0 && extended.visible()) onResult(observation(extended))
+                        if (legacy != null && !advertisingHidden && legacy.visible()) {
+                            if (script == null) onResult(observation(legacy, nextScanTime()))
+                            else script.removeFirstOrNull()?.let { onResult(observation(legacy, it)) }
+                        }
+                        if (extended != null && extendedCount > 0 && extended.visible()) onResult(observation(extended, nextScanTime()))
                     }
                 }
                 null
             }
         }
 
-        private fun observation(adv: Advertiser) = ScanObservation(
+        private fun observation(adv: Advertiser, timestampNanos: Long) = ScanObservation(
             adv.id,
             -50,
             AdvertisementData(adv.name, adv.serviceUuids, adv.manufacturerData, emptyMap(), null, adv.isConnectable)
                 .withScanRecordBytes(adv.scanRecord)
                 .withPlatformAdvertising(adv.advertising),
+            timestampNanos,
         )
+
+        /** 가상 시간(나노초). 같은 틱의 결과(legacy·extended)도 앞 결과보다 1 크게 해 엄격히 늘린다(README §sim). */
+        private fun nextScanTime(): Long {
+            val virtual = (scope.coroutineContext[ContinuationInterceptor] as? TestDispatcher)?.scheduler?.currentTime ?: 0L
+            lastScanNanos = maxOf(virtual * 1_000_000, lastScanNanos + 1)
+            return lastScanNanos
+        }
 
         override fun stop() {
             scanStops++

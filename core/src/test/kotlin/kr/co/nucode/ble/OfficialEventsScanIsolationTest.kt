@@ -43,6 +43,7 @@ class OfficialEventsScanIsolationTest {
             PeripheralId("AA:BB:CC:DD:EE:32"),
             -50,
             AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null),
+            0L,
         )
 
         val states = mutableListOf<ConnectionState>()

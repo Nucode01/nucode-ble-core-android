@@ -46,7 +46,7 @@ class AutoReconnectRediscoveryTest {
 
     private val auto = BleConnectOptions(autoReconnect = true)
 
-    private fun observation() = ScanObservation(id, -50, AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null))
+    private fun observation() = ScanObservation(id, -50, AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null), 0L)
 
     private fun connectCalls(h: Harness) = h.fake.calls.count { it == "connect" }
 

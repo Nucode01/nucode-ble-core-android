@@ -61,6 +61,7 @@ class ScanCoreTest {
         id,
         rssi,
         AdvertisementData(name, emptySet(), emptyMap(), emptyMap(), null, null),
+        0L,
     )
 
     private fun adapterFailure(cause: AdapterState) = FailureMapper.fromAdapterState(cause)

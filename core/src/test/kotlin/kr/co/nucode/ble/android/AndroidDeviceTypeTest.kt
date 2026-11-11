@@ -19,9 +19,9 @@ class AndroidDeviceTypeTest {
 
     /** 드라이버 경로 그대로: facts 오버로드(가드 포함) → map → ScanResult. ScanRecord 는 JVM 에서 만들 수 없어 원본은 copy 로 싣는다. */
     private fun scanned(readDeviceType: () -> Int): ScanResult {
-        val facts = AndroidAdvertisementMapper.facts(record = null, isConnectable = true, readDeviceType = readDeviceType)
+        val facts = AndroidAdvertisementMapper.facts(timestampNanos = 1L, record = null, isConnectable = true, readDeviceType = readDeviceType)
             .copy(scanRecordBytes = raw)
-        return ScanResult(id, -50, AndroidAdvertisementMapper.map(facts))
+        return ScanResult(id, -50, AndroidAdvertisementMapper.map(facts), facts.timestampNanos)
     }
 
     @Test
@@ -57,7 +57,7 @@ class AndroidDeviceTypeTest {
     @Test
     fun `공개 생성자로 만든 결과는 Unknown 이다`() {
         val advertisement = AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null)
-        assertEquals(AndroidDeviceType.Unknown, ScanResult(id, -50, advertisement).androidDeviceType)
+        assertEquals(AndroidDeviceType.Unknown, ScanResult(id, -50, advertisement, 1L).androidDeviceType)
     }
 
     @Test

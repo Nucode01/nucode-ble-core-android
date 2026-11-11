@@ -153,6 +153,7 @@ class PlatformScanScenarioTest {
                     PeripheralId("AA:BB:CC:DD:EE:51"),
                     -50,
                     AdvertisementData("B-device", emptySet(), emptyMap(), emptyMap(), null, null),
+                    0L,
                 ),
             )
             settle()

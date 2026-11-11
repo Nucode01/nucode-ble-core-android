@@ -83,6 +83,9 @@ fun scanStopReasons(client: BleClient): Flow<BleFailure> =
   - legacy 광고는 `isLegacy = true` · `Le1M` · secondary 없음(`null`) · SID 없음(`null`) 입니다. Android 8.0 미만도 이 값입니다.
   - `dataStatus` 가 `Truncated` 면 광고 일부만 받은 것입니다. 원본 바이트는 받은 그대로이고 라이브러리가 자르지 않습니다.
   - 스캔 결과의 같음 판정에 광고 정보도 들어갑니다.
+- `result.timestampNanos` 는 결과를 받은 시각(나노초, `SystemClock.elapsedRealtimeNanos` 기준)입니다. 결과 사이의 간격을 잴 때만 씁니다.
+  - iOS 와 기준이 달라 플랫폼 사이에서 비교하지 않습니다. 벽시계 시각이 아닙니다.
+  - 같음 판정에 들어가므로 같은 기기의 결과도 매번 다릅니다. 중복은 `peripheralId` 로 거릅니다.
 
 ## 5.2 연결하고 `Ready` 까지 기다리기
 

@@ -90,14 +90,8 @@ internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
         }
     }
 
-    private fun observation(result: ScanResult): ScanObservation {
-        val facts = AndroidAdvertisementMapper.facts(result)
-        return ScanObservation(
-            peripheralId = PeripheralId(result.device.address),
-            rssi = result.rssi,
-            advertisement = AndroidAdvertisementMapper.map(facts),
-        )
-    }
+    private fun observation(result: ScanResult): ScanObservation =
+        observation(PeripheralId(result.device.address), result.rssi, AndroidAdvertisementMapper.facts(result))
 
     /**
      * 플랫폼 필터 목록(OR) = 사용자 필터들 + 주소마다 setDeviceAddress 필터 하나. null = 전체 스캔 —
@@ -111,6 +105,14 @@ internal class AndroidScanner(central: AndroidCentral?) : PlatformScanPort {
     }
 
     internal companion object {
+        fun observation(peripheralId: PeripheralId, rssi: Int, facts: AndroidAdvertisementFacts): ScanObservation =
+            ScanObservation(
+                peripheralId = peripheralId,
+                rssi = rssi,
+                advertisement = AndroidAdvertisementMapper.map(facts),
+                timestampNanos = facts.timestampNanos,
+            )
+
         /**
          * extended 로 스캔하는가: 요청했고, API 26+ 이고, 어댑터가 지원할 때. [supported] 는 API 26 전용 호출이라
          * 앞 두 조건이 참일 때만 부른다(API 24·25 에서 부르면 NoSuchMethodError).

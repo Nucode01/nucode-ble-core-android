@@ -41,6 +41,7 @@ class ScannerRediscoveryEndToEndTest {
         peripheral,
         -50,
         AdvertisementData(null, if (withService) setOf(service) else emptySet(), emptyMap(), emptyMap(), null, null),
+        0L,
     )
 
     @Test

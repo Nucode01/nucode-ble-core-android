@@ -206,6 +206,7 @@ class ScanContractTest {
         PeripheralId("AA:BB:CC:DD:EE:41"),
         -50,
         AdvertisementData(localName, emptySet(), emptyMap(), emptyMap(), null, null),
+        0L,
     )
 
     @Test

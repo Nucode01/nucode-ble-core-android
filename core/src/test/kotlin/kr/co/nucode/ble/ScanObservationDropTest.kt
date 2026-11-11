@@ -39,6 +39,7 @@ class ScanObservationDropTest {
             PeripheralId("AA:BB:CC:DD:EE:01"),
             -50,
             AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null),
+            0L,
         )
 
         val received = CountDownLatch(1)

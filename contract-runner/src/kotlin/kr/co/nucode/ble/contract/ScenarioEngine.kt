@@ -295,6 +295,14 @@ internal class ScenarioEngine(
                 }
             }
         }
+        if (log.records(Lanes.SCAN_TIME)) {
+            // 실행 하나에 판정 하나 — startScan 에서 되돌리지 않는다(README §기록 scanTime).
+            val scanTime = ContractScanTime(id)
+            log.add(Lanes.SCAN_TIME, scanTime.value)
+            jobs += launch(start = CoroutineStart.UNDISPATCHED) {
+                target.client.scanResults.collect { log.add(Lanes.SCAN_TIME, scanTime.record(it)) }
+            }
+        }
         if (log.records(Lanes.ANDROID_ADV)) {
             // Android 전용 공개 확장으로 광고 정보와 원본을 읽는다. 대상 기기가 아니어도 된다(extended 세트는 다른 주소).
             log.add(Lanes.ANDROID_ADV, NO_ADV)

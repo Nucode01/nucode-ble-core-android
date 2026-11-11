@@ -79,6 +79,7 @@ class ScannerContractTest {
             serviceData = emptyMap(),
             txPower = 0,
             isConnectable = false,
+            timestampNanos = 0L,
         ))
         payload[0] = 9 // source cannot mutate the mapped value
         assertTrue(mapped.manufacturerData.containsKey(1))
@@ -359,7 +360,7 @@ class ScannerContractTest {
         assertTrue(throttlePort.running)
         // 살아남은 재발견은 도는 스캔의 관측을 계속 받는다 — 거부가 도는 스캔의 generation 을 건드리지 않는다.
         throttlePort.starts.last().onResult(
-            ScanObservation(target, -50, AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null)),
+            ScanObservation(target, -50, AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null), 0L),
         )
         runCurrent()
         assertEquals(RediscoveryOutcome.Found, first.await())

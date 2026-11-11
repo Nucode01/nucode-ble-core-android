@@ -28,12 +28,13 @@ class AndroidExtendedAdvertisingTest {
     /** 드라이버 경로 그대로: facts 오버로드 → map → ScanResult. ScanRecord 는 JVM 에서 만들 수 없어 원본은 copy 로 싣는다. */
     private fun scanned(advertising: PlatformAdvertising?): ScanResult {
         val facts = AndroidAdvertisementMapper.facts(
+            timestampNanos = 1L,
             record = null,
             isConnectable = true,
             readDeviceType = { BluetoothDevice.DEVICE_TYPE_LE },
             advertising = advertising,
         ).copy(scanRecordBytes = raw)
-        return ScanResult(id, -50, AndroidAdvertisementMapper.map(facts))
+        return ScanResult(id, -50, AndroidAdvertisementMapper.map(facts), facts.timestampNanos)
     }
 
     private val legacyInfo = AndroidAdvertisingInfo(true, AndroidPhy.Le1M, null, null, AndroidAdvertisingDataStatus.Complete)
@@ -67,7 +68,7 @@ class AndroidExtendedAdvertisingTest {
     fun `읽지 못한 결과와 공개 생성자로 만든 결과는 legacy 기본값이다`() {
         assertEquals(legacyInfo, scanned(null).androidAdvertisingInfo)
         val advertisement = AdvertisementData(null, emptySet(), emptyMap(), emptyMap(), null, null)
-        assertEquals(legacyInfo, ScanResult(id, -50, advertisement).androidAdvertisingInfo)
+        assertEquals(legacyInfo, ScanResult(id, -50, advertisement, 1L).androidAdvertisingInfo)
     }
 
     @Test
@@ -94,7 +95,7 @@ class AndroidExtendedAdvertisingTest {
             { it.withPlatformAdvertising(extended).withScanRecordBytes(raw).withPlatformDeviceType(BluetoothDevice.DEVICE_TYPE_DUAL) },
         )
         orders.forEachIndexed { index, build ->
-            val result = ScanResult(id, -50, build(base))
+            val result = ScanResult(id, -50, build(base), 1L)
             assertEquals("order $index", false, result.androidAdvertisingInfo.isLegacy)
             assertEquals("order $index", AndroidDeviceType.Dual, result.androidDeviceType)
             assertArrayEquals("order $index", raw, result.advertisement.androidScanRecordBytes)

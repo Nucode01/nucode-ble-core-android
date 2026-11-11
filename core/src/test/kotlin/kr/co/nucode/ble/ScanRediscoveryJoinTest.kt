@@ -52,6 +52,7 @@ class ScanRediscoveryJoinTest {
         id,
         -50,
         AdvertisementData(null, if (withService) setOf(service) else emptySet(), emptyMap(), emptyMap(), null, null),
+        0L,
     )
 
     private fun failure(code: String) = BleFailure(

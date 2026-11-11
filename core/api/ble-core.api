@@ -460,7 +460,7 @@ METHOD public final <> kr.co.nucode.ble.Retryability kr.co.nucode.ble.Diagnostic
 METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanRequest.copy(kr.co.nucode.ble.BleScanFilter,kr.co.nucode.ble.BleScanOptions) throws=
 METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanState$Scanning.component1() throws=
 METHOD public final <> kr.co.nucode.ble.ScanRequest kr.co.nucode.ble.ScanState$Scanning.getRequest() throws=
-METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.ScanResult.copy-bxWR3DE(java.lang.String,int,kr.co.nucode.ble.AdvertisementData) throws=
+METHOD public final <> kr.co.nucode.ble.ScanResult kr.co.nucode.ble.ScanResult.copy-yNm8nfo(java.lang.String,int,kr.co.nucode.ble.AdvertisementData,long) throws=
 METHOD public final <> kr.co.nucode.ble.ScanState$Idle kr.co.nucode.ble.ScanState$Idle.copy(kr.co.nucode.ble.BleFailure) throws=
 METHOD public final <> kr.co.nucode.ble.ScanState$Scanning kr.co.nucode.ble.ScanState$Scanning.copy(kr.co.nucode.ble.ScanRequest) throws=
 METHOD public final <> kr.co.nucode.ble.ServiceRef kr.co.nucode.ble.CharacteristicRef.component1() throws=
@@ -492,6 +492,8 @@ METHOD public final <> long kr.co.nucode.ble.BleConfig.getOperationTimeoutMillis
 METHOD public final <> long kr.co.nucode.ble.BleConfig.getRediscoveryTimeoutMillis() throws=
 METHOD public final <> long kr.co.nucode.ble.DiagnosticValue$Number.component1() throws=
 METHOD public final <> long kr.co.nucode.ble.DiagnosticValue$Number.getValue() throws=
+METHOD public final <> long kr.co.nucode.ble.ScanResult.component4() throws=
+METHOD public final <> long kr.co.nucode.ble.ScanResult.getTimestampNanos() throws=
 METHOD public static <> boolean kr.co.nucode.ble.BleUuid.equals-impl(java.util.UUID,java.lang.Object) throws=
 METHOD public static <> boolean kr.co.nucode.ble.FailureCategory.equals-impl(java.lang.String,java.lang.Object) throws=
 METHOD public static <> boolean kr.co.nucode.ble.FailureCode.equals-impl(java.lang.String,java.lang.Object) throws=

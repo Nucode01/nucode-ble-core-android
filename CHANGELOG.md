@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+공개 API 추가: 스캔 결과 수신 시각 `ScanResult.timestampNanos`(CANDIDATE-36c). 공개 생성자에 필수 인자가 생겨 소스와 바이너리 모두 호환되지 않는다(Breaking).
+기기 계약 확인 전이다(sim·JVM 시험만 통과).
+
+### Breaking
+
+- `ScanResult` 에 기본값 없는 마지막 인자 `timestampNanos: Long` 을 더했다. 앱이 `ScanResult(...)` 를 직접 만드는 곳(시험 가짜 등)은 이 인자를 넣어야
+  컴파일된다. `copy`·`component4` 를 포함한 JVM 시그니처도 바뀌어 다시 컴파일해야 한다.
+- 같음 판정(`equals`·`hashCode`)에 시각이 들어간다. 같은 기기의 같은 광고도 결과마다 다르므로 결과 객체 같음으로 중복을 거르던 코드는 `peripheralId` 로 바꾼다.
+
+### Added
+
+- `ScanResult.timestampNanos`: 플랫폼 `ScanResult.getTimestampNanos()` 값(`SystemClock.elapsedRealtimeNanos` 기준, 잠든 시간 포함, 나노초).
+  배치 결과도 결과마다 읽는다. iOS 와 시계 기준이 달라 같은 플랫폼 결과 사이의 차이에만 쓴다.
+- 계약 러너: `scanTime` 레인(`none`·`ok`·`flat`·`back`, 대상 기기 결과의 연속 시각 차이, `startScan` 마다 되돌리지 않음)을 기록하고 `is` 로 기다린다.
+  sim 가짜는 결과마다 가상 시간을 나노초로 싣고 앞 결과보다 늘린다.
+
 ## 0.7.0 (2026-11-11)
 
 공개 API 추가: Android 전용 extended 광고 스캔 옵션 `BleScanOptions.extendedAdvertising` 과 스캔 결과 확장 `androidAdvertisingInfo`(CANDIDATE-36b),

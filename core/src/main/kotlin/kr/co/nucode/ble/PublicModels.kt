@@ -62,6 +62,8 @@ public data class ScanResult(
     val peripheralId: PeripheralId,
     val rssi: Int,
     val advertisement: AdvertisementData,
+    /** 스캔 결과 시각(단조 시계 나노초). 기준이 플랫폼마다 달라 결과 사이 차이에만 쓴다(CANDIDATE-36c). */
+    val timestampNanos: Long,
 )
 
 public data class ScanRequest(

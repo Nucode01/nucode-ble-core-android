@@ -20,6 +20,7 @@ class AndroidAdvertisementDataTest {
         txPower = null,
         isConnectable = true,
         scanRecordBytes = raw,
+        timestampNanos = 0L,
     )
 
     @Test

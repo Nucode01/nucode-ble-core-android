@@ -22,6 +22,8 @@ internal data class AndroidAdvertisementFacts(
     val deviceType: Int? = null,
     /** 광고 정보(API 26+). 그 아래에서는 null. */
     val advertising: PlatformAdvertising? = null,
+    /** `ScanResult.getTimestampNanos()`(elapsedRealtimeNanos 기준). */
+    val timestampNanos: Long,
 )
 
 internal object AndroidAdvertisementMapper {
@@ -39,6 +41,8 @@ internal object AndroidAdvertisementMapper {
     fun facts(result: ScanResult): AndroidAdvertisementFacts {
         val oreo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         return facts(
+            // API 21 이고 권한이 필요 없어 가드 없이 결과마다 읽는다(배치 결과 포함).
+            timestampNanos = result.timestampNanos,
             record = result.scanRecord,
             isConnectable = if (oreo) result.isConnectable else null,
             readDeviceType = { result.device.type },
@@ -58,6 +62,7 @@ internal object AndroidAdvertisementMapper {
 
     /** [readDeviceType] 는 결과마다 한 번 부른다. API 31+ 에서 BLUETOOTH_CONNECT 가 없으면 SecurityException 이라 null 로 둔다. */
     fun facts(
+        timestampNanos: Long,
         record: ScanRecord?,
         isConnectable: Boolean?,
         readDeviceType: () -> Int,
@@ -93,6 +98,7 @@ internal object AndroidAdvertisementMapper {
                 null
             },
             advertising = advertising,
+            timestampNanos = timestampNanos,
         )
     }
 }

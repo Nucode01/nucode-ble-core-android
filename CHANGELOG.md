@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-11)
+
+공개 API 추가: Android 전용 extended 광고 스캔 옵션 `BleScanOptions.extendedAdvertising` 과 스캔 결과 확장 `androidAdvertisingInfo`(CANDIDATE-36b),
+스캔 결과 확장 `androidDeviceType`(CANDIDATE-36a). 0.6.0 은 내지 않고 두 변경을 이 버전에 함께 냈다.
+소스는 그대로 컴파일되지만 `BleScanOptions` 의 JVM 시그니처가 바뀌어 다시 컴파일해야 한다(Breaking).
+Android 기기 계약: Pixel 5a / Android 14, nRF52840 peripheral_uart 펌웨어 abab6e4 에서 36/36 통과(lab/out/20261111-114715).
+`scan-extended-finds-ext-set` 의 `androidAdv` 는 `ext 1M 2M 3 Complete 120`, `scan-extended-reports-legacy` 는 `legacy 1M - - Complete 35` 였다.
 
 ### Breaking
 

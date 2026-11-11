@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-11-11)
 
 공개 API 추가: 스캔 결과 수신 시각 `ScanResult.timestampNanos`(CANDIDATE-36c). 공개 생성자에 필수 인자가 생겨 소스와 바이너리 모두 호환되지 않는다(Breaking).
-기기 계약 확인 전이다(sim·JVM 시험만 통과).
+Android 기기 계약: Pixel 5a / Android 14, nRF52840 peripheral_uart 펌웨어 abab6e4 에서 37/37 통과(lab/out/20261111-214237).
+`scan-time-increases` 의 `scanTime` 은 `none` 다음 `ok` 였다.
 
 ### Breaking
 
